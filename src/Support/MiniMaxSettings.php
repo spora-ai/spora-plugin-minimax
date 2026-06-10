@@ -21,6 +21,11 @@ final class MiniMaxSettings
 {
     public const PROVIDERS = ['image', 'speech', 'music', 'lyrics', 'video'];
 
+    /**
+     * Global / international MiniMax API endpoint. Operators in China can
+     * override `plugin.minimax.{provider}.base_url` to the China-region
+     * endpoint at https://api.minimaxi.com — see the README for details.
+     */
     public const DEFAULT_BASE_URL = 'https://api.minimax.io';
 
     /**

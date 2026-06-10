@@ -25,10 +25,15 @@ After install, tools are exposed as `minimax:image`, `minimax:speech`, etc.
 Settings → Tools → MiniMax. All five tools share the same `MINIMAX_API_KEY`
 (issued at <https://platform.minimax.io> → API Keys).
 
+The default `base_url` is the **Global** endpoint
+(`https://api.minimax.io`). Operators in China should override
+`plugin.minimax.{provider}.base_url` to `https://api.minimaxi.com` for the
+China-region endpoint.
+
 | Setting | Required | Default |
 |---|---|---|
 | `plugin.minimax.{provider}.api_key` | yes | — |
-| `plugin.minimax.{provider}.base_url` | no | `https://api.minimax.io` |
+| `plugin.minimax.{provider}.base_url` | no | `https://api.minimax.io` (Global) |
 | `plugin.minimax.{provider}.model` | no | per provider (see below) |
 | `plugin.minimax.speech.voice_id` | no | `English_PassionateWarrior` |
 | `plugin.minimax.video.poll_interval_seconds` | no | `10` |
@@ -60,7 +65,8 @@ Spora's **Anthropic-compatible driver** talks to MiniMax's Anthropic-protocol
 endpoint. Configure any agent with:
 
 - `llm_provider`: `anthropic`
-- `base_url`: `https://api.minimax.io/anthropic`
+- `base_url` (Global / international): `https://api.minimax.io/anthropic`
+- `base_url` (China): `https://api.minimaxi.com/anthropic`
 - `llm_api_key`: the same `MINIMAX_API_KEY`
 - `llm_model`: e.g. `MiniMax-M3`
 

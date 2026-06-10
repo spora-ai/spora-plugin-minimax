@@ -42,7 +42,7 @@ use Throwable;
     key: 'plugin.minimax.speech.base_url',
     label: 'Base URL',
     type: 'text',
-    description: 'Override the MiniMax base URL (default: https://api.minimax.io).',
+    description: 'MiniMax base URL. Default is the Global endpoint (https://api.minimax.io). For China-region, set to https://api.minimaxi.com.',
     default: 'https://api.minimax.io',
 )]
 #[ToolSetting(
