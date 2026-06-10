@@ -44,7 +44,7 @@ it('parses the lyrics response and returns the song title', function () {
     $log = new MiniMaxLogWriter();
 
     $http->expects('request')
-        ->with('POST', 'https://api.minimaxi.io/v1/lyrics_generation', Mockery::on(function ($opts) {
+        ->with('POST', 'https://api.minimax.io/v1/lyrics_generation', Mockery::on(function ($opts) {
             return ($opts['json']['mode'] ?? null) === 'write_full_song'
                 && ($opts['json']['prompt'] ?? null) === 'a song about the sea';
         }))

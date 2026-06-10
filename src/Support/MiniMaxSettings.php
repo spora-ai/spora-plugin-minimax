@@ -21,7 +21,7 @@ final class MiniMaxSettings
 {
     public const PROVIDERS = ['image', 'speech', 'music', 'lyrics', 'video'];
 
-    public const DEFAULT_BASE_URL = 'https://api.minimaxi.io';
+    public const DEFAULT_BASE_URL = 'https://api.minimax.io';
 
     /**
      * @param array<string, mixed> $settings

@@ -12,6 +12,7 @@ use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Services\ToolConfigService;
 use Spora\Tools\AbstractTool;
 use Spora\Tools\Attributes\Tool;
+use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
 use Spora\Tools\ValueObjects\ToolResult;
@@ -29,19 +30,20 @@ use Throwable;
     displayName: 'MiniMax Image',
     category: 'generation',
 )]
+#[ToolOperation(name: 'generate', description: 'Generate an image from a text prompt', enabledByDefault: true, requiresApprovalByDefault: false)]
 #[ToolSetting(
     key: 'plugin.minimax.image.api_key',
     label: 'MiniMax API Key',
     type: 'password',
-    description: 'API key for api.minimaxi.io (shared across all MiniMax tools).',
+    description: 'API key for api.minimax.io (shared across all MiniMax tools).',
     required: true,
 )]
 #[ToolSetting(
     key: 'plugin.minimax.image.base_url',
     label: 'Base URL',
     type: 'text',
-    description: 'Override the MiniMax base URL (default: https://api.minimaxi.io).',
-    default: 'https://api.minimaxi.io',
+    description: 'Override the MiniMax base URL (default: https://api.minimax.io).',
+    default: 'https://api.minimax.io',
 )]
 #[ToolSetting(
     key: 'plugin.minimax.image.model',

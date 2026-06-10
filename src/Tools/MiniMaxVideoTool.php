@@ -12,6 +12,7 @@ use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Services\ToolConfigService;
 use Spora\Tools\AbstractTool;
 use Spora\Tools\Attributes\Tool;
+use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
 use Spora\Tools\ValueObjects\ToolResult;
@@ -30,19 +31,20 @@ use Throwable;
     displayName: 'MiniMax Video',
     category: 'generation',
 )]
+#[ToolOperation(name: 'generate', description: 'Generate a short video clip from a text prompt', enabledByDefault: true, requiresApprovalByDefault: false)]
 #[ToolSetting(
     key: 'plugin.minimax.video.api_key',
     label: 'MiniMax API Key',
     type: 'password',
-    description: 'API key for api.minimaxi.io (shared across all MiniMax tools).',
+    description: 'API key for api.minimax.io (shared across all MiniMax tools).',
     required: true,
 )]
 #[ToolSetting(
     key: 'plugin.minimax.video.base_url',
     label: 'Base URL',
     type: 'text',
-    description: 'Override the MiniMax base URL (default: https://api.minimaxi.io).',
-    default: 'https://api.minimaxi.io',
+    description: 'Override the MiniMax base URL (default: https://api.minimax.io).',
+    default: 'https://api.minimax.io',
 )]
 #[ToolSetting(
     key: 'plugin.minimax.video.model',
@@ -81,12 +83,10 @@ use Throwable;
     default: '6',
 )]
 #[ToolParameter(
-    name: 'aspect_ratio',
+    name: 'resolution',
     type: 'string',
-    description: 'Aspect ratio of the generated video.',
+    description: 'Video resolution (e.g. "1080p"). MiniMax picks a default if omitted; the public docs do not enumerate valid values.',
     required: false,
-    enum: ['16:9', '9:16', '1:1'],
-    default: '16:9',
 )]
 final class MiniMaxVideoTool extends AbstractTool
 {
@@ -116,7 +116,7 @@ final class MiniMaxVideoTool extends AbstractTool
         $prompt = trim((string) ($arguments['prompt'] ?? ''));
         $durationRaw = (string) ($arguments['duration_seconds'] ?? '6');
         $duration = in_array($durationRaw, ['6', '10'], true) ? (int) $durationRaw : 0;
-        $aspectRatio = trim((string) ($arguments['aspect_ratio'] ?? '16:9'));
+        $resolution = trim((string) ($arguments['resolution'] ?? ''));
 
         if ($prompt === '') {
             return new ToolResult(false, 'Prompt cannot be empty.');
@@ -126,9 +126,6 @@ final class MiniMaxVideoTool extends AbstractTool
         }
         if (!in_array($duration, [6, 10], true)) {
             return new ToolResult(false, 'duration_seconds must be 6 or 10.');
-        }
-        if (!in_array($aspectRatio, ['16:9', '9:16', '1:1'], true)) {
-            return new ToolResult(false, 'aspect_ratio must be 16:9, 9:16, or 1:1.');
         }
 
         $settings = $this->configService->getEffectiveSettings(static::class, $agentId, $userId);
@@ -151,12 +148,15 @@ final class MiniMaxVideoTool extends AbstractTool
         $qualifiedName = 'minimax:' . 'video';
 
         try {
-            $startResponse = $client->postJson('/v1/video_generation', [
-                'model'         => MiniMaxSettings::model(self::PROVIDER, $settings, self::DEFAULT_MODEL),
-                'prompt'        => $prompt,
-                'duration'      => $duration,
-                'aspect_ratio'  => $aspectRatio,
-            ]);
+            $body = [
+                'model'    => MiniMaxSettings::model(self::PROVIDER, $settings, self::DEFAULT_MODEL),
+                'prompt'   => $prompt,
+                'duration' => $duration,
+            ];
+            if ($resolution !== '') {
+                $body['resolution'] = $resolution;
+            }
+            $startResponse = $client->postJson('/v1/video_generation', $body);
 
             $taskId = $startResponse['task_id'] ?? null;
             if (!is_string($taskId) || $taskId === '') {
@@ -172,16 +172,30 @@ final class MiniMaxVideoTool extends AbstractTool
 
             $finalResponse = $this->pollUntilDone($client, $taskId, $pollInterval, $pollTimeout);
 
-            $downloadUrl = $this->fetchDownloadUrl($client, $taskId, $finalResponse);
+            // The success response carries a file_id, not a direct download URL.
+            // Retrieving the underlying file requires MiniMax's file-management
+            // endpoints (not documented on the public API page at the time of
+            // v1). v1 returns the file_id so a downstream caller can fetch the
+            // asset via a separate authenticated request when they need it.
+            $fileId = is_string($finalResponse['file_id'] ?? null) ? $finalResponse['file_id'] : null;
+            $width  = is_int($finalResponse['video_width'] ?? null) ? $finalResponse['video_width'] : null;
+            $height = is_int($finalResponse['video_height'] ?? null) ? $finalResponse['video_height'] : null;
 
             $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $finalResponse, true, null, $userId, $agentId);
 
-            $content = "Generated video for prompt: \"{$prompt}\"\n\nDownload URL (valid 24h): {$downloadUrl}";
+            $sizeLine = ($width !== null && $height !== null) ? " ({$width}x{$height})" : '';
+            $content = "Generated video{$sizeLine} for prompt: \"{$prompt}\"\n\n"
+                . "task_id: {$taskId}\nfile_id: {$fileId}\n\n"
+                . "Retrieve the file via MiniMax's file-management API using this file_id "
+                . "(the public docs do not document the file-retrieval endpoint at the time of v1).";
+
             return new ToolResult(true, $content, [
                 'task_id'      => $taskId,
-                'video_url'    => $downloadUrl,
+                'file_id'      => $fileId,
+                'width'        => $width,
+                'height'       => $height,
                 'duration'     => $duration,
-                'aspect_ratio' => $aspectRatio,
+                'resolution'   => $resolution !== '' ? $resolution : null,
             ]);
         } catch (MiniMaxApiException $e) {
             $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
@@ -214,10 +228,13 @@ final class MiniMaxVideoTool extends AbstractTool
             $response = $client->getJson('/v1/query/video_generation', ['task_id' => $taskId]);
             $status = $response['status'] ?? null;
 
-            if ($status === 'success') {
+            // MiniMax's status enum is capitalized: Preparing | Queueing |
+            // Processing | Success | Fail. Only "Success" and "Fail" are
+            // terminal — everything else means "keep polling".
+            if ($status === 'Success') {
                 return $response;
             }
-            if ($status === 'failed') {
+            if ($status === 'Fail') {
                 $baseResp = is_array($response['base_resp'] ?? null) ? $response['base_resp'] : [];
                 $msg = is_string($baseResp['status_msg'] ?? null) ? $baseResp['status_msg'] : 'video generation failed';
                 throw new MiniMaxApiException("MiniMax video generation failed: {$msg}", 0, $baseResp);
@@ -230,28 +247,5 @@ final class MiniMaxVideoTool extends AbstractTool
             ]);
             sleep(max(1, $intervalSeconds));
         }
-    }
-
-    /**
-     * @param array<string, mixed> $finalResponse
-     */
-    private function fetchDownloadUrl(MiniMaxHttpClient $client, string $taskId, array $finalResponse): string
-    {
-        // Some MiniMax video responses include a download URL directly; others
-        // require a follow-up call. Prefer the inline value when present.
-        $inline = $finalResponse['file']['download_url']
-            ?? $finalResponse['download_url']
-            ?? $finalResponse['video_url']
-            ?? null;
-        if (is_string($inline) && $inline !== '') {
-            return $inline;
-        }
-
-        $response = $client->getJson('/v1/video_generation/download', ['task_id' => $taskId]);
-        $url = $response['file']['download_url'] ?? $response['download_url'] ?? null;
-        if (!is_string($url) || $url === '') {
-            throw new MiniMaxApiException('MiniMax video succeeded but no download URL was returned', 0);
-        }
-        return $url;
     }
 }

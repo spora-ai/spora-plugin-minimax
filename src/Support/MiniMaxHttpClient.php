@@ -19,13 +19,14 @@ use Throwable;
  *     - transport failure (after retries are exhausted), or
  *     - HTTP >= 400, or
  *     - HTTP 200 with `base_resp.status_code != 0` (the MiniMax business-error envelope).
- * - Refuses responses with Content-Length > 50 MB (MiniMax returns asset URLs, never
- *   inline blobs that large).
+ *
+ * Note: this wrapper does NOT pass `max_size` to the underlying client — that's
+ * only accepted by Symfony's `RetryableHttpClient`, and the container injects
+ * a raw `CurlHttpClient`. Callers that need a response-size cap should wrap the
+ * client themselves before passing it in.
  */
 final class MiniMaxHttpClient
 {
-    private const MAX_RESPONSE_BYTES = 50 * 1024 * 1024;
-
     /** HTTP status codes that get retried. Business errors in `base_resp` are NOT retried. */
     private const RETRYABLE_HTTP_CODES = [429, 500, 502, 503, 504];
 
@@ -76,7 +77,6 @@ final class MiniMaxHttpClient
         $requestOptions = array_merge($options, [
             'headers'   => $headers,
             'timeout'   => $timeout,
-            'max_size'  => self::MAX_RESPONSE_BYTES,
         ]);
 
         $attempt = 0;

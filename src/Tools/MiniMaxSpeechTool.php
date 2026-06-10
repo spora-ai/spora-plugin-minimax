@@ -12,6 +12,7 @@ use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Services\ToolConfigService;
 use Spora\Tools\AbstractTool;
 use Spora\Tools\Attributes\Tool;
+use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
 use Spora\Tools\ValueObjects\ToolResult;
@@ -29,19 +30,20 @@ use Throwable;
     displayName: 'MiniMax Speech',
     category: 'generation',
 )]
+#[ToolOperation(name: 'synthesize', description: 'Synthesize speech from text', enabledByDefault: true, requiresApprovalByDefault: false)]
 #[ToolSetting(
     key: 'plugin.minimax.speech.api_key',
     label: 'MiniMax API Key',
     type: 'password',
-    description: 'API key for api.minimaxi.io (shared across all MiniMax tools).',
+    description: 'API key for api.minimax.io (shared across all MiniMax tools).',
     required: true,
 )]
 #[ToolSetting(
     key: 'plugin.minimax.speech.base_url',
     label: 'Base URL',
     type: 'text',
-    description: 'Override the MiniMax base URL (default: https://api.minimaxi.io).',
-    default: 'https://api.minimaxi.io',
+    description: 'Override the MiniMax base URL (default: https://api.minimax.io).',
+    default: 'https://api.minimax.io',
 )]
 #[ToolSetting(
     key: 'plugin.minimax.speech.model',
@@ -124,13 +126,14 @@ final class MiniMaxSpeechTool extends AbstractTool
             return new ToolResult(false, 'MiniMax API key is not configured for this agent. Edit the MiniMax Speech settings.');
         }
 
-        $defaultVoice = MiniMaxSettings::model(self::PROVIDER, $settings, self::DEFAULT_MODEL) === self::DEFAULT_MODEL
-            ? ($settings['plugin.minimax.speech.voice_id'] ?? 'English_PassionateWarrior')
-            : 'English_PassionateWarrior';
-        $voiceId = $voiceOverride !== '' ? $voiceOverride : (is_string($defaultVoice) ? trim($defaultVoice) : 'English_PassionateWarrior');
-        if ($voiceId === '') {
-            $voiceId = 'English_PassionateWarrior';
-        }
+        // Resolution order: LLM-provided `voice_id` (per call) > operator-configured
+        // setting (`plugin.minimax.speech.voice_id`) > hard-coded default. The
+        // LLM-visible #[ToolParameter] lets the model pick a voice per call; the
+        // operator setting is the fallback when the model doesn't pass one.
+        $configuredVoice = is_string($settings['plugin.minimax.speech.voice_id'] ?? null)
+            ? trim((string) $settings['plugin.minimax.speech.voice_id'])
+            : '';
+        $voiceId = $voiceOverride !== '' ? $voiceOverride : ($configuredVoice !== '' ? $configuredVoice : 'English_PassionateWarrior');
 
         $client = new MiniMaxHttpClient(
             $this->httpClient,

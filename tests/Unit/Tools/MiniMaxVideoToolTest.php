@@ -44,7 +44,7 @@ it('returns an error when duration_seconds is invalid', function () {
         ->and($result->content)->toContain('duration_seconds');
 });
 
-it('polls the task status and returns the download URL when the video finishes', function () {
+it('polls the task status and returns the file_id when the video finishes', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn([
         'plugin.minimax.video.api_key'                  => 'k',
@@ -57,32 +57,38 @@ it('polls the task status and returns the download URL when the video finishes',
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
 
-    // The poll interval is 1 second; we want this test to terminate fast.
-    // The tool's poll loop calls getJson('/v1/query/video_generation', ...).
-    // We return a single 'success' response to break out of the loop on the
-    // first poll, and the inline download URL is used (no second call).
+    // 1. Start the task — returns a task_id.
     $http->expects('request')
-        ->with('POST', 'https://api.minimaxi.io/v1/video_generation', Mockery::any())
+        ->with('POST', 'https://api.minimax.io/v1/video_generation', Mockery::any())
         ->andReturn(minimaxVideoResponse(200, json_encode([
             'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
             'task_id'   => 'task-xyz',
         ])));
 
+    // 2. First poll — returns "Success" (capitalized per MiniMax's enum) with
+    //    file_id + dimensions. v1 returns the file_id; the actual file bytes
+    //    require MiniMax's file-management API (not in v1's scope).
     $http->expects('request')
-        ->with('GET', 'https://api.minimaxi.io/v1/query/video_generation', Mockery::on(function ($opts) {
+        ->with('GET', 'https://api.minimax.io/v1/query/video_generation', Mockery::on(function ($opts) {
             return ($opts['query']['task_id'] ?? null) === 'task-xyz';
         }))
         ->andReturn(minimaxVideoResponse(200, json_encode([
-            'base_resp'   => ['status_code' => 0, 'status_msg' => 'ok'],
-            'status'      => 'success',
-            'file'        => ['download_url' => 'https://cdn.example.com/v.mp4'],
+            'base_resp'    => ['status_code' => 0, 'status_msg' => 'success'],
+            'task_id'      => 'task-xyz',
+            'status'       => 'Success',
+            'file_id'      => 'file-abc-123',
+            'video_width'  => 1920,
+            'video_height' => 1080,
         ])));
 
     $tool = new MiniMaxVideoTool($config, $http, $log);
     $result = $tool->execute(['prompt' => '[Push in] a forest'], 1);
 
     expect($result->success)->toBeTrue()
-        ->and($result->content)->toContain('https://cdn.example.com/v.mp4')
-        ->and($result->data['video_url'])->toBe('https://cdn.example.com/v.mp4')
-        ->and($result->data['task_id'])->toBe('task-xyz');
+        ->and($result->content)->toContain('file_id: file-abc-123')
+        ->and($result->content)->toContain('1920x1080')
+        ->and($result->data['file_id'])->toBe('file-abc-123')
+        ->and($result->data['task_id'])->toBe('task-xyz')
+        ->and($result->data['width'])->toBe(1920)
+        ->and($result->data['height'])->toBe(1080);
 });

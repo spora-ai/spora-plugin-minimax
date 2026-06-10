@@ -28,7 +28,7 @@ Settings → Tools → MiniMax. All five tools share the same `MINIMAX_API_KEY`
 | Setting | Required | Default |
 |---|---|---|
 | `plugin.minimax.{provider}.api_key` | yes | — |
-| `plugin.minimax.{provider}.base_url` | no | `https://api.minimaxi.io` |
+| `plugin.minimax.{provider}.base_url` | no | `https://api.minimax.io` |
 | `plugin.minimax.{provider}.model` | no | per provider (see below) |
 | `plugin.minimax.speech.voice_id` | no | `English_PassionateWarrior` |
 | `plugin.minimax.video.poll_interval_seconds` | no | `10` |
@@ -49,7 +49,7 @@ cannot kill the agent loop.
 | `minimax:speech` | `speech-2.8-hd` | TTS; `voice_id`, `speed` (0.5-2.0) |
 | `minimax:music` | `music-2.6` | Instrumental or with `lyrics` (1-3500 chars) |
 | `minimax:lyrics` | n/a | `mode` ∈ write_full_song, edit |
-| `minimax:video` | `MiniMax-Hailuo-2.3` | Async — polls until `success` or timeout |
+| `minimax:video` | `MiniMax-Hailuo-2.3` | Async — polls until `Success` or timeout. Returns `file_id` (the underlying file-retrieval endpoint is not documented on the public docs and is out of v1 scope). |
 
 Every call writes one row to `minimax_generation_log` (redacted of
 `api_key`, `Authorization`, and base64 blobs > 1 KB) for audit.
@@ -60,7 +60,7 @@ Spora's **Anthropic-compatible driver** talks to MiniMax's Anthropic-protocol
 endpoint. Configure any agent with:
 
 - `llm_provider`: `anthropic`
-- `base_url`: `https://api.minimaxi.com/anthropic`
+- `base_url`: `https://api.minimax.io/anthropic`
 - `llm_api_key`: the same `MINIMAX_API_KEY`
 - `llm_model`: e.g. `MiniMax-M3`
 

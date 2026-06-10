@@ -52,7 +52,7 @@ it('makes a POST to /v1/image_generation and parses the image URLs on success', 
     $log = new MiniMaxLogWriter();
 
     $http->expects('request')
-        ->with('POST', 'https://api.minimaxi.io/v1/image_generation', Mockery::on(function ($opts) {
+        ->with('POST', 'https://api.minimax.io/v1/image_generation', Mockery::on(function ($opts) {
             return ($opts['json']['prompt'] ?? null) === 'a red fox'
                 && ($opts['json']['model'] ?? null) === 'image-01'
                 && ($opts['headers']['Authorization'] ?? null) === 'Bearer k';
