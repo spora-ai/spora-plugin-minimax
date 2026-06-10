@@ -1,0 +1,42 @@
+{
+    "name": "spora-ai/spora-plugin-minimax",
+    "description": "MiniMax multimodal tools (image, speech, music, lyrics, video) for Spora agents.",
+    "type": "spora-plugin",
+    "license": "MIT",
+    "version": "0.1.0",
+    "require": {
+        "php": "^8.4.1",
+        "ext-curl": "*",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "psr/log": "^3.0",
+        "symfony/http-client-contracts": "^3.6"
+    },
+    "require-dev": {
+        "mockery/mockery": "^1.6",
+        "pestphp/pest": "^4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Spora\\Plugins\\MiniMax\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Spora\\Plugins\\MiniMax\\Tests\\": "tests/",
+            "Spora\\": "../../app/"
+        }
+    },
+    "scripts": {
+        "test": "pest"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
