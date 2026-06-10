@@ -107,8 +107,8 @@ final class MiniMaxMusicTool extends AbstractTool
         if (mb_strlen($prompt) > 2000) {
             return new ToolResult(false, 'Prompt exceeds the 2000-character MiniMax limit.');
         }
-        if ($lyrics !== '' && (mb_strlen($lyrics) < 1 || mb_strlen($lyrics) > 3500)) {
-            return new ToolResult(false, 'Lyrics must be 1-3500 characters.');
+        if ($lyrics !== '' && mb_strlen($lyrics) > 3500) {
+            return new ToolResult(false, 'Lyrics exceed the 3500-character MiniMax limit.');
         }
         if (!in_array($outputFormat, ['url', 'hex'], true)) {
             return new ToolResult(false, 'output_format must be "url" or "hex".');
@@ -142,16 +142,11 @@ final class MiniMaxMusicTool extends AbstractTool
         try {
             $response = $client->postJson('/v1/music_generation', $body);
 
-            $hexAudio = $response['data']['audio'] ?? null;
-            $audioUrl = null;
-            if (is_array($response['data'] ?? null) && isset($response['data']['audio_url'])) {
-                $audioUrl = $response['data']['audio_url'];
-            }
-            if (!is_string($audioUrl)) {
-                $audioUrl = null;
-            }
+            $data = is_array($response['data'] ?? null) ? $response['data'] : [];
+            $hexAudio = isset($data['audio']) && is_string($data['audio']) ? $data['audio'] : null;
+            $audioUrl = isset($data['audio_url']) && is_string($data['audio_url']) ? $data['audio_url'] : null;
 
-            if (!is_string($hexAudio) && $audioUrl === null) {
+            if ($hexAudio === null && $audioUrl === null) {
                 $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, false, 'No audio in response', $userId, $agentId);
                 return new ToolResult(false, 'MiniMax returned no audio data.');
             }
@@ -163,7 +158,7 @@ final class MiniMaxMusicTool extends AbstractTool
                 $content = "Generated music ({$promptSummary}).\n\nCDN URL (valid 24h): {$audioUrl}";
                 return new ToolResult(true, $content, ['audio_url' => $audioUrl]);
             }
-            $byteCount = is_string($hexAudio) ? (int) (strlen($hexAudio) / 2) : 0;
+            $byteCount = (int) (strlen($hexAudio) / 2);
             $content = "Generated music ({$promptSummary}).\n\nAudio payload: {$byteCount} bytes (hex-encoded, inline).";
             return new ToolResult(true, $content, ['audio_bytes' => $byteCount]);
         } catch (MiniMaxApiException $e) {

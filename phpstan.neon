@@ -1,0 +1,13 @@
+includes:
+    - vendor/phpstan/phpstan-mockery/extension.neon
+
+parameters:
+    paths:
+        - src
+    level: 5
+    excludePaths:
+        - vendor
+        - tests
+    ignoreErrors:
+        # The test-only TestableTransportException class lives in tests/ (excluded above)
+        # and is referenced in the test file's docstring comments.

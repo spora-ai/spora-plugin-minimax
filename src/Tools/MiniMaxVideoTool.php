@@ -74,11 +74,11 @@ use Throwable;
 )]
 #[ToolParameter(
     name: 'duration_seconds',
-    type: 'integer',
-    description: 'Target video duration in seconds.',
+    type: 'string',
+    description: 'Target video duration in seconds (6 or 10).',
     required: false,
-    enum: [6, 10],
-    default: 6,
+    enum: ['6', '10'],
+    default: '6',
 )]
 #[ToolParameter(
     name: 'aspect_ratio',
@@ -114,7 +114,8 @@ final class MiniMaxVideoTool extends AbstractTool
     public function generate(array $arguments, int $agentId, ?int $userId, ?int $taskId): ToolResult
     {
         $prompt = trim((string) ($arguments['prompt'] ?? ''));
-        $duration = (int) ($arguments['duration_seconds'] ?? 6);
+        $durationRaw = (string) ($arguments['duration_seconds'] ?? '6');
+        $duration = in_array($durationRaw, ['6', '10'], true) ? (int) $durationRaw : 0;
         $aspectRatio = trim((string) ($arguments['aspect_ratio'] ?? '16:9'));
 
         if ($prompt === '') {

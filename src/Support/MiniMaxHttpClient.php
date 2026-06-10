@@ -8,7 +8,6 @@ use Psr\Log\LoggerInterface;
 use Spora\Plugins\MiniMax\Support\Exceptions\MiniMaxApiException;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
-use Symfony\Contracts\HttpClient\ResponseInterface;
 use Throwable;
 
 /**
@@ -120,7 +119,6 @@ final class MiniMaxHttpClient
                     );
                 }
 
-                /** @var array<string, mixed> $decoded */
                 $decoded = json_decode($content, true);
                 if (!is_array($decoded)) {
                     throw new MiniMaxApiException(
@@ -130,10 +128,13 @@ final class MiniMaxHttpClient
                 }
 
                 $baseResp = $decoded['base_resp'] ?? [];
-                $businessStatus = is_array($baseResp) ? (int) ($baseResp['status_code'] ?? 0) : 0;
+                // $baseResp is either the original array<string, mixed> (when the
+                // key exists) or an empty array (default from ??). Both are
+                // already array-typed — no is_array() guard needed.
+                $businessStatus = isset($baseResp['status_code']) ? (int) $baseResp['status_code'] : 0;
 
                 if ($businessStatus !== 0) {
-                    $message = is_array($baseResp) ? (string) ($baseResp['status_msg'] ?? 'unknown') : 'unknown';
+                    $message = isset($baseResp['status_msg']) ? (string) $baseResp['status_msg'] : 'unknown';
                     $this->logger?->error('MiniMaxHttpClient: business error', [
                         'url'          => $url,
                         'status_code'  => $businessStatus,
@@ -142,7 +143,7 @@ final class MiniMaxHttpClient
                     throw new MiniMaxApiException(
                         "MiniMax API error ({$businessStatus}): {$message}",
                         $businessStatus,
-                        is_array($baseResp) ? $baseResp : [],
+                        $baseResp,
                     );
                 }
 

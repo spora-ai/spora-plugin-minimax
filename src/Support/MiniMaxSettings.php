@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Spora\Plugins\MiniMax\Support;
 
+use InvalidArgumentException;
+
 /**
  * Centralized accessor for the per-tool `plugin.minimax.{provider}.*` settings.
  *
@@ -75,7 +77,7 @@ final class MiniMaxSettings
     private static function assertProvider(string $provider): void
     {
         if (!in_array($provider, self::PROVIDERS, true)) {
-            throw new \InvalidArgumentException("Unknown MiniMax provider '{$provider}'");
+            throw new InvalidArgumentException("Unknown MiniMax provider '{$provider}'");
         }
     }
 }

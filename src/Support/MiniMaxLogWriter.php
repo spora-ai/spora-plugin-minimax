@@ -82,7 +82,8 @@ final class MiniMaxLogWriter
     {
         $result = [];
         foreach ($payload as $key => $value) {
-            if (is_string($key) && $this->isSensitiveKey($key)) {
+            // $key is always string — $payload is array<string, mixed>.
+            if ($this->isSensitiveKey($key)) {
                 $result[$key] = '***';
                 continue;
             }

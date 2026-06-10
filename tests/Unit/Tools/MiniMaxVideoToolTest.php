@@ -39,7 +39,7 @@ it('returns an error when duration_seconds is invalid', function () {
 
     $tool = new MiniMaxVideoTool($config, $http, $log);
 
-    $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => 30], 1);
+    $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => '30'], 1);
     expect($result->success)->toBeFalse()
         ->and($result->content)->toContain('duration_seconds');
 });

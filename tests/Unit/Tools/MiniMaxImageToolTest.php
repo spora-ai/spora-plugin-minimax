@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use Psr\Log\LoggerInterface;
 use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Tools\MiniMaxImageTool;
 use Spora\Services\ToolConfigService;

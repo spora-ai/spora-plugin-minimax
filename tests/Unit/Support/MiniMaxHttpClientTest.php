@@ -14,9 +14,7 @@ use Symfony\Contracts\HttpClient\ResponseInterface;
  * Mockery::mock() on TransportExceptionInterface produces a non-Throwable
  * object that PHP's `throw` rejects.
  */
-final class TestableTransportException extends RuntimeException implements TransportExceptionInterface
-{
-}
+final class TestableTransportException extends RuntimeException implements TransportExceptionInterface {}
 
 function minimaxMockResponse(int $statusCode, string $body): ResponseInterface
 {
@@ -60,7 +58,7 @@ it('throws MiniMaxApiException on HTTP 4xx', function () {
 
     $client = new MiniMaxHttpClient($http, 'bad-key', 'https://api.minimaxi.io', 30);
 
-    expect(fn () => $client->postJson('/v1/x', []))
+    expect(fn() => $client->postJson('/v1/x', []))
         ->toThrow(MiniMaxApiException::class, 'HTTP 401');
 });
 
@@ -70,7 +68,7 @@ it('throws MiniMaxApiException on HTTP 5xx after retries are exhausted', functio
     $http->expects('request')->times(3)->andReturn(minimaxMockResponse(500, 'oops'));
 
     $client = new MiniMaxHttpClient($http, 'k', 'https://api.minimaxi.io', 30);
-    expect(fn () => $client->postJson('/v1/x', []))
+    expect(fn() => $client->postJson('/v1/x', []))
         ->toThrow(MiniMaxApiException::class, 'HTTP 500');
 });
 
@@ -131,7 +129,7 @@ it('throws MiniMaxApiException when transport errors exceed the retry budget', f
     $http->expects('request')->times(3)->andThrow(new TestableTransportException('connection failed'));
 
     $client = new MiniMaxHttpClient($http, 'k', 'https://api.minimaxi.io', 30);
-    expect(fn () => $client->postJson('/v1/x', []))
+    expect(fn() => $client->postJson('/v1/x', []))
         ->toThrow(MiniMaxApiException::class, 'MiniMax API request failed');
 });
 
