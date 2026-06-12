@@ -20,17 +20,24 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Throwable;
 
 /**
- * Generates music (instrumental or with lyrics) via MiniMax's music_generation API.
- * Returns the upstream audio URL (24h expiry) when `output_format=url`; hex
- * otherwise.
+ * Song-making operations for MiniMax, consolidated into one tool:
+ *   - `compose`      — generate music (instrumental or with lyrics) via `/v1/music_generation`
+ *   - `write_lyrics` — generate a full song's lyrics via `/v1/lyrics_generation` (mode: write_full_song)
+ *   - `edit_lyrics`  — rewrite existing lyrics via `/v1/lyrics_generation` (mode: edit)
+ *
+ * Returning the upstream audio URL (24h expiry) when `output_format=url`; hex
+ * otherwise. Lyrics operations return the upstream text + optional song title
+ * and style tags.
  */
 #[Tool(
     name: 'music',
-    description: 'Generate music (instrumental or with lyrics) via MiniMax. Returns a CDN URL valid for 24 hours.',
+    description: 'Song-making: generate music (instrumental or with lyrics), or write/edit song lyrics. The "action" argument selects the operation.',
     displayName: 'MiniMax Music',
     category: 'generation',
 )]
 #[ToolOperation(name: 'compose', description: 'Generate music (instrumental or with lyrics)', enabledByDefault: true, requiresApprovalByDefault: false)]
+#[ToolOperation(name: 'write_lyrics', description: 'Write a full song of lyrics from a topic or style description', enabledByDefault: true, requiresApprovalByDefault: false)]
+#[ToolOperation(name: 'edit_lyrics', description: 'Rewrite existing lyrics according to a prompt', enabledByDefault: true, requiresApprovalByDefault: false)]
 #[ToolSetting(
     key: 'plugin.minimax.music.api_key',
     label: 'MiniMax API Key',
@@ -49,27 +56,27 @@ use Throwable;
     key: 'plugin.minimax.music.model',
     label: 'Model',
     type: 'text',
-    description: 'Music model id (default: music-2.6).',
+    description: 'Music model id (default: music-2.6). Applies to `compose`; the lyrics endpoint has no model parameter.',
     default: 'music-2.6',
 )]
 #[ToolParameter(
     name: 'prompt',
     type: 'string',
-    description: 'Style / mood description of the music (max 2000 characters). Optional when `lyrics` is provided.',
+    description: 'Style / mood description (max 2000 characters). For `compose`: optional when `lyrics` is provided. For `write_lyrics`: topic or style. For `edit_lyrics`: rewrite instruction.',
     required: false,
     maximum: 2000,
 )]
 #[ToolParameter(
     name: 'lyrics',
     type: 'string',
-    description: 'Lyrics to sing (1-3500 characters). Omit for instrumental music.',
+    description: 'Lyrics to sing or edit (1-3500 characters). Omit for instrumental music (compose). Required for `edit_lyrics`.',
     required: false,
     maximum: 3500,
 )]
 #[ToolParameter(
     name: 'output_format',
     type: 'string',
-    description: '`url` returns a 24h CDN URL; `hex` returns inline audio bytes.',
+    description: '`url` returns a 24h CDN URL; `hex` returns inline audio bytes. Used by `compose` only.',
     required: false,
     enum: ['url', 'hex'],
     default: 'url',
@@ -88,16 +95,29 @@ final class MiniMaxMusicTool extends AbstractTool
 
     public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
     {
-        return $this->compose($arguments, $agentId, $userId, $taskId);
+        $operation = $this->getOperationName($arguments);
+
+        return match ($operation) {
+            'compose'      => $this->compose($arguments, $agentId, $userId),
+            'write_lyrics' => $this->writeLyrics($arguments, $agentId, $userId),
+            'edit_lyrics'  => $this->editLyrics($arguments, $agentId, $userId),
+            default        => new ToolResult(false, "Unknown music operation: {$operation}"),
+        };
     }
 
     public function describeAction(array $arguments): string
     {
+        $operation = $this->getOperationName($arguments);
         $prompt = mb_substr(trim((string) ($arguments['prompt'] ?? '')), 0, 80);
-        return "Generate music for: '{$prompt}'";
+
+        return match ($operation) {
+            'write_lyrics' => "Write song lyrics for: '{$prompt}'",
+            'edit_lyrics'  => "Edit song lyrics: '{$prompt}'",
+            default        => "Generate music for: '{$prompt}'",
+        };
     }
 
-    public function compose(array $arguments, int $agentId, ?int $userId, ?int $taskId): ToolResult
+    public function compose(array $arguments, int $agentId, ?int $userId): ToolResult
     {
         $prompt = trim((string) ($arguments['prompt'] ?? ''));
         $lyrics = trim((string) ($arguments['lyrics'] ?? ''));
@@ -170,6 +190,95 @@ final class MiniMaxMusicTool extends AbstractTool
             $this->logger?->error('MiniMaxMusicTool: unexpected exception', ['exception' => $e]);
             $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
             return new ToolResult(false, 'Music generation failed: ' . $e->getMessage());
+        }
+    }
+
+    public function writeLyrics(array $arguments, int $agentId, ?int $userId): ToolResult
+    {
+        return $this->lyrics('write_full_song', $arguments, $agentId, $userId);
+    }
+
+    public function editLyrics(array $arguments, int $agentId, ?int $userId): ToolResult
+    {
+        return $this->lyrics('edit', $arguments, $agentId, $userId);
+    }
+
+    private function lyrics(string $mode, array $arguments, int $agentId, ?int $userId): ToolResult
+    {
+        $prompt = trim((string) ($arguments['prompt'] ?? ''));
+        $lyrics = trim((string) ($arguments['lyrics'] ?? ''));
+
+        if (mb_strlen($prompt) > 2000) {
+            return new ToolResult(false, 'Prompt exceeds the 2000-character MiniMax limit.');
+        }
+        if ($mode === 'edit' && $lyrics === '') {
+            return new ToolResult(false, '`lyrics` is required for the edit_lyrics operation.');
+        }
+        if ($lyrics !== '' && mb_strlen($lyrics) > 3500) {
+            return new ToolResult(false, 'Lyrics exceed the 3500-character MiniMax limit.');
+        }
+        if ($mode === 'write_full_song' && $prompt === '' && $lyrics === '') {
+            return new ToolResult(false, 'Provide a `prompt` describing the song (or pre-existing `lyrics`).');
+        }
+
+        $settings = $this->configService->getEffectiveSettings(static::class, $agentId, $userId);
+        $apiKey = MiniMaxSettings::apiKey(self::PROVIDER, $settings);
+        if ($apiKey === '') {
+            return new ToolResult(false, 'MiniMax API key is not configured for this agent. Edit the MiniMax Music settings.');
+        }
+
+        $client = new MiniMaxHttpClient(
+            $this->httpClient,
+            $apiKey,
+            MiniMaxSettings::baseUrl(self::PROVIDER, $settings),
+            timeoutSeconds: 30,
+            logger: $this->logger,
+        );
+
+        $body = ['mode' => $mode];
+        if ($prompt !== '') {
+            $body['prompt'] = $prompt;
+        }
+        if ($lyrics !== '') {
+            $body['lyrics'] = $lyrics;
+        }
+
+        $qualifiedName = 'minimax:' . 'music';
+
+        try {
+            $response = $client->postJson('/v1/lyrics_generation', $body);
+
+            $generated = $response['lyrics'] ?? null;
+            $songTitle = $response['song_title'] ?? null;
+            $styleTags = $response['style_tags'] ?? null;
+
+            if (!is_string($generated) || $generated === '') {
+                $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, false, 'No lyrics in response', $userId, $agentId);
+                return new ToolResult(false, 'MiniMax returned no lyrics.');
+            }
+
+            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, true, null, $userId, $agentId);
+
+            $header = $mode === 'edit' ? 'Edited lyrics' : 'Lyrics';
+            if (is_string($songTitle) && $songTitle !== '') {
+                $header .= " — \"{$songTitle}\"";
+            }
+            $content = $header . "\n\n" . $generated;
+            if (is_string($styleTags) && $styleTags !== '') {
+                $content .= "\n\nStyle tags: {$styleTags}";
+            }
+
+            return new ToolResult(true, $content, [
+                'song_title' => is_string($songTitle) ? $songTitle : null,
+                'style_tags' => is_string($styleTags) ? $styleTags : null,
+            ]);
+        } catch (MiniMaxApiException $e) {
+            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
+            return new ToolResult(false, $e->getMessage());
+        } catch (Throwable $e) {
+            $this->logger?->error('MiniMaxMusicTool: unexpected exception', ['exception' => $e]);
+            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
+            return new ToolResult(false, 'Lyrics generation failed: ' . $e->getMessage());
         }
     }
 }

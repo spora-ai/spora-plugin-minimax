@@ -2,7 +2,11 @@
 
 declare(strict_types=1);
 
+namespace Spora\Plugins\MiniMax\Tests\Unit\Support;
+
+use Mockery;
 use Psr\Log\LoggerInterface;
+use RuntimeException;
 use Spora\Plugins\MiniMax\Support\Exceptions\MiniMaxApiException;
 use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
