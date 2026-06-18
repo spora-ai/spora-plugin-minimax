@@ -8,6 +8,12 @@ use Spora\Services\ToolConfigService;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Contracts\HttpClient\ResponseInterface;
 
+final class MiniMaxImageToolTestLiterals
+{
+    public const PROMPT_RED_FOX = 'a red fox';
+    public const CDN_URL_PNG = 'https://cdn.example.com/a.png';
+}
+
 function minimaxImageResponse(int $status, string $body): ResponseInterface
 {
     $response = Mockery::mock(ResponseInterface::class);
@@ -25,7 +31,7 @@ it('returns an error when the API key is missing', function () {
 
     $tool = new MiniMaxImageTool($config, $http, $log);
 
-    $result = $tool->execute(['prompt' => 'a red fox'], 1);
+    $result = $tool->execute(['prompt' => MiniMaxImageToolTestLiterals::PROMPT_RED_FOX], 1);
     expect($result->success)->toBeFalse()
         ->and($result->content)->toContain('API key is not configured');
 });
@@ -53,21 +59,21 @@ it('makes a POST to /v1/image_generation and parses the image URLs on success', 
 
     $http->expects('request')
         ->with('POST', 'https://api.minimax.io/v1/image_generation', Mockery::on(function ($opts) {
-            return ($opts['json']['prompt'] ?? null) === 'a red fox'
+            return ($opts['json']['prompt'] ?? null) === MiniMaxImageToolTestLiterals::PROMPT_RED_FOX
                 && ($opts['json']['model'] ?? null) === 'image-01'
                 && ($opts['headers']['Authorization'] ?? null) === 'Bearer k';
         }))
         ->andReturn(minimaxImageResponse(200, json_encode([
             'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-            'data'      => ['image_urls' => ['https://cdn.example.com/a.png']],
+            'data'      => ['image_urls' => [MiniMaxImageToolTestLiterals::CDN_URL_PNG]],
         ])));
 
     $tool = new MiniMaxImageTool($config, $http, $log);
-    $result = $tool->execute(['prompt' => 'a red fox'], 1);
+    $result = $tool->execute(['prompt' => MiniMaxImageToolTestLiterals::PROMPT_RED_FOX], 1);
 
     expect($result->success)->toBeTrue()
-        ->and($result->content)->toContain('https://cdn.example.com/a.png')
-        ->and($result->data['image_urls'][0])->toBe('https://cdn.example.com/a.png');
+        ->and($result->content)->toContain(MiniMaxImageToolTestLiterals::CDN_URL_PNG)
+        ->and($result->data['image_urls'][0])->toBe(MiniMaxImageToolTestLiterals::CDN_URL_PNG);
 });
 
 it('surfaces a business-error message when base_resp.status_code is non-zero', function () {
@@ -83,7 +89,7 @@ it('surfaces a business-error message when base_resp.status_code is non-zero', f
         ])));
 
     $tool = new MiniMaxImageTool($config, $http, $log);
-    $result = $tool->execute(['prompt' => 'a red fox'], 1);
+    $result = $tool->execute(['prompt' => MiniMaxImageToolTestLiterals::PROMPT_RED_FOX], 1);
 
     expect($result->success)->toBeFalse()
         ->and($result->content)->toContain('1008')
@@ -104,7 +110,7 @@ it('returns a failure when the response contains no image URLs', function () {
         ])));
 
     $tool = new MiniMaxImageTool($config, $http, $log);
-    $result = $tool->execute(['prompt' => 'a red fox'], 1);
+    $result = $tool->execute(['prompt' => MiniMaxImageToolTestLiterals::PROMPT_RED_FOX], 1);
 
     expect($result->success)->toBeFalse()
         ->and($result->content)->toContain('no image URLs');
