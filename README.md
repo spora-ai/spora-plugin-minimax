@@ -88,4 +88,8 @@ composer install
 ```
 
 CI: `.github/workflows/ci.yml` — Pest on PHP 8.4 + 8.5, PHPStan level 5,
-php-cs-fixer dry-run. MIT license.
+php-cs-fixer dry-run. A separate `coverage` job runs Pest with `pcov` and
+uploads `coverage.xml` + JUnit; the `sonar` job then uploads both to
+SonarCloud (project key `spora-ai_spora-plugin-minimax`), so the
+`new_coverage` metric is measurable per PR. Requires the `SONAR_TOKEN`
+secret in the repo. MIT license.
