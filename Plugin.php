@@ -7,7 +7,6 @@ namespace Spora\Plugins\MiniMax;
 use DI\ContainerBuilder;
 use Spora\Plugins\PluginInterface;
 use Spora\Plugins\MiniMax\Tools\MiniMaxImageTool;
-use Spora\Plugins\MiniMax\Tools\MiniMaxLyricsTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxMusicTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxVideoTool;
@@ -32,7 +31,6 @@ final class MiniMaxPlugin implements PluginInterface
             MiniMaxImageTool::class,
             MiniMaxSpeechTool::class,
             MiniMaxMusicTool::class,
-            MiniMaxLyricsTool::class,
             MiniMaxVideoTool::class,
         ];
     }

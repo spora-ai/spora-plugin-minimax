@@ -1,9 +1,10 @@
 # MiniMax Plugin for Spora
 
-Adds MiniMax's non-text multimodal capabilities — **image, speech, music,
-lyrics, video** — to [Spora](https://github.com/spora-ai/Spora) agents. Text/chat
-is provided by Spora's built-in Anthropic-compatible driver pointed at
-MiniMax's base URL (see below).
+Adds MiniMax's non-text multimodal capabilities — **image, speech, music
+(instrumental, with lyrics, or standalone lyrics), video** — to
+[Spora](https://github.com/spora-ai/Spora) agents. Text/chat is provided by
+Spora's built-in Anthropic-compatible driver pointed at MiniMax's base URL
+(see below).
 
 ## Installation
 
@@ -18,11 +19,11 @@ echo 'SPORA_PLUGINS_PATHS=/opt/spora-plugins/minimax' >> .env
 php bin/spora spora:install
 ```
 
-After install, tools are exposed as `minimax:image`, `minimax:speech`, etc.
+After install, tools are exposed as `minimax:image`, `minimax:speech`, `minimax:music`, `minimax:video`.
 
 ## Configuration
 
-Settings → Tools → MiniMax. All five tools share the same `MINIMAX_API_KEY`
+Settings → Tools → MiniMax. All four tools share the same `MINIMAX_API_KEY`
 (issued at <https://platform.minimax.io> → API Keys).
 
 The default `base_url` is the **Global** endpoint
@@ -52,9 +53,14 @@ cannot kill the agent loop.
 |---|---|---|
 | `minimax:image` | `image-01` | `aspect_ratio` ∈ 1:1, 16:9, 4:3, 3:2, 2:3, 3:4, 9:16, 21:9 |
 | `minimax:speech` | `speech-2.8-hd` | TTS; `voice_id`, `speed` (0.5-2.0) |
-| `minimax:music` | `music-2.6` | Instrumental or with `lyrics` (1-3500 chars) |
-| `minimax:lyrics` | n/a | `mode` ∈ write_full_song, edit |
+| `minimax:music` | `music-2.6` | Operations: `compose` (instrumental or with `lyrics`, 1-3500 chars), `write_lyrics` (full song from a topic), `edit_lyrics` (rewrite existing lyrics) |
 | `minimax:video` | `MiniMax-Hailuo-2.3` | Async — polls until `Success` or timeout. Returns `file_id` (the underlying file-retrieval endpoint is not documented on the public docs and is out of v1 scope). |
+
+The music tool's `action` discriminator selects the operation. `compose` uses
+`/v1/music_generation` and accepts an optional `lyrics` parameter. The
+`write_lyrics` and `edit_lyrics` operations use `/v1/lyrics_generation`. All
+three operations share the same `api_key`, `base_url`, and (compose-only)
+`model` settings.
 
 Every call writes one row to `minimax_generation_log` (redacted of
 `api_key`, `Authorization`, and base64 blobs > 1 KB) for audit.

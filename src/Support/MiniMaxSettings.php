@@ -19,7 +19,7 @@ use InvalidArgumentException;
  */
 final class MiniMaxSettings
 {
-    public const PROVIDERS = ['image', 'speech', 'music', 'lyrics', 'video'];
+    public const PROVIDERS = ['image', 'speech', 'music', 'video'];
 
     /**
      * Global / international MiniMax API endpoint. Operators in China can
