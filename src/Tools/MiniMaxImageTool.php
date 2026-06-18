@@ -96,22 +96,16 @@ final class MiniMaxImageTool extends AbstractTool
         $aspectRatio = trim((string) ($arguments['aspect_ratio'] ?? '1:1'));
 
         if ($prompt === '') {
-            return $this->fail('Prompt cannot be empty.', self::PROVIDER, $arguments, $agentId, $userId);
+            return $this->fail('Prompt cannot be empty.');
         }
         if (mb_strlen($prompt) > 1500) {
-            return $this->fail('Prompt exceeds the 1500-character MiniMax limit.', self::PROVIDER, $arguments, $agentId, $userId);
+            return $this->fail('Prompt exceeds the 1500-character MiniMax limit.');
         }
 
         $settings = $this->configService->getEffectiveSettings(static::class, $agentId, $userId);
         $apiKey = MiniMaxSettings::apiKey(self::PROVIDER, $settings);
         if ($apiKey === '') {
-            return $this->fail(
-                'MiniMax API key is not configured for this agent. Edit the MiniMax Image settings.',
-                self::PROVIDER,
-                $arguments,
-                $agentId,
-                $userId,
-            );
+            return $this->fail('MiniMax API key is not configured for this agent. Edit the MiniMax Image settings.');
         }
 
         $client = new MiniMaxHttpClient(
@@ -135,7 +129,7 @@ final class MiniMaxImageTool extends AbstractTool
             $urls = $response['data']['image_urls'] ?? [];
             if (!is_array($urls) || $urls === []) {
                 $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, false, 'No image URLs returned', $userId, $agentId);
-                return $this->fail('MiniMax returned no image URLs.', self::PROVIDER, $arguments, $agentId, $userId);
+                return $this->fail('MiniMax returned no image URLs.');
             }
 
             $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, true, null, $userId, $agentId);
@@ -150,15 +144,15 @@ final class MiniMaxImageTool extends AbstractTool
             ]);
         } catch (MiniMaxApiException $e) {
             $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
-            return $this->fail($e->getMessage(), self::PROVIDER, $arguments, $agentId, $userId);
+            return $this->fail($e->getMessage());
         } catch (Throwable $e) {
             $this->logger?->error('MiniMaxImageTool: unexpected exception', ['exception' => $e]);
             $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
-            return $this->fail('Image generation failed: ' . $e->getMessage(), self::PROVIDER, $arguments, $agentId, $userId);
+            return $this->fail('Image generation failed: ' . $e->getMessage());
         }
     }
 
-    private function fail(string $message, string $provider, array $arguments, int $agentId, ?int $userId): ToolResult
+    private function fail(string $message): ToolResult
     {
         return new ToolResult(false, $message);
     }

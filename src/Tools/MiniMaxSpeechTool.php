@@ -85,6 +85,7 @@ final class MiniMaxSpeechTool extends AbstractTool
 {
     private const PROVIDER = 'speech';
     private const DEFAULT_MODEL = 'speech-2.8-hd';
+    private const DEFAULT_VOICE = 'English_PassionateWarrior';
 
     public function __construct(
         private readonly ToolConfigService   $configService,
@@ -106,8 +107,48 @@ final class MiniMaxSpeechTool extends AbstractTool
 
     public function synthesize(array $arguments, int $agentId, ?int $userId, ?int $taskId): ToolResult
     {
+        $validation = $this->validateArguments($arguments);
+        if ($validation !== null) {
+            return $validation;
+        }
+
         $text = trim((string) ($arguments['text'] ?? ''));
-        $voiceOverride = trim((string) ($arguments['voice_id'] ?? ''));
+        $speed = (float) ($arguments['speed'] ?? 1.0);
+
+        $settings = $this->configService->getEffectiveSettings(static::class, $agentId, $userId);
+        $apiKey = MiniMaxSettings::apiKey(self::PROVIDER, $settings);
+        if ($apiKey === '') {
+            return new ToolResult(false, 'MiniMax API key is not configured for this agent. Edit the MiniMax Speech settings.');
+        }
+
+        $client = new MiniMaxHttpClient(
+            $this->httpClient,
+            $apiKey,
+            MiniMaxSettings::baseUrl(self::PROVIDER, $settings),
+            timeoutSeconds: 60,
+            logger: $this->logger,
+        );
+
+        $qualifiedName = 'minimax:' . 'speech';
+        $voiceId = $this->resolveVoiceId($arguments, $settings);
+
+        try {
+            $response = $client->postJson('/v1/t2a_v2', $this->buildRequestBody($settings, $text, $voiceId, $speed));
+
+            return $this->parseResponse($response, $arguments, $voiceId, $userId, $agentId, $qualifiedName);
+        } catch (MiniMaxApiException $e) {
+            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
+            return new ToolResult(false, $e->getMessage());
+        } catch (Throwable $e) {
+            $this->logger?->error('MiniMaxSpeechTool: unexpected exception', ['exception' => $e]);
+            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
+            return new ToolResult(false, 'Speech synthesis failed: ' . $e->getMessage());
+        }
+    }
+
+    private function validateArguments(array $arguments): ?ToolResult
+    {
+        $text = trim((string) ($arguments['text'] ?? ''));
         $speed = (float) ($arguments['speed'] ?? 1.0);
 
         if ($text === '') {
@@ -120,86 +161,99 @@ final class MiniMaxSpeechTool extends AbstractTool
             return new ToolResult(false, 'Speed must be between 0.5 and 2.0.');
         }
 
-        $settings = $this->configService->getEffectiveSettings(static::class, $agentId, $userId);
-        $apiKey = MiniMaxSettings::apiKey(self::PROVIDER, $settings);
-        if ($apiKey === '') {
-            return new ToolResult(false, 'MiniMax API key is not configured for this agent. Edit the MiniMax Speech settings.');
-        }
+        return null;
+    }
 
-        // Resolution order: LLM-provided `voice_id` (per call) > operator-configured
-        // setting (`plugin.minimax.speech.voice_id`) > hard-coded default. The
-        // LLM-visible #[ToolParameter] lets the model pick a voice per call; the
-        // operator setting is the fallback when the model doesn't pass one.
+    /**
+     * Resolution order: LLM-provided `voice_id` (per call) > operator-configured
+     * setting (`plugin.minimax.speech.voice_id`) > hard-coded default. The
+     * LLM-visible #[ToolParameter] lets the model pick a voice per call; the
+     * operator setting is the fallback when the model doesn't pass one.
+     *
+     * @param  array<string, mixed> $settings
+     */
+    private function resolveVoiceId(array $arguments, array $settings): string
+    {
+        $voiceOverride = trim((string) ($arguments['voice_id'] ?? ''));
         $configuredVoice = is_string($settings['plugin.minimax.speech.voice_id'] ?? null)
             ? trim((string) $settings['plugin.minimax.speech.voice_id'])
             : '';
-        $voiceId = $voiceOverride !== '' ? $voiceOverride : ($configuredVoice !== '' ? $configuredVoice : 'English_PassionateWarrior');
 
-        $client = new MiniMaxHttpClient(
-            $this->httpClient,
-            $apiKey,
-            MiniMaxSettings::baseUrl(self::PROVIDER, $settings),
-            timeoutSeconds: 60,
-            logger: $this->logger,
-        );
+        return $voiceOverride !== ''
+            ? $voiceOverride
+            : ($configuredVoice !== '' ? $configuredVoice : self::DEFAULT_VOICE);
+    }
 
-        $qualifiedName = 'minimax:' . 'speech';
+    /**
+     * @param  array<string, mixed> $settings
+     * @return array<string, mixed>
+     */
+    private function buildRequestBody(array $settings, string $text, string $voiceId, float $speed): array
+    {
+        return [
+            'model' => MiniMaxSettings::model(self::PROVIDER, $settings, self::DEFAULT_MODEL),
+            'text'  => $text,
+            'voice_setting' => [
+                'voice_id' => $voiceId,
+                'speed'    => $speed,
+            ],
+            'audio_setting' => [
+                'sample_rate' => 32000,
+                'bitrate'     => 128000,
+                'format'      => 'mp3',
+            ],
+        ];
+    }
 
-        try {
-            $response = $client->postJson('/v1/t2a_v2', [
-                'model' => MiniMaxSettings::model(self::PROVIDER, $settings, self::DEFAULT_MODEL),
-                'text'  => $text,
-                'voice_setting' => [
-                    'voice_id' => $voiceId,
-                    'speed'    => $speed,
-                ],
-                'audio_setting' => [
-                    'sample_rate' => 32000,
-                    'bitrate'     => 128000,
-                    'format'      => 'mp3',
-                ],
-            ]);
+    /**
+     * @param  array<string, mixed> $response
+     */
+    private function parseResponse(
+        array $response,
+        array $arguments,
+        string $voiceId,
+        ?int $userId,
+        int $agentId,
+        string $qualifiedName,
+    ): ToolResult {
+        $hexAudio = $response['data']['audio'] ?? null;
+        $audioUrl = $response['data']['audio_url'] ?? null;
+        $lengthMs = $response['extra_info']['audio_length'] ?? null;
+        $sizeBytes = $response['extra_info']['audio_size'] ?? null;
+        $usageChars = $response['extra_info']['usage_characters'] ?? null;
 
-            $hexAudio = $response['data']['audio'] ?? null;
-            $audioUrl = $response['data']['audio_url'] ?? null;
-            $lengthMs = $response['extra_info']['audio_length'] ?? null;
-            $sizeBytes = $response['extra_info']['audio_size'] ?? null;
-            $usageChars = $response['extra_info']['usage_characters'] ?? null;
-
-            if (!is_string($hexAudio) && !is_string($audioUrl)) {
-                $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, false, 'No audio in response', $userId, $agentId);
-                return new ToolResult(false, 'MiniMax returned no audio data.');
-            }
-
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, true, null, $userId, $agentId);
-
-            $stats = [];
-            if (is_int($lengthMs) || (is_string($lengthMs) && ctype_digit($lengthMs))) {
-                $stats[] = round(((int) $lengthMs) / 1000, 2) . 's';
-            }
-            if (is_int($sizeBytes) || (is_string($sizeBytes) && ctype_digit($sizeBytes))) {
-                $stats[] = round(((int) $sizeBytes) / 1024, 1) . ' KB';
-            }
-            if (is_int($usageChars) || (is_string($usageChars) && ctype_digit($usageChars))) {
-                $stats[] = $usageChars . ' chars';
-            }
-            $statsLine = $stats === [] ? '' : ' (' . implode(', ', $stats) . ')';
-
-            if (is_string($audioUrl) && $audioUrl !== '') {
-                $content = "Synthesized speech{$statsLine}.\n\nCDN URL (valid 24h): {$audioUrl}";
-                return new ToolResult(true, $content, ['audio_url' => $audioUrl, 'voice_id' => $voiceId]);
-            }
-
-            $byteCount = is_string($hexAudio) ? (int) (strlen($hexAudio) / 2) : 0;
-            $content = "Synthesized speech{$statsLine}.\n\nAudio payload: {$byteCount} bytes (hex-encoded, inline). Voice: {$voiceId}.";
-            return new ToolResult(true, $content, ['audio_bytes' => $byteCount, 'voice_id' => $voiceId]);
-        } catch (MiniMaxApiException $e) {
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
-            return new ToolResult(false, $e->getMessage());
-        } catch (Throwable $e) {
-            $this->logger?->error('MiniMaxSpeechTool: unexpected exception', ['exception' => $e]);
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
-            return new ToolResult(false, 'Speech synthesis failed: ' . $e->getMessage());
+        if (!is_string($hexAudio) && !is_string($audioUrl)) {
+            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, false, 'No audio in response', $userId, $agentId);
+            return new ToolResult(false, 'MiniMax returned no audio data.');
         }
+
+        $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, true, null, $userId, $agentId);
+
+        $statsLine = $this->formatStatsLine($lengthMs, $sizeBytes, $usageChars);
+
+        if (is_string($audioUrl) && $audioUrl !== '') {
+            $content = "Synthesized speech{$statsLine}.\n\nCDN URL (valid 24h): {$audioUrl}";
+            return new ToolResult(true, $content, ['audio_url' => $audioUrl, 'voice_id' => $voiceId]);
+        }
+
+        $byteCount = is_string($hexAudio) ? (int) (strlen($hexAudio) / 2) : 0;
+        $content = "Synthesized speech{$statsLine}.\n\nAudio payload: {$byteCount} bytes (hex-encoded, inline). Voice: {$voiceId}.";
+        return new ToolResult(true, $content, ['audio_bytes' => $byteCount, 'voice_id' => $voiceId]);
+    }
+
+    private function formatStatsLine(mixed $lengthMs, mixed $sizeBytes, mixed $usageChars): string
+    {
+        $stats = [];
+        if (is_int($lengthMs) || (is_string($lengthMs) && ctype_digit($lengthMs))) {
+            $stats[] = round(((int) $lengthMs) / 1000, 2) . 's';
+        }
+        if (is_int($sizeBytes) || (is_string($sizeBytes) && ctype_digit($sizeBytes))) {
+            $stats[] = round(((int) $sizeBytes) / 1024, 1) . ' KB';
+        }
+        if (is_int($usageChars) || (is_string($usageChars) && ctype_digit($usageChars))) {
+            $stats[] = $usageChars . ' chars';
+        }
+
+        return $stats === [] ? '' : ' (' . implode(', ', $stats) . ')';
     }
 }
