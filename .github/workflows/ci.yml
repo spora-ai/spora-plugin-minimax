@@ -1,5 +1,10 @@
 name: CI
 
+# External actions are pinned to full commit SHAs to prevent supply-chain
+# attacks via tag reassignment. Run `gh api repos/OWNER/REPO/git/refs/tags/vN`
+# to look up the current SHA when upgrading. Review SonarCloud hotspots
+# (rule githubactions:S7637) periodically.
+
 on:
   push:
     branches: [main]
@@ -20,10 +25,10 @@ jobs:
       matrix:
         php: ['8.4', '8.5']
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
         with:
           php-version: ${{ matrix.php }}
           extensions: curl, mbstring
@@ -40,10 +45,10 @@ jobs:
     name: PHPStan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
         with:
           php-version: '8.4'
           coverage: none
@@ -59,10 +64,10 @@ jobs:
     name: php-cs-fixer (dry-run)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
         with:
           php-version: '8.4'
           coverage: none
