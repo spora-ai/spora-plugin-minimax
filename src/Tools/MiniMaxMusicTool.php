@@ -160,24 +160,26 @@ final class MiniMaxMusicTool extends AbstractTool
 
     private function validateComposeArguments(array $arguments): ?ToolResult
     {
+        $errors = [];
+
         $prompt = trim((string) ($arguments['prompt'] ?? ''));
         $lyrics = trim((string) ($arguments['lyrics'] ?? ''));
         $outputFormat = trim((string) ($arguments['output_format'] ?? 'url'));
 
         if ($prompt === '' && $lyrics === '') {
-            return new ToolResult(false, 'Provide at least a `prompt` or `lyrics`.');
+            $errors[] = 'Provide at least a `prompt` or `lyrics`.';
         }
         if (mb_strlen($prompt) > 2000) {
-            return new ToolResult(false, 'Prompt exceeds the 2000-character MiniMax limit.');
+            $errors[] = 'Prompt exceeds the 2000-character MiniMax limit.';
         }
         if ($lyrics !== '' && mb_strlen($lyrics) > 3500) {
-            return new ToolResult(false, 'Lyrics exceed the 3500-character MiniMax limit.');
+            $errors[] = 'Lyrics exceed the 3500-character MiniMax limit.';
         }
         if (!in_array($outputFormat, ['url', 'hex'], true)) {
-            return new ToolResult(false, 'output_format must be "url" or "hex".');
+            $errors[] = 'output_format must be "url" or "hex".';
         }
 
-        return null;
+        return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
     }
 
     /**
@@ -282,23 +284,25 @@ final class MiniMaxMusicTool extends AbstractTool
 
     private function validateLyricsArguments(string $mode, array $arguments): ?ToolResult
     {
+        $errors = [];
+
         $prompt = trim((string) ($arguments['prompt'] ?? ''));
         $lyrics = trim((string) ($arguments['lyrics'] ?? ''));
 
         if (mb_strlen($prompt) > 2000) {
-            return new ToolResult(false, 'Prompt exceeds the 2000-character MiniMax limit.');
+            $errors[] = 'Prompt exceeds the 2000-character MiniMax limit.';
         }
         if ($mode === 'edit' && $lyrics === '') {
-            return new ToolResult(false, '`lyrics` is required for the edit_lyrics operation.');
+            $errors[] = '`lyrics` is required for the edit_lyrics operation.';
         }
         if ($lyrics !== '' && mb_strlen($lyrics) > 3500) {
-            return new ToolResult(false, 'Lyrics exceed the 3500-character MiniMax limit.');
+            $errors[] = 'Lyrics exceed the 3500-character MiniMax limit.';
         }
         if ($mode === 'write_full_song' && $prompt === '' && $lyrics === '') {
-            return new ToolResult(false, 'Provide a `prompt` describing the song (or pre-existing `lyrics`).');
+            $errors[] = 'Provide a `prompt` describing the song (or pre-existing `lyrics`).';
         }
 
-        return null;
+        return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
     }
 
     /**

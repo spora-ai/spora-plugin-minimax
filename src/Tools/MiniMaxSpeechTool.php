@@ -148,20 +148,22 @@ final class MiniMaxSpeechTool extends AbstractTool
 
     private function validateArguments(array $arguments): ?ToolResult
     {
+        $errors = [];
+
         $text = trim((string) ($arguments['text'] ?? ''));
         $speed = (float) ($arguments['speed'] ?? 1.0);
 
         if ($text === '') {
-            return new ToolResult(false, 'Text cannot be empty.');
+            $errors[] = 'Text cannot be empty.';
         }
         if (mb_strlen($text) > 10000) {
-            return new ToolResult(false, 'Text exceeds the 10000-character MiniMax limit.');
+            $errors[] = 'Text exceeds the 10000-character MiniMax limit.';
         }
         if ($speed < 0.5 || $speed > 2.0) {
-            return new ToolResult(false, 'Speed must be between 0.5 and 2.0.');
+            $errors[] = 'Speed must be between 0.5 and 2.0.';
         }
 
-        return null;
+        return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
     }
 
     /**
@@ -175,13 +177,18 @@ final class MiniMaxSpeechTool extends AbstractTool
     private function resolveVoiceId(array $arguments, array $settings): string
     {
         $voiceOverride = trim((string) ($arguments['voice_id'] ?? ''));
+        if ($voiceOverride !== '') {
+            return $voiceOverride;
+        }
+
         $configuredVoice = is_string($settings['plugin.minimax.speech.voice_id'] ?? null)
             ? trim((string) $settings['plugin.minimax.speech.voice_id'])
             : '';
+        if ($configuredVoice !== '') {
+            return $configuredVoice;
+        }
 
-        return $voiceOverride !== ''
-            ? $voiceOverride
-            : ($configuredVoice !== '' ? $configuredVoice : self::DEFAULT_VOICE);
+        return self::DEFAULT_VOICE;
     }
 
     /**
