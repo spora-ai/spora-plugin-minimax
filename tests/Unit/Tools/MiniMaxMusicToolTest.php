@@ -8,6 +8,13 @@ use Spora\Services\ToolConfigService;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Contracts\HttpClient\ResponseInterface;
 
+final class MiniMaxMusicToolTestLiterals
+{
+    public const PROMPT_SUNNY_DAY = 'a sunny day';
+    public const CDN_URL_SONG = 'https://cdn.example/song.mp3';
+    public const EDIT_PROMPT_SADDER = 'make it sadder';
+}
+
 function minimaxResponse(int $status, string $body): ResponseInterface
 {
     $response = Mockery::mock(ResponseInterface::class);
@@ -27,7 +34,7 @@ it('returns an error when the API key is missing', function () {
 
     $tool = new MiniMaxMusicTool($config, $http, $log);
 
-    $result = $tool->execute(['prompt' => 'a sunny day'], 1);
+    $result = $tool->execute(['prompt' => MiniMaxMusicToolTestLiterals::PROMPT_SUNNY_DAY], 1);
     expect($result->success)->toBeFalse()
         ->and($result->content)->toContain('API key is not configured');
 });
@@ -57,20 +64,20 @@ it('parses the music response and returns the audio URL for compose', function (
         ->with('POST', 'https://api.minimax.io/v1/music_generation', Mockery::on(function ($opts) {
             return ($opts['json']['model'] ?? null) === 'music-2.6'
                 && ($opts['json']['output_format'] ?? null) === 'url'
-                && ($opts['json']['prompt'] ?? null) === 'a sunny day'
+                && ($opts['json']['prompt'] ?? null) === MiniMaxMusicToolTestLiterals::PROMPT_SUNNY_DAY
                 && ($opts['json']['lyrics'] ?? null) === '';
         }))
         ->andReturn(minimaxResponse(200, json_encode([
             'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-            'data'      => ['audio_url' => 'https://cdn.example/song.mp3'],
+            'data'      => ['audio_url' => MiniMaxMusicToolTestLiterals::CDN_URL_SONG],
         ])));
 
     $tool = new MiniMaxMusicTool($config, $http, $log);
-    $result = $tool->execute(['action' => 'compose', 'prompt' => 'a sunny day'], 1);
+    $result = $tool->execute(['action' => 'compose', 'prompt' => MiniMaxMusicToolTestLiterals::PROMPT_SUNNY_DAY], 1);
 
     expect($result->success)->toBeTrue()
-        ->and($result->content)->toContain('https://cdn.example/song.mp3')
-        ->and($result->data['audio_url'])->toBe('https://cdn.example/song.mp3');
+        ->and($result->content)->toContain(MiniMaxMusicToolTestLiterals::CDN_URL_SONG)
+        ->and($result->data['audio_url'])->toBe(MiniMaxMusicToolTestLiterals::CDN_URL_SONG);
 });
 
 // --- write_lyrics ---
@@ -130,7 +137,7 @@ it('returns an error when edit_lyrics is missing lyrics', function () {
 
     $tool = new MiniMaxMusicTool($config, $http, $log);
 
-    $result = $tool->execute(['action' => 'edit_lyrics', 'prompt' => 'make it sadder'], 1);
+    $result = $tool->execute(['action' => 'edit_lyrics', 'prompt' => MiniMaxMusicToolTestLiterals::EDIT_PROMPT_SADDER], 1);
     expect($result->success)->toBeFalse()
         ->and($result->content)->toContain('`lyrics` is required for the edit_lyrics operation');
 });
@@ -148,7 +155,7 @@ it('parses the lyrics response for edit_lyrics with mode=edit', function () {
         ->with('POST', 'https://api.minimax.io/v1/lyrics_generation', Mockery::on(function ($opts) use ($existingLyrics) {
             return ($opts['json']['mode'] ?? null) === 'edit'
                 && ($opts['json']['lyrics'] ?? null) === $existingLyrics
-                && ($opts['json']['prompt'] ?? null) === 'make it sadder';
+                && ($opts['json']['prompt'] ?? null) === MiniMaxMusicToolTestLiterals::EDIT_PROMPT_SADDER;
         }))
         ->andReturn(minimaxResponse(200, json_encode([
             'base_resp'  => ['status_code' => 0, 'status_msg' => 'success'],
@@ -159,7 +166,7 @@ it('parses the lyrics response for edit_lyrics with mode=edit', function () {
     $tool = new MiniMaxMusicTool($config, $http, $log);
     $result = $tool->execute([
         'action'  => 'edit_lyrics',
-        'prompt'  => 'make it sadder',
+        'prompt'  => MiniMaxMusicToolTestLiterals::EDIT_PROMPT_SADDER,
         'lyrics'  => $existingLyrics,
     ], 1);
 
@@ -183,14 +190,14 @@ it('falls back to the first declared operation when action is absent', function 
         ->with('POST', 'https://api.minimax.io/v1/music_generation', Mockery::any())
         ->andReturn(minimaxResponse(200, json_encode([
             'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-            'data'      => ['audio_url' => 'https://cdn.example/song.mp3'],
+            'data'      => ['audio_url' => MiniMaxMusicToolTestLiterals::CDN_URL_SONG],
         ])));
 
     $tool = new MiniMaxMusicTool($config, $http, $log);
     $result = $tool->execute(['prompt' => 'lo-fi beat'], 1);
 
     expect($result->success)->toBeTrue()
-        ->and($result->data['audio_url'])->toBe('https://cdn.example/song.mp3');
+        ->and($result->data['audio_url'])->toBe(MiniMaxMusicToolTestLiterals::CDN_URL_SONG);
 });
 
 it('returns an error for an unknown action', function () {

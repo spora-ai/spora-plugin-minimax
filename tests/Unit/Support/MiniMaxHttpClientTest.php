@@ -20,6 +20,14 @@ use Symfony\Contracts\HttpClient\ResponseInterface;
  */
 final class TestableTransportException extends RuntimeException implements TransportExceptionInterface {}
 
+final class MiniMaxHttpClientTestLiterals
+{
+    public const BASE_URL = 'https://api.minimax.io';
+    public const CDN_URL_PNG = 'https://example.com/a.png';
+    public const PATH_X = '/v1/x';
+    public const ERR_INSUFFICIENT_BALANCE = 'insufficient balance';
+}
+
 function minimaxMockResponse(int $statusCode, string $body): ResponseInterface
 {
     $response = Mockery::mock(ResponseInterface::class);
@@ -45,13 +53,13 @@ it('returns decoded JSON on a 2xx response with base_resp.status_code = 0', func
         }))
         ->andReturn(minimaxMockResponse(200, json_encode([
             'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-            'data'      => ['image_urls' => ['https://example.com/a.png']],
+            'data'      => ['image_urls' => [MiniMaxHttpClientTestLiterals::CDN_URL_PNG]],
         ])));
 
-    $client = new MiniMaxHttpClient($http, 'test-key', 'https://api.minimax.io', 30, $logger);
+    $client = new MiniMaxHttpClient($http, 'test-key', MiniMaxHttpClientTestLiterals::BASE_URL, 30, $logger);
     $result = $client->postJson('/v1/image_generation', ['model' => 'image-01', 'prompt' => 'a fox']);
 
-    expect($result['data']['image_urls'][0])->toBe('https://example.com/a.png')
+    expect($result['data']['image_urls'][0])->toBe(MiniMaxHttpClientTestLiterals::CDN_URL_PNG)
         ->and($result['base_resp']['status_code'])->toBe(0);
 });
 
@@ -60,9 +68,9 @@ it('throws MiniMaxApiException on HTTP 4xx', function () {
     $http->expects('request')
         ->andReturn(minimaxMockResponse(401, '{"error":"unauthorized"}'));
 
-    $client = new MiniMaxHttpClient($http, 'bad-key', 'https://api.minimax.io', 30);
+    $client = new MiniMaxHttpClient($http, 'bad-key', MiniMaxHttpClientTestLiterals::BASE_URL, 30);
 
-    expect(fn() => $client->postJson('/v1/x', []))
+    expect(fn() => $client->postJson(MiniMaxHttpClientTestLiterals::PATH_X, []))
         ->toThrow(MiniMaxApiException::class, 'HTTP 401');
 });
 
@@ -71,8 +79,8 @@ it('throws MiniMaxApiException on HTTP 5xx after retries are exhausted', functio
     // 3 attempts (initial + 2 retries) — all 500
     $http->expects('request')->times(3)->andReturn(minimaxMockResponse(500, 'oops'));
 
-    $client = new MiniMaxHttpClient($http, 'k', 'https://api.minimax.io', 30);
-    expect(fn() => $client->postJson('/v1/x', []))
+    $client = new MiniMaxHttpClient($http, 'k', MiniMaxHttpClientTestLiterals::BASE_URL, 30);
+    expect(fn() => $client->postJson(MiniMaxHttpClientTestLiterals::PATH_X, []))
         ->toThrow(MiniMaxApiException::class, 'HTTP 500');
 });
 
@@ -82,30 +90,30 @@ it('retries on HTTP 429 then succeeds', function () {
         minimaxMockResponse(429, 'rate'),
         minimaxMockResponse(200, json_encode([
             'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
-            'data'      => ['image_urls' => ['https://example.com/a.png']],
+            'data'      => ['image_urls' => [MiniMaxHttpClientTestLiterals::CDN_URL_PNG]],
         ])),
     ]);
 
-    $client = new MiniMaxHttpClient($http, 'k', 'https://api.minimax.io', 30);
-    $result = $client->postJson('/v1/x', []);
-    expect($result['data']['image_urls'][0])->toBe('https://example.com/a.png');
+    $client = new MiniMaxHttpClient($http, 'k', MiniMaxHttpClientTestLiterals::BASE_URL, 30);
+    $result = $client->postJson(MiniMaxHttpClientTestLiterals::PATH_X, []);
+    expect($result['data']['image_urls'][0])->toBe(MiniMaxHttpClientTestLiterals::CDN_URL_PNG);
 });
 
 it('throws MiniMaxApiException on non-zero base_resp.status_code and does not retry', function () {
     $http = Mockery::mock(HttpClientInterface::class);
     $http->expects('request')->once()->andReturn(minimaxMockResponse(200, json_encode([
-        'base_resp' => ['status_code' => 1008, 'status_msg' => 'insufficient balance'],
+        'base_resp' => ['status_code' => 1008, 'status_msg' => MiniMaxHttpClientTestLiterals::ERR_INSUFFICIENT_BALANCE],
     ])));
 
-    $client = new MiniMaxHttpClient($http, 'k', 'https://api.minimax.io', 30);
+    $client = new MiniMaxHttpClient($http, 'k', MiniMaxHttpClientTestLiterals::BASE_URL, 30);
 
     try {
-        $client->postJson('/v1/x', []);
+        $client->postJson(MiniMaxHttpClientTestLiterals::PATH_X, []);
         $this->fail('Expected MiniMaxApiException');
     } catch (MiniMaxApiException $e) {
         expect($e->statusCode)->toBe(1008)
-            ->and($e->getMessage())->toContain('insufficient balance')
-            ->and($e->baseResp['status_msg'])->toBe('insufficient balance');
+            ->and($e->getMessage())->toContain(MiniMaxHttpClientTestLiterals::ERR_INSUFFICIENT_BALANCE)
+            ->and($e->baseResp['status_msg'])->toBe(MiniMaxHttpClientTestLiterals::ERR_INSUFFICIENT_BALANCE);
     }
 });
 
@@ -119,21 +127,21 @@ it('retries on transport errors then succeeds', function () {
         }
         return minimaxMockResponse(200, json_encode([
             'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
-            'data'      => ['image_urls' => ['https://example.com/a.png']],
+            'data'      => ['image_urls' => [MiniMaxHttpClientTestLiterals::CDN_URL_PNG]],
         ]));
     });
 
-    $client = new MiniMaxHttpClient($http, 'k', 'https://api.minimax.io', 30);
-    $result = $client->postJson('/v1/x', []);
-    expect($result['data']['image_urls'][0])->toBe('https://example.com/a.png');
+    $client = new MiniMaxHttpClient($http, 'k', MiniMaxHttpClientTestLiterals::BASE_URL, 30);
+    $result = $client->postJson(MiniMaxHttpClientTestLiterals::PATH_X, []);
+    expect($result['data']['image_urls'][0])->toBe(MiniMaxHttpClientTestLiterals::CDN_URL_PNG);
 });
 
 it('throws MiniMaxApiException when transport errors exceed the retry budget', function () {
     $http = Mockery::mock(HttpClientInterface::class);
     $http->expects('request')->times(3)->andThrow(new TestableTransportException('connection failed'));
 
-    $client = new MiniMaxHttpClient($http, 'k', 'https://api.minimax.io', 30);
-    expect(fn() => $client->postJson('/v1/x', []))
+    $client = new MiniMaxHttpClient($http, 'k', MiniMaxHttpClientTestLiterals::BASE_URL, 30);
+    expect(fn() => $client->postJson(MiniMaxHttpClientTestLiterals::PATH_X, []))
         ->toThrow(MiniMaxApiException::class, 'MiniMax API request failed');
 });
 
@@ -149,7 +157,7 @@ it('appends query parameters to GET requests', function () {
             'status'    => 'processing',
         ])));
 
-    $client = new MiniMaxHttpClient($http, 'k', 'https://api.minimax.io', 30);
+    $client = new MiniMaxHttpClient($http, 'k', MiniMaxHttpClientTestLiterals::BASE_URL, 30);
     $result = $client->getJson('/v1/query/video_generation', ['task_id' => 'task-abc']);
     expect($result['status'])->toBe('processing');
 });
