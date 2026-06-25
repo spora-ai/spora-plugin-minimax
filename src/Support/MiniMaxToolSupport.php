@@ -97,30 +97,12 @@ final class MiniMaxToolSupport
         try {
             return $work($ctx);
         } catch (MiniMaxApiException $e) {
-            $this->logWriter->record(new MiniMaxLogContext(
-                provider: $ctx->provider,
-                qualifiedToolName: $ctx->qualifiedName,
-                request: $ctx->arguments,
-                response: ['error' => $e->getMessage()],
-                success: false,
-                error: $e->getMessage(),
-                userId: $ctx->userId,
-                agentId: $ctx->agentId,
-            ));
+            $this->logWriter->logFailure($ctx, ['error' => $e->getMessage()], $e->getMessage());
             return new ToolResult(false, $e->getMessage());
         } catch (Throwable $e) {
             $this->logger?->error("MiniMax{$toolLabel}: unexpected exception", ['exception' => $e]);
             $message = "{$toolLabel} failed: " . $e->getMessage();
-            $this->logWriter->record(new MiniMaxLogContext(
-                provider: $ctx->provider,
-                qualifiedToolName: $ctx->qualifiedName,
-                request: $ctx->arguments,
-                response: ['error' => $e->getMessage()],
-                success: false,
-                error: $message,
-                userId: $ctx->userId,
-                agentId: $ctx->agentId,
-            ));
+            $this->logWriter->logFailure($ctx, ['error' => $e->getMessage()], $message);
             return new ToolResult(false, $message);
         }
     }
@@ -134,5 +116,27 @@ final class MiniMaxToolSupport
             'video'  => 'Video',
             default  => ucfirst($provider),
         };
+    }
+
+    /** @param array<string, mixed> $response */
+    public function logSuccess(MiniMaxToolContext $ctx, array $response): void
+    {
+        $this->logWriter->logSuccess($ctx, $response);
+    }
+
+    /** @param array<string, mixed> $response */
+    public function logFailure(MiniMaxToolContext $ctx, array $response, string $error): void
+    {
+        $this->logWriter->logFailure($ctx, $response, $error);
+    }
+
+    /**
+     * Optional PSR-3 logger the tool may use for debug-level entries (e.g.
+     * polling-loop progress). Null when no logger is wired up — the `?->`
+     * chain in callers makes the no-logger case free.
+     */
+    public function logger(): ?LoggerInterface
+    {
+        return $this->logger;
     }
 }

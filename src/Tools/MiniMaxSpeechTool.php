@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Spora\Plugins\MiniMax\Tools;
 
 use Psr\Log\LoggerInterface;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogContext;
 use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
@@ -91,11 +90,11 @@ final class MiniMaxSpeechTool extends AbstractTool
     private const TOOL_LABEL = 'Speech synthesis';
 
     public function __construct(
-        private readonly ToolConfigService   $configService,
-        private readonly HttpClientInterface $httpClient,
-        private readonly MiniMaxLogWriter    $logWriter,
-        private readonly ?LoggerInterface    $logger = null,
-        ?MiniMaxToolSupport                  $support = null,
+        ToolConfigService   $configService,
+        HttpClientInterface $httpClient,
+        MiniMaxLogWriter    $logWriter,
+        ?LoggerInterface    $logger = null,
+        ?MiniMaxToolSupport $support = null,
     ) {
         $this->support = $support ?? new MiniMaxToolSupport($configService, $httpClient, $logWriter, $logger);
     }
@@ -138,17 +137,17 @@ final class MiniMaxSpeechTool extends AbstractTool
     {
         $text  = trim((string) ($arguments['text'] ?? ''));
         $speed = (float) ($arguments['speed'] ?? 1.0);
-
+        $errors = [];
         if ($text === '') {
-            return new ToolResult(false, 'Text cannot be empty.');
+            $errors[] = 'Text cannot be empty.';
         }
         if (mb_strlen($text) > 10000) {
-            return new ToolResult(false, 'Text exceeds the 10000-character MiniMax limit.');
+            $errors[] = 'Text exceeds the 10000-character MiniMax limit.';
         }
         if ($speed < 0.5 || $speed > 2.0) {
-            return new ToolResult(false, 'Speed must be between 0.5 and 2.0.');
+            $errors[] = 'Speed must be between 0.5 and 2.0.';
         }
-        return null;
+        return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
     }
 
     /**
@@ -217,28 +216,11 @@ final class MiniMaxSpeechTool extends AbstractTool
         $usageChars = $response['extra_info']['usage_characters'] ?? null;
 
         if (!is_string($hexAudio) && !is_string($audioUrl)) {
-            $this->logWriter->record(new MiniMaxLogContext(
-                provider: self::PROVIDER,
-                qualifiedToolName: self::QUALIFIED_NAME,
-                request: $arguments,
-                response: $response,
-                success: false,
-                error: 'No audio in response',
-                userId: $ctx->userId,
-                agentId: $ctx->agentId,
-            ));
+            $this->support->logFailure($ctx, $response, 'No audio in response');
             return new ToolResult(false, 'MiniMax returned no audio data.');
         }
 
-        $this->logWriter->record(new MiniMaxLogContext(
-            provider: self::PROVIDER,
-            qualifiedToolName: self::QUALIFIED_NAME,
-            request: $arguments,
-            response: $response,
-            success: true,
-            userId: $ctx->userId,
-            agentId: $ctx->agentId,
-        ));
+        $this->support->logSuccess($ctx, $response);
 
         $statsLine = $this->formatStatsLine($lengthMs, $sizeBytes, $usageChars);
 

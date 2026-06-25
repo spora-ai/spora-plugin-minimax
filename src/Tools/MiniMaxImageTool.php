@@ -6,7 +6,6 @@ namespace Spora\Plugins\MiniMax\Tools;
 
 use Psr\Log\LoggerInterface;
 use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogContext;
 use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
@@ -77,12 +76,15 @@ final class MiniMaxImageTool extends AbstractTool
     private const TOOL_LABEL = 'Image generation';
 
     public function __construct(
-        private readonly ToolConfigService   $configService,
-        private readonly HttpClientInterface $httpClient,
-        private readonly MiniMaxLogWriter    $logWriter,
-        private readonly ?LoggerInterface    $logger = null,
-        ?MiniMaxToolSupport                  $support = null,
+        ToolConfigService   $configService,
+        HttpClientInterface $httpClient,
+        MiniMaxLogWriter    $logWriter,
+        ?LoggerInterface    $logger = null,
+        ?MiniMaxToolSupport $support = null,
     ) {
+        // Constructor parameters are consumed once to build the support; they
+        // are intentionally not stored as fields (SonarQube php:S1068) since
+        // every read goes through the support.
         $this->support = $support ?? new MiniMaxToolSupport($configService, $httpClient, $logWriter, $logger);
     }
 
@@ -123,13 +125,14 @@ final class MiniMaxImageTool extends AbstractTool
     private function validateArguments(array $arguments): ?ToolResult
     {
         $prompt = trim((string) ($arguments['prompt'] ?? ''));
+        $errors = [];
         if ($prompt === '') {
-            return new ToolResult(false, 'Prompt cannot be empty.');
+            $errors[] = 'Prompt cannot be empty.';
         }
         if (mb_strlen($prompt) > 1500) {
-            return new ToolResult(false, 'Prompt exceeds the 1500-character MiniMax limit.');
+            $errors[] = 'Prompt exceeds the 1500-character MiniMax limit.';
         }
-        return null;
+        return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
     }
 
     /**
@@ -151,28 +154,11 @@ final class MiniMaxImageTool extends AbstractTool
 
         $urls = $response['data']['image_urls'] ?? [];
         if (!is_array($urls) || $urls === []) {
-            $this->logWriter->record(new MiniMaxLogContext(
-                provider: self::PROVIDER,
-                qualifiedToolName: self::QUALIFIED_NAME,
-                request: $arguments,
-                response: $response,
-                success: false,
-                error: 'No image URLs returned',
-                userId: $ctx->userId,
-                agentId: $ctx->agentId,
-            ));
+            $this->support->logFailure($ctx, $response, 'No image URLs returned');
             return new ToolResult(false, 'MiniMax returned no image URLs.');
         }
 
-        $this->logWriter->record(new MiniMaxLogContext(
-            provider: self::PROVIDER,
-            qualifiedToolName: self::QUALIFIED_NAME,
-            request: $arguments,
-            response: $response,
-            success: true,
-            userId: $ctx->userId,
-            agentId: $ctx->agentId,
-        ));
+        $this->support->logSuccess($ctx, $response);
 
         $list = array_map(static fn($i, $u) => '[' . ($i + 1) . "] {$u}", array_keys($urls), $urls);
         $urlsBlock = implode("\n", $list);

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Spora\Plugins\MiniMax\Tools;
 
 use Psr\Log\LoggerInterface;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogContext;
 use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
@@ -90,11 +89,11 @@ final class MiniMaxMusicTool extends AbstractTool
     private const TIMEOUT_SECONDS_LYRICS = 30;
 
     public function __construct(
-        private readonly ToolConfigService   $configService,
-        private readonly HttpClientInterface $httpClient,
-        private readonly MiniMaxLogWriter    $logWriter,
-        private readonly ?LoggerInterface    $logger = null,
-        ?MiniMaxToolSupport                  $support = null,
+        ToolConfigService   $configService,
+        HttpClientInterface $httpClient,
+        MiniMaxLogWriter    $logWriter,
+        ?LoggerInterface    $logger = null,
+        ?MiniMaxToolSupport $support = null,
     ) {
         $this->support = $support ?? new MiniMaxToolSupport($configService, $httpClient, $logWriter, $logger);
     }
@@ -198,10 +197,9 @@ final class MiniMaxMusicTool extends AbstractTool
      */
     private function validateComposeArguments(array $arguments): ?ToolResult
     {
-        $prompt      = trim((string) ($arguments['prompt'] ?? ''));
-        $lyrics      = trim((string) ($arguments['lyrics'] ?? ''));
+        $prompt       = trim((string) ($arguments['prompt'] ?? ''));
+        $lyrics       = trim((string) ($arguments['lyrics'] ?? ''));
         $outputFormat = trim((string) ($arguments['output_format'] ?? 'url'));
-
         $errors = [];
         if ($prompt === '' && $lyrics === '') {
             $errors[] = 'Provide at least a `prompt` or `lyrics`.';
@@ -215,7 +213,6 @@ final class MiniMaxMusicTool extends AbstractTool
         if (!in_array($outputFormat, ['url', 'hex'], true)) {
             $errors[] = 'output_format must be "url" or "hex".';
         }
-
         return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
     }
 
@@ -226,7 +223,6 @@ final class MiniMaxMusicTool extends AbstractTool
     {
         $prompt = trim((string) ($arguments['prompt'] ?? ''));
         $lyrics = trim((string) ($arguments['lyrics'] ?? ''));
-
         $errors = [];
         if (mb_strlen($prompt) > 2000) {
             $errors[] = 'Prompt exceeds the 2000-character MiniMax limit.';
@@ -240,7 +236,6 @@ final class MiniMaxMusicTool extends AbstractTool
         if ($mode === 'write_full_song' && $prompt === '' && $lyrics === '') {
             $errors[] = 'Provide a `prompt` describing the song (or pre-existing `lyrics`).';
         }
-
         return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
     }
 
@@ -283,28 +278,11 @@ final class MiniMaxMusicTool extends AbstractTool
         $audioUrl = isset($data['audio_url']) && is_string($data['audio_url']) ? $data['audio_url'] : null;
 
         if ($hexAudio === null && $audioUrl === null) {
-            $this->logWriter->record(new MiniMaxLogContext(
-                provider: self::PROVIDER,
-                qualifiedToolName: self::QUALIFIED_NAME,
-                request: $arguments,
-                response: $response,
-                success: false,
-                error: 'No audio in response',
-                userId: $ctx->userId,
-                agentId: $ctx->agentId,
-            ));
+            $this->support->logFailure($ctx, $response, 'No audio in response');
             return new ToolResult(false, 'MiniMax returned no audio data.');
         }
 
-        $this->logWriter->record(new MiniMaxLogContext(
-            provider: self::PROVIDER,
-            qualifiedToolName: self::QUALIFIED_NAME,
-            request: $arguments,
-            response: $response,
-            success: true,
-            userId: $ctx->userId,
-            agentId: $ctx->agentId,
-        ));
+        $this->support->logSuccess($ctx, $response);
 
         $promptSummary = $prompt !== '' ? "prompt: \"{$prompt}\"" : 'instrumental';
         if ($audioUrl !== null) {
@@ -349,28 +327,11 @@ final class MiniMaxMusicTool extends AbstractTool
         $styleTags = $response['style_tags'] ?? null;
 
         if (!is_string($generated) || $generated === '') {
-            $this->logWriter->record(new MiniMaxLogContext(
-                provider: self::PROVIDER,
-                qualifiedToolName: self::QUALIFIED_NAME,
-                request: $arguments,
-                response: $response,
-                success: false,
-                error: 'No lyrics in response',
-                userId: $ctx->userId,
-                agentId: $ctx->agentId,
-            ));
+            $this->support->logFailure($ctx, $response, 'No lyrics in response');
             return new ToolResult(false, 'MiniMax returned no lyrics.');
         }
 
-        $this->logWriter->record(new MiniMaxLogContext(
-            provider: self::PROVIDER,
-            qualifiedToolName: self::QUALIFIED_NAME,
-            request: $arguments,
-            response: $response,
-            success: true,
-            userId: $ctx->userId,
-            agentId: $ctx->agentId,
-        ));
+        $this->support->logSuccess($ctx, $response);
 
         $header = $mode === 'edit' ? 'Edited lyrics' : 'Lyrics';
         if (is_string($songTitle) && $songTitle !== '') {

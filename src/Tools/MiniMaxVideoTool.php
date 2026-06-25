@@ -7,7 +7,6 @@ namespace Spora\Plugins\MiniMax\Tools;
 use Psr\Log\LoggerInterface;
 use Spora\Plugins\MiniMax\Support\Exceptions\MiniMaxApiException;
 use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogContext;
 use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
@@ -99,11 +98,11 @@ final class MiniMaxVideoTool extends AbstractTool
     private const TOOL_LABEL = 'Video generation';
 
     public function __construct(
-        private readonly ToolConfigService   $configService,
-        private readonly HttpClientInterface $httpClient,
-        private readonly MiniMaxLogWriter    $logWriter,
-        private readonly ?LoggerInterface    $logger = null,
-        ?MiniMaxToolSupport                  $support = null,
+        ToolConfigService   $configService,
+        HttpClientInterface $httpClient,
+        MiniMaxLogWriter    $logWriter,
+        ?LoggerInterface    $logger = null,
+        ?MiniMaxToolSupport $support = null,
     ) {
         $this->support = $support ?? new MiniMaxToolSupport($configService, $httpClient, $logWriter, $logger);
     }
@@ -147,17 +146,17 @@ final class MiniMaxVideoTool extends AbstractTool
         $prompt      = trim((string) ($arguments['prompt'] ?? ''));
         $durationRaw = (string) ($arguments['duration_seconds'] ?? '6');
         $duration    = in_array($durationRaw, ['6', '10'], true) ? (int) $durationRaw : 0;
-
+        $errors = [];
         if ($prompt === '') {
-            return new ToolResult(false, 'Prompt cannot be empty.');
+            $errors[] = 'Prompt cannot be empty.';
         }
         if (mb_strlen($prompt) > 2000) {
-            return new ToolResult(false, 'Prompt exceeds the 2000-character MiniMax limit.');
+            $errors[] = 'Prompt exceeds the 2000-character MiniMax limit.';
         }
         if (!in_array($duration, [6, 10], true)) {
-            return new ToolResult(false, 'duration_seconds must be 6 or 10.');
+            $errors[] = 'duration_seconds must be 6 or 10.';
         }
-        return null;
+        return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
     }
 
     /**
@@ -177,7 +176,7 @@ final class MiniMaxVideoTool extends AbstractTool
         $client = $ctx->client;
 
         $taskId = $this->submitGeneration($client, $ctx->settings, $prompt, $duration, $resolution);
-        $this->logger?->info('MiniMaxVideoTool: video generation started', [
+        $this->support->logger()?->info('MiniMaxVideoTool: video generation started', [
             'task_id'  => $taskId,
             'interval' => $pollInterval,
             'timeout'  => $pollTimeout,
@@ -190,15 +189,7 @@ final class MiniMaxVideoTool extends AbstractTool
         // endpoints (not documented on the public API page at the time of
         // v1). v1 returns the file_id so a downstream caller can fetch the
         // asset via a separate authenticated request when they need it.
-        $this->logWriter->record(new MiniMaxLogContext(
-            provider: self::PROVIDER,
-            qualifiedToolName: self::QUALIFIED_NAME,
-            request: $arguments,
-            response: $finalResponse,
-            success: true,
-            userId: $ctx->userId,
-            agentId: $ctx->agentId,
-        ));
+        $this->support->logSuccess($ctx, $finalResponse);
 
         $fileId = is_string($finalResponse['file_id'] ?? null) ? $finalResponse['file_id'] : null;
         $width  = is_int($finalResponse['video_width'] ?? null) ? $finalResponse['video_width'] : null;
@@ -246,10 +237,8 @@ final class MiniMaxVideoTool extends AbstractTool
         $startResponse = $client->postJson('/v1/video_generation', $body);
         $taskId = $startResponse['task_id'] ?? null;
         if (!is_string($taskId) || $taskId === '') {
-            // Mark as a business error (HTTP succeeded but payload is unusable).
-            // The exception path in MiniMaxToolSupport::run() will log and convert
-            // to a ToolResult — we use a synthetic MiniMaxApiException so the
-            // shared try/catch handles it identically to a real API failure.
+            // Synthetic MiniMaxApiException so the shared try/catch in
+            // MiniMaxToolSupport::run() logs and converts to a ToolResult.
             throw new MiniMaxApiException('MiniMax returned no task_id.', 0, $startResponse);
         }
         return $taskId;
@@ -285,7 +274,7 @@ final class MiniMaxVideoTool extends AbstractTool
                 throw new MiniMaxApiException("MiniMax video generation failed: {$msg}", 0, $baseResp);
             }
 
-            $this->logger?->debug('MiniMaxVideoTool: still processing, sleeping', [
+            $this->support->logger()?->debug('MiniMaxVideoTool: still processing, sleeping', [
                 'task_id'  => $taskId,
                 'status'   => $status,
                 'interval' => $intervalSeconds,

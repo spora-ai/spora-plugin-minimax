@@ -64,6 +64,47 @@ final class MiniMaxLogWriter
     }
 
     /**
+     * Log a successful tool call. Centralises the DTO construction so callers
+     * don't repeat the same 8-argument {@see MiniMaxLogContext} literal (which
+     * was the root cause of the 26.9% new-code duplication on PR #6).
+     *
+     * @param array<string, mixed> $response
+     */
+    public function logSuccess(MiniMaxToolContext $ctx, array $response): void
+    {
+        $this->record(new MiniMaxLogContext(
+            provider: $ctx->provider,
+            qualifiedToolName: $ctx->qualifiedName,
+            request: $ctx->arguments,
+            response: $response,
+            success: true,
+            userId: $ctx->userId,
+            agentId: $ctx->agentId,
+        ));
+    }
+
+    /**
+     * Log a business-level failure (HTTP 200 but the payload didn't carry what
+     * the tool needed). The {@see MiniMaxToolSupport::run()} catch blocks use
+     * {@see record()} directly because they don't have a typed response array.
+     *
+     * @param array<string, mixed> $response
+     */
+    public function logFailure(MiniMaxToolContext $ctx, array $response, string $error): void
+    {
+        $this->record(new MiniMaxLogContext(
+            provider: $ctx->provider,
+            qualifiedToolName: $ctx->qualifiedName,
+            request: $ctx->arguments,
+            response: $response,
+            success: false,
+            error: $error,
+            userId: $ctx->userId,
+            agentId: $ctx->agentId,
+        ));
+    }
+
+    /**
      * Recursively replace values for sensitive keys with '***', and replace
      * oversized base64-like strings with a size marker.
      *
