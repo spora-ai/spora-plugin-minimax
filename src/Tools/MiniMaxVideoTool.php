@@ -4,20 +4,16 @@ declare(strict_types=1);
 
 namespace Spora\Plugins\MiniMax\Tools;
 
-use Psr\Log\LoggerInterface;
 use Spora\Plugins\MiniMax\Support\Exceptions\MiniMaxApiException;
 use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
-use Spora\Services\ToolConfigService;
-use Spora\Tools\AbstractTool;
+use Spora\Plugins\MiniMax\Support\MiniMaxTool;
+use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
 use Spora\Tools\ValueObjects\ToolResult;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
-use Throwable;
 
 /**
  * Generates a video from a text prompt via MiniMax's video_generation API.
@@ -88,22 +84,13 @@ use Throwable;
     description: 'Video resolution (e.g. "1080p"). MiniMax picks a default if omitted; the public docs do not enumerate valid values.',
     required: false,
 )]
-final class MiniMaxVideoTool extends AbstractTool
+final class MiniMaxVideoTool extends MiniMaxTool
 {
-    private const PROVIDER = 'video';
-    private const DEFAULT_MODEL = 'MiniMax-Hailuo-2.3';
-
-    public function __construct(
-        private readonly ToolConfigService   $configService,
-        private readonly HttpClientInterface $httpClient,
-        private readonly MiniMaxLogWriter    $logWriter,
-        private readonly ?LoggerInterface    $logger = null,
-    ) {}
-
-    public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
-    {
-        return $this->generate($arguments, $agentId, $userId, $taskId);
-    }
+    protected const PROVIDER        = 'video';
+    protected const DEFAULT_MODEL   = 'MiniMax-Hailuo-2.3';
+    protected const QUALIFIED_NAME  = 'minimax:video';
+    protected const TIMEOUT_SECONDS = 30;
+    protected const TOOL_LABEL      = 'Video generation';
 
     public function describeAction(array $arguments): string
     {
@@ -111,100 +98,106 @@ final class MiniMaxVideoTool extends AbstractTool
         return "Generate video for prompt: '{$prompt}'";
     }
 
-    public function generate(array $arguments, int $agentId, ?int $userId, ?int $taskId): ToolResult
+    /** @param array<string, mixed> $arguments */
+    protected function validateArguments(array $arguments): ?ToolResult
     {
-        $prompt = trim((string) ($arguments['prompt'] ?? ''));
+        $prompt      = trim((string) ($arguments['prompt'] ?? ''));
         $durationRaw = (string) ($arguments['duration_seconds'] ?? '6');
-        $duration = in_array($durationRaw, ['6', '10'], true) ? (int) $durationRaw : 0;
-        $resolution = trim((string) ($arguments['resolution'] ?? ''));
-
+        $duration    = in_array($durationRaw, ['6', '10'], true) ? (int) $durationRaw : 0;
+        $errors = [];
         if ($prompt === '') {
-            return new ToolResult(false, 'Prompt cannot be empty.');
+            $errors[] = 'Prompt cannot be empty.';
         }
         if (mb_strlen($prompt) > 2000) {
-            return new ToolResult(false, 'Prompt exceeds the 2000-character MiniMax limit.');
+            $errors[] = 'Prompt exceeds the 2000-character MiniMax limit.';
         }
         if (!in_array($duration, [6, 10], true)) {
-            return new ToolResult(false, 'duration_seconds must be 6 or 10.');
+            $errors[] = 'duration_seconds must be 6 or 10.';
+        }
+        return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
+    }
+
+    /** @param array<string, mixed> $arguments */
+    protected function doWork(MiniMaxToolContext $ctx, array $arguments): ToolResult
+    {
+        $prompt      = trim((string) ($arguments['prompt'] ?? ''));
+        $durationRaw = (string) ($arguments['duration_seconds'] ?? '6');
+        $duration    = (int) $durationRaw;
+        $resolution  = trim((string) ($arguments['resolution'] ?? ''));
+
+        $pollInterval = MiniMaxSettings::intSetting(self::PROVIDER, 'poll_interval_seconds', $ctx->settings, 10);
+        $pollTimeout  = MiniMaxSettings::intSetting(self::PROVIDER, 'poll_timeout_seconds', $ctx->settings, 600);
+
+        /** @var MiniMaxHttpClient $client */
+        $client = $ctx->client;
+
+        $taskId = $this->submitGeneration($client, $ctx->settings, $prompt, $duration, $resolution);
+        $this->support->logger()?->info('MiniMaxVideoTool: video generation started', [
+            'task_id'  => $taskId,
+            'interval' => $pollInterval,
+            'timeout'  => $pollTimeout,
+        ]);
+
+        $finalResponse = $this->pollUntilDone($client, $taskId, $pollInterval, $pollTimeout);
+
+        // The success response carries a file_id, not a direct download URL.
+        // Retrieving the underlying file requires MiniMax's file-management
+        // endpoints (not documented on the public API page at the time of
+        // v1). v1 returns the file_id so a downstream caller can fetch the
+        // asset via a separate authenticated request when they need it.
+        $this->support->logSuccess($ctx, $finalResponse);
+
+        $fileId = is_string($finalResponse['file_id'] ?? null) ? $finalResponse['file_id'] : null;
+        $width  = is_int($finalResponse['video_width'] ?? null) ? $finalResponse['video_width'] : null;
+        $height = is_int($finalResponse['video_height'] ?? null) ? $finalResponse['video_height'] : null;
+
+        $sizeLine = ($width !== null && $height !== null) ? " ({$width}x{$height})" : '';
+        $content = "Generated video{$sizeLine} for prompt: \"{$prompt}\"\n\n"
+            . "task_id: {$taskId}\nfile_id: {$fileId}\n\n"
+            . "Retrieve the file via MiniMax's file-management API using this file_id "
+            . "(the public docs do not document the file-retrieval endpoint at the time of v1).";
+
+        return new ToolResult(true, $content, [
+            'task_id'    => $taskId,
+            'file_id'    => $fileId,
+            'width'      => $width,
+            'height'     => $height,
+            'duration'   => $duration,
+            'resolution' => $resolution !== '' ? $resolution : null,
+        ]);
+    }
+
+    /**
+     * Submit the generation request and return the upstream `task_id`. Records
+     * a failure log row and returns a ToolResult-flavoured exception if MiniMax
+     * didn't return a usable id.
+     *
+     * @param array<string, mixed> $settings
+     */
+    private function submitGeneration(
+        MiniMaxHttpClient $client,
+        array $settings,
+        string $prompt,
+        int $duration,
+        string $resolution,
+    ): string {
+        $body = [
+            'model'    => MiniMaxSettings::model(self::PROVIDER, $settings, self::DEFAULT_MODEL),
+            'prompt'   => $prompt,
+            'duration' => $duration,
+        ];
+        if ($resolution !== '') {
+            $body['resolution'] = $resolution;
         }
 
-        $settings = $this->configService->getEffectiveSettings(static::class, $agentId, $userId);
-        $apiKey = MiniMaxSettings::apiKey(self::PROVIDER, $settings);
-        if ($apiKey === '') {
-            return new ToolResult(false, 'MiniMax API key is not configured for this agent. Edit the MiniMax Video settings.');
+        $startResponse = $client->postJson('/v1/video_generation', $body);
+        $taskId = $startResponse['task_id'] ?? null;
+        if (!is_string($taskId) || $taskId === '') {
+            // Synthetic MiniMaxApiException so the shared try/catch in
+            // MiniMaxToolSupport::run() logs and converts to a ToolResult.
+            throw new MiniMaxApiException('MiniMax returned no task_id.', 0, $startResponse);
         }
-
-        $pollInterval = MiniMaxSettings::intSetting(self::PROVIDER, 'poll_interval_seconds', $settings, 10);
-        $pollTimeout = MiniMaxSettings::intSetting(self::PROVIDER, 'poll_timeout_seconds', $settings, 600);
-
-        $client = new MiniMaxHttpClient(
-            $this->httpClient,
-            $apiKey,
-            MiniMaxSettings::baseUrl(self::PROVIDER, $settings),
-            timeoutSeconds: 30,
-            logger: $this->logger,
-        );
-
-        $qualifiedName = 'minimax:' . 'video';
-
-        try {
-            $body = [
-                'model'    => MiniMaxSettings::model(self::PROVIDER, $settings, self::DEFAULT_MODEL),
-                'prompt'   => $prompt,
-                'duration' => $duration,
-            ];
-            if ($resolution !== '') {
-                $body['resolution'] = $resolution;
-            }
-            $startResponse = $client->postJson('/v1/video_generation', $body);
-
-            $taskId = $startResponse['task_id'] ?? null;
-            if (!is_string($taskId) || $taskId === '') {
-                $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $startResponse, false, 'No task_id in response', $userId, $agentId);
-                return new ToolResult(false, 'MiniMax returned no task_id.');
-            }
-
-            $this->logger?->info('MiniMaxVideoTool: video generation started', [
-                'task_id'   => $taskId,
-                'interval'  => $pollInterval,
-                'timeout'   => $pollTimeout,
-            ]);
-
-            $finalResponse = $this->pollUntilDone($client, $taskId, $pollInterval, $pollTimeout);
-
-            // The success response carries a file_id, not a direct download URL.
-            // Retrieving the underlying file requires MiniMax's file-management
-            // endpoints (not documented on the public API page at the time of
-            // v1). v1 returns the file_id so a downstream caller can fetch the
-            // asset via a separate authenticated request when they need it.
-            $fileId = is_string($finalResponse['file_id'] ?? null) ? $finalResponse['file_id'] : null;
-            $width  = is_int($finalResponse['video_width'] ?? null) ? $finalResponse['video_width'] : null;
-            $height = is_int($finalResponse['video_height'] ?? null) ? $finalResponse['video_height'] : null;
-
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $finalResponse, true, null, $userId, $agentId);
-
-            $sizeLine = ($width !== null && $height !== null) ? " ({$width}x{$height})" : '';
-            $content = "Generated video{$sizeLine} for prompt: \"{$prompt}\"\n\n"
-                . "task_id: {$taskId}\nfile_id: {$fileId}\n\n"
-                . "Retrieve the file via MiniMax's file-management API using this file_id "
-                . "(the public docs do not document the file-retrieval endpoint at the time of v1).";
-
-            return new ToolResult(true, $content, [
-                'task_id'      => $taskId,
-                'file_id'      => $fileId,
-                'width'        => $width,
-                'height'       => $height,
-                'duration'     => $duration,
-                'resolution'   => $resolution !== '' ? $resolution : null,
-            ]);
-        } catch (MiniMaxApiException $e) {
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
-            return new ToolResult(false, $e->getMessage());
-        } catch (Throwable $e) {
-            $this->logger?->error('MiniMaxVideoTool: unexpected exception', ['exception' => $e]);
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
-            return new ToolResult(false, 'Video generation failed: ' . $e->getMessage());
-        }
+        return $taskId;
     }
 
     /**
@@ -237,7 +230,7 @@ final class MiniMaxVideoTool extends AbstractTool
                 throw new MiniMaxApiException("MiniMax video generation failed: {$msg}", 0, $baseResp);
             }
 
-            $this->logger?->debug('MiniMaxVideoTool: still processing, sleeping', [
+            $this->support->logger()?->debug('MiniMaxVideoTool: still processing, sleeping', [
                 'task_id'  => $taskId,
                 'status'   => $status,
                 'interval' => $intervalSeconds,

@@ -4,20 +4,15 @@ declare(strict_types=1);
 
 namespace Spora\Plugins\MiniMax\Tools;
 
-use Psr\Log\LoggerInterface;
-use Spora\Plugins\MiniMax\Support\Exceptions\MiniMaxApiException;
 use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
-use Spora\Services\ToolConfigService;
-use Spora\Tools\AbstractTool;
+use Spora\Plugins\MiniMax\Support\MiniMaxTool;
+use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
 use Spora\Tools\ValueObjects\ToolResult;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
-use Throwable;
 
 /**
  * Generates an image from a text prompt via MiniMax's image_generation API.
@@ -67,22 +62,13 @@ use Throwable;
     enum: ['1:1', '16:9', '4:3', '3:2', '2:3', '3:4', '9:16', '21:9'],
     default: '1:1',
 )]
-final class MiniMaxImageTool extends AbstractTool
+final class MiniMaxImageTool extends MiniMaxTool
 {
-    private const PROVIDER = 'image';
-    private const DEFAULT_MODEL = 'image-01';
-
-    public function __construct(
-        private readonly ToolConfigService   $configService,
-        private readonly HttpClientInterface $httpClient,
-        private readonly MiniMaxLogWriter    $logWriter,
-        private readonly ?LoggerInterface    $logger = null,
-    ) {}
-
-    public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
-    {
-        return $this->generate($arguments, $agentId, $userId, $taskId);
-    }
+    protected const PROVIDER        = 'image';
+    protected const DEFAULT_MODEL   = 'image-01';
+    protected const QUALIFIED_NAME  = 'minimax:image';
+    protected const TIMEOUT_SECONDS = 60;
+    protected const TOOL_LABEL      = 'Image generation';
 
     public function describeAction(array $arguments): string
     {
@@ -90,70 +76,50 @@ final class MiniMaxImageTool extends AbstractTool
         return "Generate image for prompt: '{$prompt}'";
     }
 
-    public function generate(array $arguments, int $agentId, ?int $userId, ?int $taskId): ToolResult
+    /** @param array<string, mixed> $arguments */
+    protected function validateArguments(array $arguments): ?ToolResult
     {
         $prompt = trim((string) ($arguments['prompt'] ?? ''));
-        $aspectRatio = trim((string) ($arguments['aspect_ratio'] ?? '1:1'));
-
+        $errors = [];
         if ($prompt === '') {
-            return $this->fail('Prompt cannot be empty.');
+            $errors[] = 'Prompt cannot be empty.';
         }
         if (mb_strlen($prompt) > 1500) {
-            return $this->fail('Prompt exceeds the 1500-character MiniMax limit.');
+            $errors[] = 'Prompt exceeds the 1500-character MiniMax limit.';
         }
-
-        $settings = $this->configService->getEffectiveSettings(static::class, $agentId, $userId);
-        $apiKey = MiniMaxSettings::apiKey(self::PROVIDER, $settings);
-        if ($apiKey === '') {
-            return $this->fail('MiniMax API key is not configured for this agent. Edit the MiniMax Image settings.');
-        }
-
-        $client = new MiniMaxHttpClient(
-            $this->httpClient,
-            $apiKey,
-            MiniMaxSettings::baseUrl(self::PROVIDER, $settings),
-            timeoutSeconds: 60,
-            logger: $this->logger,
-        );
-
-        $qualifiedName = 'minimax:' . 'image';
-
-        try {
-            $response = $client->postJson('/v1/image_generation', [
-                'model'        => MiniMaxSettings::model(self::PROVIDER, $settings, self::DEFAULT_MODEL),
-                'prompt'       => $prompt,
-                'aspect_ratio' => $aspectRatio,
-                'response_format' => 'url',
-            ]);
-
-            $urls = $response['data']['image_urls'] ?? [];
-            if (!is_array($urls) || $urls === []) {
-                $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, false, 'No image URLs returned', $userId, $agentId);
-                return $this->fail('MiniMax returned no image URLs.');
-            }
-
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, true, null, $userId, $agentId);
-
-            $list = array_map(static fn($i, $u) => '[' . ($i + 1) . "] {$u}", array_keys($urls), $urls);
-            $urlsBlock = implode("\n", $list);
-            $content = "Generated image for prompt: \"{$prompt}\"\n\nImage URLs (valid for 24 hours):\n{$urlsBlock}";
-
-            return new ToolResult(true, $content, [
-                'image_urls'  => array_values($urls),
-                'model'       => MiniMaxSettings::model(self::PROVIDER, $settings, self::DEFAULT_MODEL),
-            ]);
-        } catch (MiniMaxApiException $e) {
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
-            return $this->fail($e->getMessage());
-        } catch (Throwable $e) {
-            $this->logger?->error('MiniMaxImageTool: unexpected exception', ['exception' => $e]);
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
-            return $this->fail('Image generation failed: ' . $e->getMessage());
-        }
+        return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
     }
 
-    private function fail(string $message): ToolResult
+    /** @param array<string, mixed> $arguments */
+    protected function doWork(MiniMaxToolContext $ctx, array $arguments): ToolResult
     {
-        return new ToolResult(false, $message);
+        $prompt      = trim((string) ($arguments['prompt'] ?? ''));
+        $aspectRatio = trim((string) ($arguments['aspect_ratio'] ?? '1:1'));
+
+        /** @var MiniMaxHttpClient $client */
+        $client = $ctx->client;
+        $response = $client->postJson('/v1/image_generation', [
+            'model'        => MiniMaxSettings::model(self::PROVIDER, $ctx->settings, self::DEFAULT_MODEL),
+            'prompt'       => $prompt,
+            'aspect_ratio' => $aspectRatio,
+            'response_format' => 'url',
+        ]);
+
+        $urls = $response['data']['image_urls'] ?? [];
+        if (!is_array($urls) || $urls === []) {
+            $this->support->logFailure($ctx, $response, 'No image URLs returned');
+            return new ToolResult(false, 'MiniMax returned no image URLs.');
+        }
+
+        $this->support->logSuccess($ctx, $response);
+
+        $list = array_map(static fn($i, $u) => '[' . ($i + 1) . "] {$u}", array_keys($urls), $urls);
+        $urlsBlock = implode("\n", $list);
+        $content = "Generated image for prompt: \"{$prompt}\"\n\nImage URLs (valid for 24 hours):\n{$urlsBlock}";
+
+        return new ToolResult(true, $content, [
+            'image_urls'  => array_values($urls),
+            'model'       => MiniMaxSettings::model(self::PROVIDER, $ctx->settings, self::DEFAULT_MODEL),
+        ]);
     }
 }

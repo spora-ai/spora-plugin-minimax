@@ -4,20 +4,14 @@ declare(strict_types=1);
 
 namespace Spora\Plugins\MiniMax\Tools;
 
-use Psr\Log\LoggerInterface;
-use Spora\Plugins\MiniMax\Support\Exceptions\MiniMaxApiException;
-use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
-use Spora\Services\ToolConfigService;
-use Spora\Tools\AbstractTool;
+use Spora\Plugins\MiniMax\Support\MiniMaxTool;
+use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
 use Spora\Tools\ValueObjects\ToolResult;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
-use Throwable;
 
 /**
  * Synthesizes speech from text via MiniMax's t2a_v2 (text-to-audio) API.
@@ -81,23 +75,14 @@ use Throwable;
     maximum: 2.0,
     default: 1.0,
 )]
-final class MiniMaxSpeechTool extends AbstractTool
+final class MiniMaxSpeechTool extends MiniMaxTool
 {
-    private const PROVIDER = 'speech';
-    private const DEFAULT_MODEL = 'speech-2.8-hd';
-    private const DEFAULT_VOICE = 'English_PassionateWarrior';
-
-    public function __construct(
-        private readonly ToolConfigService   $configService,
-        private readonly HttpClientInterface $httpClient,
-        private readonly MiniMaxLogWriter    $logWriter,
-        private readonly ?LoggerInterface    $logger = null,
-    ) {}
-
-    public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
-    {
-        return $this->synthesize($arguments, $agentId, $userId, $taskId);
-    }
+    protected const PROVIDER        = 'speech';
+    protected const DEFAULT_MODEL   = 'speech-2.8-hd';
+    protected const DEFAULT_VOICE   = 'English_PassionateWarrior';
+    protected const QUALIFIED_NAME  = 'minimax:speech';
+    protected const TIMEOUT_SECONDS = 60;
+    protected const TOOL_LABEL      = 'Speech synthesis';
 
     public function describeAction(array $arguments): string
     {
@@ -105,54 +90,12 @@ final class MiniMaxSpeechTool extends AbstractTool
         return "Synthesize speech for: '{$text}'";
     }
 
-    public function synthesize(array $arguments, int $agentId, ?int $userId, ?int $taskId): ToolResult
+    /** @param array<string, mixed> $arguments */
+    protected function validateArguments(array $arguments): ?ToolResult
     {
-        $validation = $this->validateArguments($arguments);
-        if ($validation !== null) {
-            return $validation;
-        }
-
-        $text = trim((string) ($arguments['text'] ?? ''));
+        $text  = trim((string) ($arguments['text'] ?? ''));
         $speed = (float) ($arguments['speed'] ?? 1.0);
-
-        $settings = $this->configService->getEffectiveSettings(static::class, $agentId, $userId);
-        $apiKey = MiniMaxSettings::apiKey(self::PROVIDER, $settings);
-        if ($apiKey === '') {
-            return new ToolResult(false, 'MiniMax API key is not configured for this agent. Edit the MiniMax Speech settings.');
-        }
-
-        $client = new MiniMaxHttpClient(
-            $this->httpClient,
-            $apiKey,
-            MiniMaxSettings::baseUrl(self::PROVIDER, $settings),
-            timeoutSeconds: 60,
-            logger: $this->logger,
-        );
-
-        $qualifiedName = 'minimax:' . 'speech';
-        $voiceId = $this->resolveVoiceId($arguments, $settings);
-
-        try {
-            $response = $client->postJson('/v1/t2a_v2', $this->buildRequestBody($settings, $text, $voiceId, $speed));
-
-            return $this->parseResponse($response, $arguments, $voiceId, $userId, $agentId, $qualifiedName);
-        } catch (MiniMaxApiException $e) {
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
-            return new ToolResult(false, $e->getMessage());
-        } catch (Throwable $e) {
-            $this->logger?->error('MiniMaxSpeechTool: unexpected exception', ['exception' => $e]);
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
-            return new ToolResult(false, 'Speech synthesis failed: ' . $e->getMessage());
-        }
-    }
-
-    private function validateArguments(array $arguments): ?ToolResult
-    {
         $errors = [];
-
-        $text = trim((string) ($arguments['text'] ?? ''));
-        $speed = (float) ($arguments['speed'] ?? 1.0);
-
         if ($text === '') {
             $errors[] = 'Text cannot be empty.';
         }
@@ -162,7 +105,6 @@ final class MiniMaxSpeechTool extends AbstractTool
         if ($speed < 0.5 || $speed > 2.0) {
             $errors[] = 'Speed must be between 0.5 and 2.0.';
         }
-
         return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
     }
 
@@ -212,29 +154,29 @@ final class MiniMaxSpeechTool extends AbstractTool
         ];
     }
 
-    /**
-     * @param  array<string, mixed> $response
-     */
-    private function parseResponse(
-        array $response,
-        array $arguments,
-        string $voiceId,
-        ?int $userId,
-        int $agentId,
-        string $qualifiedName,
-    ): ToolResult {
-        $hexAudio = $response['data']['audio'] ?? null;
-        $audioUrl = $response['data']['audio_url'] ?? null;
-        $lengthMs = $response['extra_info']['audio_length'] ?? null;
-        $sizeBytes = $response['extra_info']['audio_size'] ?? null;
+    /** @param array<string, mixed> $arguments */
+    protected function doWork(MiniMaxToolContext $ctx, array $arguments): ToolResult
+    {
+        $text   = trim((string) ($arguments['text'] ?? ''));
+        $speed  = (float) ($arguments['speed'] ?? 1.0);
+        $voiceId = $this->resolveVoiceId($arguments, $ctx->settings);
+
+        /** @var \Spora\Plugins\MiniMax\Support\MiniMaxHttpClient $client */
+        $client = $ctx->client;
+        $response = $client->postJson('/v1/t2a_v2', $this->buildRequestBody($ctx->settings, $text, $voiceId, $speed));
+
+        $hexAudio   = $response['data']['audio'] ?? null;
+        $audioUrl   = $response['data']['audio_url'] ?? null;
+        $lengthMs   = $response['extra_info']['audio_length'] ?? null;
+        $sizeBytes  = $response['extra_info']['audio_size'] ?? null;
         $usageChars = $response['extra_info']['usage_characters'] ?? null;
 
         if (!is_string($hexAudio) && !is_string($audioUrl)) {
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, false, 'No audio in response', $userId, $agentId);
+            $this->support->logFailure($ctx, $response, 'No audio in response');
             return new ToolResult(false, 'MiniMax returned no audio data.');
         }
 
-        $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, true, null, $userId, $agentId);
+        $this->support->logSuccess($ctx, $response);
 
         $statsLine = $this->formatStatsLine($lengthMs, $sizeBytes, $usageChars);
 

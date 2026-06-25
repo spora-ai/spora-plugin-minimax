@@ -38,29 +38,21 @@ final class MiniMaxLogWriter
     ) {}
 
     /**
-     * @param array<string, mixed> $request  Tool-call argument payload (post-redaction).
-     * @param array<string, mixed> $response Decoded API response (post-redaction), or empty on error.
+     * Persist a single log row. All fields ride on the {@see MiniMaxLogContext} DTO so
+     * the public signature stays at one parameter (SonarQube S107).
      */
-    public function record(
-        string $provider,
-        string $qualifiedToolName,
-        array $request,
-        array $response,
-        bool $success,
-        ?string $error = null,
-        ?int $userId = null,
-        ?int $agentId = null,
-    ): void {
+    public function record(MiniMaxLogContext $ctx): void
+    {
         try {
             Capsule::table('minimax_generation_log')->insert([
-                'user_id'          => $userId,
-                'agent_id'         => $agentId,
-                'tool_name'        => $qualifiedToolName,
-                'provider'         => $provider,
-                'request_payload'  => $this->encode($this->redact($request)),
-                'response_payload' => $response === [] ? null : $this->encode($this->redact($response)),
-                'status'           => $success ? 'ok' : 'error',
-                'error'            => $error !== null ? mb_substr($error, 0, 2000) : null,
+                'user_id'          => $ctx->userId,
+                'agent_id'         => $ctx->agentId,
+                'tool_name'        => $ctx->qualifiedToolName,
+                'provider'         => $ctx->provider,
+                'request_payload'  => $this->encode($this->redact($ctx->request)),
+                'response_payload' => $ctx->response === [] ? null : $this->encode($this->redact($ctx->response)),
+                'status'           => $ctx->success ? 'ok' : 'error',
+                'error'            => $ctx->error !== null ? mb_substr($ctx->error, 0, 2000) : null,
                 'created_at'       => date('Y-m-d H:i:s'),
                 'updated_at'       => date('Y-m-d H:i:s'),
             ]);
@@ -69,6 +61,47 @@ final class MiniMaxLogWriter
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Log a successful tool call. Centralises the DTO construction so callers
+     * don't repeat the same 8-argument {@see MiniMaxLogContext} literal (which
+     * was the root cause of the 26.9% new-code duplication on PR #6).
+     *
+     * @param array<string, mixed> $response
+     */
+    public function logSuccess(MiniMaxToolContext $ctx, array $response): void
+    {
+        $this->record(new MiniMaxLogContext(
+            provider: $ctx->provider,
+            qualifiedToolName: $ctx->qualifiedName,
+            request: $ctx->arguments,
+            response: $response,
+            success: true,
+            userId: $ctx->userId,
+            agentId: $ctx->agentId,
+        ));
+    }
+
+    /**
+     * Log a business-level failure (HTTP 200 but the payload didn't carry what
+     * the tool needed). The {@see MiniMaxToolSupport::run()} catch blocks use
+     * {@see record()} directly because they don't have a typed response array.
+     *
+     * @param array<string, mixed> $response
+     */
+    public function logFailure(MiniMaxToolContext $ctx, array $response, string $error): void
+    {
+        $this->record(new MiniMaxLogContext(
+            provider: $ctx->provider,
+            qualifiedToolName: $ctx->qualifiedName,
+            request: $ctx->arguments,
+            response: $response,
+            success: false,
+            error: $error,
+            userId: $ctx->userId,
+            agentId: $ctx->agentId,
+        ));
     }
 
     /**
