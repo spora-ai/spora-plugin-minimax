@@ -246,4 +246,3 @@ final class MiniMaxVideoTool extends AbstractTool
         }
     }
 }
-

@@ -107,14 +107,17 @@ it('throws MiniMaxApiException on non-zero base_resp.status_code and does not re
 
     $client = new MiniMaxHttpClient($http, 'k', MiniMaxHttpClientTestLiterals::BASE_URL, 30);
 
+    $caught = null;
     try {
         $client->postJson(MiniMaxHttpClientTestLiterals::PATH_X, []);
-        $this->fail('Expected MiniMaxApiException');
     } catch (MiniMaxApiException $e) {
-        expect($e->statusCode)->toBe(1008)
-            ->and($e->getMessage())->toContain(MiniMaxHttpClientTestLiterals::ERR_INSUFFICIENT_BALANCE)
-            ->and($e->baseResp['status_msg'])->toBe(MiniMaxHttpClientTestLiterals::ERR_INSUFFICIENT_BALANCE);
+        $caught = $e;
     }
+
+    expect($caught)->not->toBeNull()
+        ->and($caught->statusCode)->toBe(1008)
+        ->and($caught->getMessage())->toContain(MiniMaxHttpClientTestLiterals::ERR_INSUFFICIENT_BALANCE)
+        ->and($caught->baseResp['status_msg'])->toBe(MiniMaxHttpClientTestLiterals::ERR_INSUFFICIENT_BALANCE);
 });
 
 it('retries on transport errors then succeeds', function () {
