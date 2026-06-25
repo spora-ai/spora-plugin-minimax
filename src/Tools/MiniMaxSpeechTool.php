@@ -4,19 +4,14 @@ declare(strict_types=1);
 
 namespace Spora\Plugins\MiniMax\Tools;
 
-use Psr\Log\LoggerInterface;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
+use Spora\Plugins\MiniMax\Support\MiniMaxTool;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
-use Spora\Plugins\MiniMax\Support\MiniMaxToolSupport;
-use Spora\Services\ToolConfigService;
-use Spora\Tools\AbstractTool;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
 use Spora\Tools\ValueObjects\ToolResult;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
  * Synthesizes speech from text via MiniMax's t2a_v2 (text-to-audio) API.
@@ -80,49 +75,14 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
     maximum: 2.0,
     default: 1.0,
 )]
-final class MiniMaxSpeechTool extends AbstractTool
+final class MiniMaxSpeechTool extends MiniMaxTool
 {
-    private const PROVIDER = 'speech';
-    private const DEFAULT_MODEL = 'speech-2.8-hd';
-    private const DEFAULT_VOICE = 'English_PassionateWarrior';
-    private const QUALIFIED_NAME = 'minimax:speech';
-    private const TIMEOUT_SECONDS = 60;
-    private const TOOL_LABEL = 'Speech synthesis';
-
-    public function __construct(
-        ToolConfigService   $configService,
-        HttpClientInterface $httpClient,
-        MiniMaxLogWriter    $logWriter,
-        ?LoggerInterface    $logger = null,
-        ?MiniMaxToolSupport $support = null,
-    ) {
-        $this->support = $support ?? new MiniMaxToolSupport($configService, $httpClient, $logWriter, $logger);
-    }
-
-    private MiniMaxToolSupport $support;
-
-    public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
-    {
-        $validation = $this->validateArguments($arguments);
-        if ($validation !== null) {
-            return $validation;
-        }
-
-        $ctx = $this->support->prepare(
-            toolClass: static::class,
-            provider: self::PROVIDER,
-            qualifiedName: self::QUALIFIED_NAME,
-            arguments: $arguments,
-            agentId: $agentId,
-            userId: $userId,
-            timeoutSeconds: self::TIMEOUT_SECONDS,
-        );
-        if ($ctx instanceof ToolResult) {
-            return $ctx;
-        }
-
-        return $this->support->run($ctx, self::TOOL_LABEL, fn(MiniMaxToolContext $c) => $this->doSynthesize($c, $arguments));
-    }
+    protected const PROVIDER        = 'speech';
+    protected const DEFAULT_MODEL   = 'speech-2.8-hd';
+    protected const DEFAULT_VOICE   = 'English_PassionateWarrior';
+    protected const QUALIFIED_NAME  = 'minimax:speech';
+    protected const TIMEOUT_SECONDS = 60;
+    protected const TOOL_LABEL      = 'Speech synthesis';
 
     public function describeAction(array $arguments): string
     {
@@ -130,10 +90,8 @@ final class MiniMaxSpeechTool extends AbstractTool
         return "Synthesize speech for: '{$text}'";
     }
 
-    /**
-     * @param array<string, mixed> $arguments
-     */
-    private function validateArguments(array $arguments): ?ToolResult
+    /** @param array<string, mixed> $arguments */
+    protected function validateArguments(array $arguments): ?ToolResult
     {
         $text  = trim((string) ($arguments['text'] ?? ''));
         $speed = (float) ($arguments['speed'] ?? 1.0);
@@ -196,10 +154,8 @@ final class MiniMaxSpeechTool extends AbstractTool
         ];
     }
 
-    /**
-     * @param array<string, mixed> $arguments
-     */
-    private function doSynthesize(MiniMaxToolContext $ctx, array $arguments): ToolResult
+    /** @param array<string, mixed> $arguments */
+    protected function doWork(MiniMaxToolContext $ctx, array $arguments): ToolResult
     {
         $text   = trim((string) ($arguments['text'] ?? ''));
         $speed  = (float) ($arguments['speed'] ?? 1.0);

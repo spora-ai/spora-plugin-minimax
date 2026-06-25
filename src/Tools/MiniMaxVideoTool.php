@@ -4,21 +4,16 @@ declare(strict_types=1);
 
 namespace Spora\Plugins\MiniMax\Tools;
 
-use Psr\Log\LoggerInterface;
 use Spora\Plugins\MiniMax\Support\Exceptions\MiniMaxApiException;
 use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
+use Spora\Plugins\MiniMax\Support\MiniMaxTool;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
-use Spora\Plugins\MiniMax\Support\MiniMaxToolSupport;
-use Spora\Services\ToolConfigService;
-use Spora\Tools\AbstractTool;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
 use Spora\Tools\ValueObjects\ToolResult;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
  * Generates a video from a text prompt via MiniMax's video_generation API.
@@ -89,48 +84,13 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
     description: 'Video resolution (e.g. "1080p"). MiniMax picks a default if omitted; the public docs do not enumerate valid values.',
     required: false,
 )]
-final class MiniMaxVideoTool extends AbstractTool
+final class MiniMaxVideoTool extends MiniMaxTool
 {
-    private const PROVIDER = 'video';
-    private const DEFAULT_MODEL = 'MiniMax-Hailuo-2.3';
-    private const QUALIFIED_NAME = 'minimax:video';
-    private const TIMEOUT_SECONDS = 30;
-    private const TOOL_LABEL = 'Video generation';
-
-    public function __construct(
-        ToolConfigService   $configService,
-        HttpClientInterface $httpClient,
-        MiniMaxLogWriter    $logWriter,
-        ?LoggerInterface    $logger = null,
-        ?MiniMaxToolSupport $support = null,
-    ) {
-        $this->support = $support ?? new MiniMaxToolSupport($configService, $httpClient, $logWriter, $logger);
-    }
-
-    private MiniMaxToolSupport $support;
-
-    public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
-    {
-        $validation = $this->validateArguments($arguments);
-        if ($validation !== null) {
-            return $validation;
-        }
-
-        $ctx = $this->support->prepare(
-            toolClass: static::class,
-            provider: self::PROVIDER,
-            qualifiedName: self::QUALIFIED_NAME,
-            arguments: $arguments,
-            agentId: $agentId,
-            userId: $userId,
-            timeoutSeconds: self::TIMEOUT_SECONDS,
-        );
-        if ($ctx instanceof ToolResult) {
-            return $ctx;
-        }
-
-        return $this->support->run($ctx, self::TOOL_LABEL, fn(MiniMaxToolContext $c) => $this->doGenerate($c, $arguments));
-    }
+    protected const PROVIDER        = 'video';
+    protected const DEFAULT_MODEL   = 'MiniMax-Hailuo-2.3';
+    protected const QUALIFIED_NAME  = 'minimax:video';
+    protected const TIMEOUT_SECONDS = 30;
+    protected const TOOL_LABEL      = 'Video generation';
 
     public function describeAction(array $arguments): string
     {
@@ -138,10 +98,8 @@ final class MiniMaxVideoTool extends AbstractTool
         return "Generate video for prompt: '{$prompt}'";
     }
 
-    /**
-     * @param array<string, mixed> $arguments
-     */
-    private function validateArguments(array $arguments): ?ToolResult
+    /** @param array<string, mixed> $arguments */
+    protected function validateArguments(array $arguments): ?ToolResult
     {
         $prompt      = trim((string) ($arguments['prompt'] ?? ''));
         $durationRaw = (string) ($arguments['duration_seconds'] ?? '6');
@@ -159,10 +117,8 @@ final class MiniMaxVideoTool extends AbstractTool
         return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
     }
 
-    /**
-     * @param array<string, mixed> $arguments
-     */
-    private function doGenerate(MiniMaxToolContext $ctx, array $arguments): ToolResult
+    /** @param array<string, mixed> $arguments */
+    protected function doWork(MiniMaxToolContext $ctx, array $arguments): ToolResult
     {
         $prompt      = trim((string) ($arguments['prompt'] ?? ''));
         $durationRaw = (string) ($arguments['duration_seconds'] ?? '6');

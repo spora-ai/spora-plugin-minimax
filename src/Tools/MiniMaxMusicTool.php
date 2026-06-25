@@ -4,19 +4,15 @@ declare(strict_types=1);
 
 namespace Spora\Plugins\MiniMax\Tools;
 
-use Psr\Log\LoggerInterface;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
+use LogicException;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
+use Spora\Plugins\MiniMax\Support\MiniMaxTool;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
-use Spora\Plugins\MiniMax\Support\MiniMaxToolSupport;
-use Spora\Services\ToolConfigService;
-use Spora\Tools\AbstractTool;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
 use Spora\Tools\ValueObjects\ToolResult;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
  * Song-making operations for MiniMax, consolidated into one tool:
@@ -80,26 +76,21 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
     enum: ['url', 'hex'],
     default: 'url',
 )]
-final class MiniMaxMusicTool extends AbstractTool
+final class MiniMaxMusicTool extends MiniMaxTool
 {
-    private const PROVIDER = 'music';
-    private const DEFAULT_MODEL = 'music-2.6';
-    private const QUALIFIED_NAME = 'minimax:music';
-    private const TIMEOUT_SECONDS_COMPOSE = 90;
-    private const TIMEOUT_SECONDS_LYRICS = 30;
+    protected const PROVIDER              = 'music';
+    protected const DEFAULT_MODEL         = 'music-2.6';
+    protected const QUALIFIED_NAME        = 'minimax:music';
+    protected const TIMEOUT_SECONDS       = 30; // overridden per-op
+    protected const TOOL_LABEL            = ''; // unused — dispatch via execute()
+    protected const TIMEOUT_SECONDS_COMPOSE = 90;
+    protected const TIMEOUT_SECONDS_LYRICS  = 30;
 
-    public function __construct(
-        ToolConfigService   $configService,
-        HttpClientInterface $httpClient,
-        MiniMaxLogWriter    $logWriter,
-        ?LoggerInterface    $logger = null,
-        ?MiniMaxToolSupport $support = null,
-    ) {
-        $this->support = $support ?? new MiniMaxToolSupport($configService, $httpClient, $logWriter, $logger);
-    }
-
-    private MiniMaxToolSupport $support;
-
+    /**
+     * Multi-operation tool: dispatch on the `action` argument. Each per-op
+     * method calls {@see MiniMaxTool::runWithValidation()} for the standard
+     * validate→prepare→run orchestration.
+     */
     public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
     {
         $operation = $this->getOperationName($arguments);
@@ -124,72 +115,60 @@ final class MiniMaxMusicTool extends AbstractTool
         };
     }
 
-    /**
-     * @param array<string, mixed> $arguments
-     */
+    /** @param array<string, mixed> $arguments */
     public function compose(array $arguments, int $agentId, ?int $userId): ToolResult
     {
-        $validation = $this->validateComposeArguments($arguments);
-        if ($validation !== null) {
-            return $validation;
-        }
-
-        $ctx = $this->support->prepare(
-            toolClass: static::class,
-            provider: self::PROVIDER,
-            qualifiedName: self::QUALIFIED_NAME,
-            arguments: $arguments,
-            agentId: $agentId,
-            userId: $userId,
-            timeoutSeconds: self::TIMEOUT_SECONDS_COMPOSE,
+        return $this->runWithValidation(
+            $arguments,
+            $agentId,
+            $userId,
+            self::TIMEOUT_SECONDS_COMPOSE,
+            'Music generation',
+            fn(MiniMaxToolContext $c) => $this->doCompose($c, $arguments),
+            fn(array $a) => $this->validateComposeArguments($a),
         );
-        if ($ctx instanceof ToolResult) {
-            return $ctx;
-        }
-
-        return $this->support->run($ctx, 'Music generation', fn(MiniMaxToolContext $c) => $this->doCompose($c, $arguments));
     }
 
-    /**
-     * @param array<string, mixed> $arguments
-     */
+    /** @param array<string, mixed> $arguments */
     public function writeLyrics(array $arguments, int $agentId, ?int $userId): ToolResult
     {
         return $this->lyrics('write_full_song', $arguments, $agentId, $userId);
     }
 
-    /**
-     * @param array<string, mixed> $arguments
-     */
+    /** @param array<string, mixed> $arguments */
     public function editLyrics(array $arguments, int $agentId, ?int $userId): ToolResult
     {
         return $this->lyrics('edit', $arguments, $agentId, $userId);
     }
 
-    /**
-     * @param array<string, mixed> $arguments
-     */
+    /** @param array<string, mixed> $arguments */
     private function lyrics(string $mode, array $arguments, int $agentId, ?int $userId): ToolResult
     {
-        $validation = $this->validateLyricsArguments($mode, $arguments);
-        if ($validation !== null) {
-            return $validation;
-        }
-
-        $ctx = $this->support->prepare(
-            toolClass: static::class,
-            provider: self::PROVIDER,
-            qualifiedName: self::QUALIFIED_NAME,
-            arguments: $arguments,
-            agentId: $agentId,
-            userId: $userId,
-            timeoutSeconds: self::TIMEOUT_SECONDS_LYRICS,
+        return $this->runWithValidation(
+            $arguments,
+            $agentId,
+            $userId,
+            self::TIMEOUT_SECONDS_LYRICS,
+            'Lyrics generation',
+            fn(MiniMaxToolContext $c) => $this->doLyrics($c, $arguments, $mode),
+            fn(array $a) => $this->validateLyricsArguments($mode, $a),
         );
-        if ($ctx instanceof ToolResult) {
-            return $ctx;
-        }
+    }
 
-        return $this->support->run($ctx, 'Lyrics generation', fn(MiniMaxToolContext $c) => $this->doLyrics($c, $arguments, $mode));
+    /**
+     * The base class declares `validateArguments` / `doWork` as abstract for
+     * the single-operation tools. MusicTool overrides `execute()` to dispatch
+     * across multiple operations, so these base-class hooks are unused —
+     * throwing here surfaces a programming error if they ever get called.
+     */
+    protected function validateArguments(array $arguments): ?ToolResult
+    {
+        throw new LogicException('MiniMaxMusicTool dispatches per-operation; the base validateArguments() is never reached.');
+    }
+
+    protected function doWork(MiniMaxToolContext $ctx, array $arguments): ToolResult
+    {
+        throw new LogicException('MiniMaxMusicTool dispatches per-operation; the base doWork() is never reached.');
     }
 
     /**
