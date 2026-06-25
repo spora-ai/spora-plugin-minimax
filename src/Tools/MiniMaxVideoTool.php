@@ -228,9 +228,6 @@ final class MiniMaxVideoTool extends AbstractTool
             $response = $client->getJson('/v1/query/video_generation', ['task_id' => $taskId]);
             $status = $response['status'] ?? null;
 
-            // MiniMax's status enum is capitalized: Preparing | Queueing |
-            // Processing | Success | Fail. Only "Success" and "Fail" are
-            // terminal — everything else means "keep polling".
             if ($status === 'Success') {
                 return $response;
             }

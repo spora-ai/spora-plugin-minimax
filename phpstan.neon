@@ -4,10 +4,9 @@ includes:
 parameters:
     paths:
         - src
+        - tests
     level: 5
     excludePaths:
         - vendor
-        - tests
-    ignoreErrors:
-        # The test-only TestableTransportException class lives in tests/ (excluded above)
-        # and is referenced in the test file's docstring comments.
+    bootstrapFiles:
+        - vendor/autoload.php
