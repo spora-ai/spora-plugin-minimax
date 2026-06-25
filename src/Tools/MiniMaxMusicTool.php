@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace Spora\Plugins\MiniMax\Tools;
 
 use Psr\Log\LoggerInterface;
-use Spora\Plugins\MiniMax\Support\Exceptions\MiniMaxApiException;
-use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
+use Spora\Plugins\MiniMax\Support\MiniMaxLogContext;
 use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
+use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
+use Spora\Plugins\MiniMax\Support\MiniMaxToolSupport;
 use Spora\Services\ToolConfigService;
 use Spora\Tools\AbstractTool;
 use Spora\Tools\Attributes\Tool;
@@ -17,7 +18,6 @@ use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
 use Spora\Tools\ValueObjects\ToolResult;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
-use Throwable;
 
 /**
  * Song-making operations for MiniMax, consolidated into one tool:
@@ -85,13 +85,21 @@ final class MiniMaxMusicTool extends AbstractTool
 {
     private const PROVIDER = 'music';
     private const DEFAULT_MODEL = 'music-2.6';
+    private const QUALIFIED_NAME = 'minimax:music';
+    private const TIMEOUT_SECONDS_COMPOSE = 90;
+    private const TIMEOUT_SECONDS_LYRICS = 30;
 
     public function __construct(
         private readonly ToolConfigService   $configService,
         private readonly HttpClientInterface $httpClient,
         private readonly MiniMaxLogWriter    $logWriter,
         private readonly ?LoggerInterface    $logger = null,
-    ) {}
+        ?MiniMaxToolSupport                  $support = null,
+    ) {
+        $this->support = $support ?? new MiniMaxToolSupport($configService, $httpClient, $logWriter, $logger);
+    }
+
+    private MiniMaxToolSupport $support;
 
     public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
     {
@@ -117,6 +125,9 @@ final class MiniMaxMusicTool extends AbstractTool
         };
     }
 
+    /**
+     * @param array<string, mixed> $arguments
+     */
     public function compose(array $arguments, int $agentId, ?int $userId): ToolResult
     {
         $validation = $this->validateComposeArguments($arguments);
@@ -124,48 +135,74 @@ final class MiniMaxMusicTool extends AbstractTool
             return $validation;
         }
 
-        $prompt = trim((string) ($arguments['prompt'] ?? ''));
-        $lyrics = trim((string) ($arguments['lyrics'] ?? ''));
-        $outputFormat = trim((string) ($arguments['output_format'] ?? 'url'));
-
-        $settings = $this->configService->getEffectiveSettings(static::class, $agentId, $userId);
-        $apiKey = MiniMaxSettings::apiKey(self::PROVIDER, $settings);
-        if ($apiKey === '') {
-            return new ToolResult(false, 'MiniMax API key is not configured for this agent. Edit the MiniMax Music settings.');
-        }
-
-        $client = new MiniMaxHttpClient(
-            $this->httpClient,
-            $apiKey,
-            MiniMaxSettings::baseUrl(self::PROVIDER, $settings),
-            timeoutSeconds: 90,
-            logger: $this->logger,
+        $ctx = $this->support->prepare(
+            toolClass: static::class,
+            provider: self::PROVIDER,
+            qualifiedName: self::QUALIFIED_NAME,
+            arguments: $arguments,
+            agentId: $agentId,
+            userId: $userId,
+            timeoutSeconds: self::TIMEOUT_SECONDS_COMPOSE,
         );
-
-        $qualifiedName = 'minimax:' . 'music';
-
-        try {
-            $response = $client->postJson('/v1/music_generation', $this->buildComposeBody($settings, $prompt, $lyrics, $outputFormat));
-
-            return $this->parseComposeResponse($response, $arguments, $prompt, $userId, $agentId, $qualifiedName);
-        } catch (MiniMaxApiException $e) {
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
-            return new ToolResult(false, $e->getMessage());
-        } catch (Throwable $e) {
-            $this->logger?->error('MiniMaxMusicTool: unexpected exception', ['exception' => $e]);
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
-            return new ToolResult(false, 'Music generation failed: ' . $e->getMessage());
+        if ($ctx instanceof ToolResult) {
+            return $ctx;
         }
+
+        return $this->support->run($ctx, 'Music generation', fn(MiniMaxToolContext $c) => $this->doCompose($c, $arguments));
     }
 
+    /**
+     * @param array<string, mixed> $arguments
+     */
+    public function writeLyrics(array $arguments, int $agentId, ?int $userId): ToolResult
+    {
+        return $this->lyrics('write_full_song', $arguments, $agentId, $userId);
+    }
+
+    /**
+     * @param array<string, mixed> $arguments
+     */
+    public function editLyrics(array $arguments, int $agentId, ?int $userId): ToolResult
+    {
+        return $this->lyrics('edit', $arguments, $agentId, $userId);
+    }
+
+    /**
+     * @param array<string, mixed> $arguments
+     */
+    private function lyrics(string $mode, array $arguments, int $agentId, ?int $userId): ToolResult
+    {
+        $validation = $this->validateLyricsArguments($mode, $arguments);
+        if ($validation !== null) {
+            return $validation;
+        }
+
+        $ctx = $this->support->prepare(
+            toolClass: static::class,
+            provider: self::PROVIDER,
+            qualifiedName: self::QUALIFIED_NAME,
+            arguments: $arguments,
+            agentId: $agentId,
+            userId: $userId,
+            timeoutSeconds: self::TIMEOUT_SECONDS_LYRICS,
+        );
+        if ($ctx instanceof ToolResult) {
+            return $ctx;
+        }
+
+        return $this->support->run($ctx, 'Lyrics generation', fn(MiniMaxToolContext $c) => $this->doLyrics($c, $arguments, $mode));
+    }
+
+    /**
+     * @param array<string, mixed> $arguments
+     */
     private function validateComposeArguments(array $arguments): ?ToolResult
     {
-        $errors = [];
-
-        $prompt = trim((string) ($arguments['prompt'] ?? ''));
-        $lyrics = trim((string) ($arguments['lyrics'] ?? ''));
+        $prompt      = trim((string) ($arguments['prompt'] ?? ''));
+        $lyrics      = trim((string) ($arguments['lyrics'] ?? ''));
         $outputFormat = trim((string) ($arguments['output_format'] ?? 'url'));
 
+        $errors = [];
         if ($prompt === '' && $lyrics === '') {
             $errors[] = 'Provide at least a `prompt` or `lyrics`.';
         }
@@ -177,6 +214,31 @@ final class MiniMaxMusicTool extends AbstractTool
         }
         if (!in_array($outputFormat, ['url', 'hex'], true)) {
             $errors[] = 'output_format must be "url" or "hex".';
+        }
+
+        return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
+    }
+
+    /**
+     * @param array<string, mixed> $arguments
+     */
+    private function validateLyricsArguments(string $mode, array $arguments): ?ToolResult
+    {
+        $prompt = trim((string) ($arguments['prompt'] ?? ''));
+        $lyrics = trim((string) ($arguments['lyrics'] ?? ''));
+
+        $errors = [];
+        if (mb_strlen($prompt) > 2000) {
+            $errors[] = 'Prompt exceeds the 2000-character MiniMax limit.';
+        }
+        if ($mode === 'edit' && $lyrics === '') {
+            $errors[] = '`lyrics` is required for the edit_lyrics operation.';
+        }
+        if ($lyrics !== '' && mb_strlen($lyrics) > 3500) {
+            $errors[] = 'Lyrics exceed the 3500-character MiniMax limit.';
+        }
+        if ($mode === 'write_full_song' && $prompt === '' && $lyrics === '') {
+            $errors[] = 'Provide a `prompt` describing the song (or pre-existing `lyrics`).';
         }
 
         return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
@@ -201,26 +263,48 @@ final class MiniMaxMusicTool extends AbstractTool
     }
 
     /**
-     * @param  array<string, mixed> $response
+     * @param  array<string, mixed> $arguments
      */
-    private function parseComposeResponse(
-        array $response,
-        array $arguments,
-        string $prompt,
-        ?int $userId,
-        int $agentId,
-        string $qualifiedName,
-    ): ToolResult {
-        $data = is_array($response['data'] ?? null) ? $response['data'] : [];
+    private function doCompose(MiniMaxToolContext $ctx, array $arguments): ToolResult
+    {
+        $prompt       = trim((string) ($arguments['prompt'] ?? ''));
+        $lyrics       = trim((string) ($arguments['lyrics'] ?? ''));
+        $outputFormat = trim((string) ($arguments['output_format'] ?? 'url'));
+
+        /** @var \Spora\Plugins\MiniMax\Support\MiniMaxHttpClient $client */
+        $client = $ctx->client;
+        $response = $client->postJson(
+            '/v1/music_generation',
+            $this->buildComposeBody($ctx->settings, $prompt, $lyrics, $outputFormat),
+        );
+
+        $data     = is_array($response['data'] ?? null) ? $response['data'] : [];
         $hexAudio = isset($data['audio']) && is_string($data['audio']) ? $data['audio'] : null;
         $audioUrl = isset($data['audio_url']) && is_string($data['audio_url']) ? $data['audio_url'] : null;
 
         if ($hexAudio === null && $audioUrl === null) {
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, false, 'No audio in response', $userId, $agentId);
+            $this->logWriter->record(new MiniMaxLogContext(
+                provider: self::PROVIDER,
+                qualifiedToolName: self::QUALIFIED_NAME,
+                request: $arguments,
+                response: $response,
+                success: false,
+                error: 'No audio in response',
+                userId: $ctx->userId,
+                agentId: $ctx->agentId,
+            ));
             return new ToolResult(false, 'MiniMax returned no audio data.');
         }
 
-        $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, true, null, $userId, $agentId);
+        $this->logWriter->record(new MiniMaxLogContext(
+            provider: self::PROVIDER,
+            qualifiedToolName: self::QUALIFIED_NAME,
+            request: $arguments,
+            response: $response,
+            success: true,
+            userId: $ctx->userId,
+            agentId: $ctx->agentId,
+        ));
 
         $promptSummary = $prompt !== '' ? "prompt: \"{$prompt}\"" : 'instrumental';
         if ($audioUrl !== null) {
@@ -230,79 +314,6 @@ final class MiniMaxMusicTool extends AbstractTool
         $byteCount = (int) (strlen($hexAudio) / 2);
         $content = "Generated music ({$promptSummary}).\n\nAudio payload: {$byteCount} bytes (hex-encoded, inline).";
         return new ToolResult(true, $content, ['audio_bytes' => $byteCount]);
-    }
-
-    public function writeLyrics(array $arguments, int $agentId, ?int $userId): ToolResult
-    {
-        return $this->lyrics('write_full_song', $arguments, $agentId, $userId);
-    }
-
-    public function editLyrics(array $arguments, int $agentId, ?int $userId): ToolResult
-    {
-        return $this->lyrics('edit', $arguments, $agentId, $userId);
-    }
-
-    private function lyrics(string $mode, array $arguments, int $agentId, ?int $userId): ToolResult
-    {
-        $validation = $this->validateLyricsArguments($mode, $arguments);
-        if ($validation !== null) {
-            return $validation;
-        }
-
-        $prompt = trim((string) ($arguments['prompt'] ?? ''));
-        $lyrics = trim((string) ($arguments['lyrics'] ?? ''));
-
-        $settings = $this->configService->getEffectiveSettings(static::class, $agentId, $userId);
-        $apiKey = MiniMaxSettings::apiKey(self::PROVIDER, $settings);
-        if ($apiKey === '') {
-            return new ToolResult(false, 'MiniMax API key is not configured for this agent. Edit the MiniMax Music settings.');
-        }
-
-        $client = new MiniMaxHttpClient(
-            $this->httpClient,
-            $apiKey,
-            MiniMaxSettings::baseUrl(self::PROVIDER, $settings),
-            timeoutSeconds: 30,
-            logger: $this->logger,
-        );
-
-        $qualifiedName = 'minimax:' . 'music';
-
-        try {
-            $response = $client->postJson('/v1/lyrics_generation', $this->buildLyricsBody($mode, $prompt, $lyrics));
-
-            return $this->parseLyricsResponse($response, $arguments, $mode, $userId, $agentId, $qualifiedName);
-        } catch (MiniMaxApiException $e) {
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
-            return new ToolResult(false, $e->getMessage());
-        } catch (Throwable $e) {
-            $this->logger?->error('MiniMaxMusicTool: unexpected exception', ['exception' => $e]);
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, ['error' => $e->getMessage()], false, $e->getMessage(), $userId, $agentId);
-            return new ToolResult(false, 'Lyrics generation failed: ' . $e->getMessage());
-        }
-    }
-
-    private function validateLyricsArguments(string $mode, array $arguments): ?ToolResult
-    {
-        $errors = [];
-
-        $prompt = trim((string) ($arguments['prompt'] ?? ''));
-        $lyrics = trim((string) ($arguments['lyrics'] ?? ''));
-
-        if (mb_strlen($prompt) > 2000) {
-            $errors[] = 'Prompt exceeds the 2000-character MiniMax limit.';
-        }
-        if ($mode === 'edit' && $lyrics === '') {
-            $errors[] = '`lyrics` is required for the edit_lyrics operation.';
-        }
-        if ($lyrics !== '' && mb_strlen($lyrics) > 3500) {
-            $errors[] = 'Lyrics exceed the 3500-character MiniMax limit.';
-        }
-        if ($mode === 'write_full_song' && $prompt === '' && $lyrics === '') {
-            $errors[] = 'Provide a `prompt` describing the song (or pre-existing `lyrics`).';
-        }
-
-        return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
     }
 
     /**
@@ -322,26 +333,44 @@ final class MiniMaxMusicTool extends AbstractTool
     }
 
     /**
-     * @param  array<string, mixed> $response
+     * @param  array<string, mixed> $arguments
      */
-    private function parseLyricsResponse(
-        array $response,
-        array $arguments,
-        string $mode,
-        ?int $userId,
-        int $agentId,
-        string $qualifiedName,
-    ): ToolResult {
+    private function doLyrics(MiniMaxToolContext $ctx, array $arguments, string $mode): ToolResult
+    {
+        $prompt = trim((string) ($arguments['prompt'] ?? ''));
+        $lyrics = trim((string) ($arguments['lyrics'] ?? ''));
+
+        /** @var \Spora\Plugins\MiniMax\Support\MiniMaxHttpClient $client */
+        $client = $ctx->client;
+        $response = $client->postJson('/v1/lyrics_generation', $this->buildLyricsBody($mode, $prompt, $lyrics));
+
         $generated = $response['lyrics'] ?? null;
         $songTitle = $response['song_title'] ?? null;
         $styleTags = $response['style_tags'] ?? null;
 
         if (!is_string($generated) || $generated === '') {
-            $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, false, 'No lyrics in response', $userId, $agentId);
+            $this->logWriter->record(new MiniMaxLogContext(
+                provider: self::PROVIDER,
+                qualifiedToolName: self::QUALIFIED_NAME,
+                request: $arguments,
+                response: $response,
+                success: false,
+                error: 'No lyrics in response',
+                userId: $ctx->userId,
+                agentId: $ctx->agentId,
+            ));
             return new ToolResult(false, 'MiniMax returned no lyrics.');
         }
 
-        $this->logWriter->record(self::PROVIDER, $qualifiedName, $arguments, $response, true, null, $userId, $agentId);
+        $this->logWriter->record(new MiniMaxLogContext(
+            provider: self::PROVIDER,
+            qualifiedToolName: self::QUALIFIED_NAME,
+            request: $arguments,
+            response: $response,
+            success: true,
+            userId: $ctx->userId,
+            agentId: $ctx->agentId,
+        ));
 
         $header = $mode === 'edit' ? 'Edited lyrics' : 'Lyrics';
         if (is_string($songTitle) && $songTitle !== '') {

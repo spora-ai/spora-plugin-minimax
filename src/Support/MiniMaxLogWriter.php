@@ -38,29 +38,21 @@ final class MiniMaxLogWriter
     ) {}
 
     /**
-     * @param array<string, mixed> $request  Tool-call argument payload (post-redaction).
-     * @param array<string, mixed> $response Decoded API response (post-redaction), or empty on error.
+     * Persist a single log row. All fields ride on the {@see MiniMaxLogContext} DTO so
+     * the public signature stays at one parameter (SonarQube S107).
      */
-    public function record(
-        string $provider,
-        string $qualifiedToolName,
-        array $request,
-        array $response,
-        bool $success,
-        ?string $error = null,
-        ?int $userId = null,
-        ?int $agentId = null,
-    ): void {
+    public function record(MiniMaxLogContext $ctx): void
+    {
         try {
             Capsule::table('minimax_generation_log')->insert([
-                'user_id'          => $userId,
-                'agent_id'         => $agentId,
-                'tool_name'        => $qualifiedToolName,
-                'provider'         => $provider,
-                'request_payload'  => $this->encode($this->redact($request)),
-                'response_payload' => $response === [] ? null : $this->encode($this->redact($response)),
-                'status'           => $success ? 'ok' : 'error',
-                'error'            => $error !== null ? mb_substr($error, 0, 2000) : null,
+                'user_id'          => $ctx->userId,
+                'agent_id'         => $ctx->agentId,
+                'tool_name'        => $ctx->qualifiedToolName,
+                'provider'         => $ctx->provider,
+                'request_payload'  => $this->encode($this->redact($ctx->request)),
+                'response_payload' => $ctx->response === [] ? null : $this->encode($this->redact($ctx->response)),
+                'status'           => $ctx->success ? 'ok' : 'error',
+                'error'            => $ctx->error !== null ? mb_substr($ctx->error, 0, 2000) : null,
                 'created_at'       => date('Y-m-d H:i:s'),
                 'updated_at'       => date('Y-m-d H:i:s'),
             ]);
