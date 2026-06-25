@@ -10,4 +10,13 @@
             <directory suffix="Test.php">./tests/Unit</directory>
         </testsuite>
     </testsuites>
+
+    <!-- Coverage scope. PHPUnit 12 / Pest 4 only generate a clover report when
+         the suite knows which source files to measure. Without this block,
+         pcov runs but no coverage data is collected and Pest exits 1. -->
+    <source>
+        <include>
+            <directory>src</directory>
+        </include>
+    </source>
 </phpunit>
