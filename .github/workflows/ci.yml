@@ -80,3 +80,60 @@ jobs:
         # Dry-run (--dry-run) reports violations without rewriting files.
         # Same ruleset as Spora core's `.php-cs-fixer.php` so plugin style matches host.
         run: ./vendor/bin/php-cs-fixer fix --dry-run --diff --no-interaction
+
+  coverage:
+    name: Pest coverage (PHP 8.4, pcov)
+    # Runs after the test matrix passes so we don't double-spend on failing builds.
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.4'
+          extensions: curl, mbstring
+          # pcov is faster than xdebug and is the recommended driver for clover output.
+          coverage: pcov
+          tools: composer
+
+      - name: Composer install
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Run Pest with coverage
+        # Clover XML is consumed by SonarCloud via sonar.php.coverage.reportPaths;
+        # JUnit XML is consumed via sonar.php.tests.reportPath.
+        run: ./vendor/bin/pest --coverage-clover=coverage.xml --log-junit=build/logs/junit.xml
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pest-coverage
+          path: |
+            coverage.xml
+            build/logs/junit.xml
+          if-no-files-found: error
+          retention-days: 14
+
+  sonar:
+    name: SonarCloud scan
+    # Runs only after coverage artifacts exist; downloads them into the workspace.
+    needs: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: pest-coverage
+          path: .
+
+      - name: SonarCloud scan
+        uses: SonarSource/sonarqube-scan-action@713881670b6b3676cda39549040e2d88c70d582e # v8.2.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          # Required so the action skips its internal scanner download and uses
+          # the cached one — keeps the job fast and avoids GitHub API rate limits.
+          SONAR_SCANNER_CACHE: ${{ github.workspace }}/.sonar/scanner-cache
