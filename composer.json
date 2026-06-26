@@ -3,7 +3,6 @@
     "description": "MiniMax multimodal tools (image, speech, music, lyrics, video) for Spora agents.",
     "type": "spora-plugin",
     "license": "MIT",
-    "version": "0.1.0",
     "require": {
         "php": "^8.4.1",
         "ext-curl": "*",
