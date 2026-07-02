@@ -9,11 +9,18 @@ Spora's built-in Anthropic-compatible driver pointed at MiniMax's base URL
 ## Installation
 
 ```bash
-# Option A — clone into the Spora repo
-git clone https://github.com/spora-ai/spora-plugin-minimax.git plugins/minimax
+# Recommended — install via the Spora CLI
+php bin/spora plugin:install spora-ai/spora-plugin-minimax
 php bin/spora spora:install   # applies the plugin's migration
 
-# Option B — external path (no Spora checkout changes)
+# For development against a sibling git clone, pass --path:
+php bin/spora plugin:install spora-ai/spora-plugin-minimax --path=/abs/path/to/checkout
+
+# Alternative — drop a clone into the Spora repo
+git clone https://github.com/spora-ai/spora-plugin-minimax.git plugins/minimax
+php bin/spora spora:install
+
+# Alternative — external path (no Spora checkout changes)
 git clone https://github.com/spora-ai/spora-plugin-minimax.git /opt/spora-plugins/minimax
 echo 'SPORA_PLUGINS_PATHS=/opt/spora-plugins/minimax' >> .env
 php bin/spora spora:install
