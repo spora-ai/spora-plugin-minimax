@@ -44,7 +44,7 @@ it('returns an error when duration_seconds is invalid', function () {
         ->and($result->content)->toContain('duration_seconds');
 });
 
-it('polls the task status and returns the file_id when the video finishes', function () {
+it('polls the task status, calls file-retrieve, and embeds the download URL', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn([
         'plugin.minimax.video.api_key'                  => 'k',
@@ -65,9 +65,7 @@ it('polls the task status and returns the file_id when the video finishes', func
             'task_id'   => 'task-xyz',
         ])));
 
-    // 2. First poll — returns "Success" (capitalized per MiniMax's enum) with
-    //    file_id + dimensions. v1 returns the file_id; the actual file bytes
-    //    require MiniMax's file-management API (not in v1's scope).
+    // 2. Poll — returns "Success" with file_id + dimensions.
     $http->expects('request')
         ->with('GET', 'https://api.minimax.io/v1/query/video_generation', Mockery::on(function ($opts) {
             return ($opts['query']['task_id'] ?? null) === 'task-xyz';
@@ -81,14 +79,76 @@ it('polls the task status and returns the file_id when the video finishes', func
             'video_height' => 1080,
         ])));
 
+    // 3. File retrieve — returns the download URL valid for 1 hour.
+    $http->expects('request')
+        ->with('GET', 'https://api.minimax.io/v1/files/retrieve', Mockery::on(function ($opts) {
+            return ($opts['query']['file_id'] ?? null) === 'file-abc-123';
+        }))
+        ->andReturn(minimaxVideoResponse(200, json_encode([
+            'file' => [
+                'file_id'      => 'file-abc-123',
+                'bytes'        => 5_896_337,
+                'filename'     => 'output_aigc.mp4',
+                'purpose'      => 'video_generation',
+                'download_url' => 'https://minimax.example/output.mp4',
+            ],
+            'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
+        ])));
+
     $tool = new MiniMaxVideoTool($config, $http, $log);
     $result = $tool->execute(['prompt' => '[Push in] a forest'], 1);
 
     expect($result->success)->toBeTrue()
+        ->and($result->content)->toContain('<video')
+        ->and($result->content)->toContain('https://minimax.example/output.mp4')
+        ->and($result->content)->toContain('width="1920"')
+        ->and($result->content)->toContain('height="1080"')
         ->and($result->content)->toContain('file_id: file-abc-123')
-        ->and($result->content)->toContain('1920x1080')
+        ->and($result->content)->toContain('1 hour')
         ->and($result->data['file_id'])->toBe('file-abc-123')
         ->and($result->data['task_id'])->toBe('task-xyz')
+        ->and($result->data['download_url'])->toBe('https://minimax.example/output.mp4')
         ->and($result->data['width'])->toBe(1920)
         ->and($result->data['height'])->toBe(1080);
+});
+
+it('returns a failure when file-retrieve omits the download URL', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn([
+        'plugin.minimax.video.api_key'               => 'k',
+        'plugin.minimax.video.poll_interval_seconds' => '1',
+        'plugin.minimax.video.poll_timeout_seconds'  => '5',
+    ]);
+
+    $http = Mockery::mock(HttpClientInterface::class);
+    $log = new MiniMaxLogWriter();
+
+    $http->allows('request')
+        ->with('POST', 'https://api.minimax.io/v1/video_generation', Mockery::any())
+        ->andReturn(minimaxVideoResponse(200, json_encode([
+            'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
+            'task_id'   => 'task-xyz',
+        ])));
+    $http->allows('request')
+        ->with('GET', 'https://api.minimax.io/v1/query/video_generation', Mockery::any())
+        ->andReturn(minimaxVideoResponse(200, json_encode([
+            'base_resp'    => ['status_code' => 0, 'status_msg' => 'success'],
+            'task_id'      => 'task-xyz',
+            'status'       => 'Success',
+            'file_id'      => 'file-abc-123',
+            'video_width'  => 1920,
+            'video_height' => 1080,
+        ])));
+    $http->allows('request')
+        ->with('GET', 'https://api.minimax.io/v1/files/retrieve', Mockery::any())
+        ->andReturn(minimaxVideoResponse(200, json_encode([
+            'file'      => ['file_id' => 'file-abc-123'],
+            'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
+        ])));
+
+    $tool = new MiniMaxVideoTool($config, $http, $log);
+    $result = $tool->execute(['prompt' => '[Push in] a forest'], 1);
+
+    expect($result->success)->toBeFalse()
+        ->and($result->content)->toContain('did not return a download_url');
 });

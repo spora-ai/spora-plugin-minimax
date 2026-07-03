@@ -5,13 +5,17 @@ declare(strict_types=1);
 namespace Spora\Plugins\MiniMax\Tools;
 
 use LogicException;
+use Spora\Plugins\Concerns\StoresBinaryAssets;
+use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Plugins\MiniMax\Support\MiniMaxTool;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
+use Spora\Services\AssetStore;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
+use Spora\Tools\MediaEmbed;
 use Spora\Tools\ValueObjects\ToolResult;
 
 /**
@@ -26,7 +30,7 @@ use Spora\Tools\ValueObjects\ToolResult;
  */
 #[Tool(
     name: 'music',
-    description: 'Song-making: generate music (instrumental or with lyrics), or write/edit song lyrics. The "action" argument selects the operation.',
+    description: 'Song-making: generate music (instrumental or with lyrics; returns an embedded audio player), or write/edit song lyrics. The "action" argument selects the operation.',
     displayName: 'MiniMax Music',
     category: 'generation',
 )]
@@ -54,6 +58,20 @@ use Spora\Tools\ValueObjects\ToolResult;
     description: 'Music model id (default: music-2.6). Applies to `compose`; the lyrics endpoint has no model parameter.',
     default: 'music-2.6',
 )]
+#[ToolSetting(
+    key: 'plugin.minimax.music.http_timeout_seconds',
+    label: 'Compose HTTP timeout (s)',
+    type: 'number',
+    description: 'Per-request timeout for the `compose` operation. Default 180 seconds (compose can take 60-180 s on slow networks).',
+    default: '180',
+)]
+#[ToolSetting(
+    key: 'plugin.minimax.music.http_timeout_seconds_lyrics',
+    label: 'Lyrics HTTP timeout (s)',
+    type: 'number',
+    description: 'Per-request timeout for `write_lyrics` / `edit_lyrics`. Default 30 seconds.',
+    default: '30',
+)]
 #[ToolParameter(
     name: 'prompt',
     type: 'string',
@@ -78,13 +96,27 @@ use Spora\Tools\ValueObjects\ToolResult;
 )]
 final class MiniMaxMusicTool extends MiniMaxTool
 {
+    use StoresBinaryAssets;
+
     protected const PROVIDER              = 'music';
     protected const DEFAULT_MODEL         = 'music-2.6';
     protected const QUALIFIED_NAME        = 'minimax:music';
     protected const TIMEOUT_SECONDS       = 30; // overridden per-op
     protected const TOOL_LABEL            = ''; // unused — dispatch via execute()
-    protected const TIMEOUT_SECONDS_COMPOSE = 90;
+    protected const TIMEOUT_SECONDS_COMPOSE = 180;
     protected const TIMEOUT_SECONDS_LYRICS  = 30;
+
+    public function __construct(
+        \Spora\Services\ToolConfigService $configService,
+        \Symfony\Contracts\HttpClient\HttpClientInterface $httpClient,
+        \Spora\Plugins\MiniMax\Support\MiniMaxLogWriter $logWriter,
+        AssetStore $assetStore,
+        ?\Psr\Log\LoggerInterface $logger = null,
+        ?\Spora\Plugins\MiniMax\Support\MiniMaxToolSupport $support = null,
+    ) {
+        parent::__construct($configService, $httpClient, $logWriter, $logger, $support);
+        $this->setAssetStore($assetStore);
+    }
 
     /**
      * Multi-operation tool: dispatch on the `action` argument. Each per-op
@@ -245,16 +277,19 @@ final class MiniMaxMusicTool extends MiniMaxTool
         $lyrics       = trim((string) ($arguments['lyrics'] ?? ''));
         $outputFormat = trim((string) ($arguments['output_format'] ?? 'url'));
 
-        /** @var \Spora\Plugins\MiniMax\Support\MiniMaxHttpClient $client */
+        /** @var MiniMaxHttpClient $client */
         $client = $ctx->client;
+        $composeTimeout = $this->resolveTimeout('http_timeout_seconds', $ctx->settings, static::TIMEOUT_SECONDS_COMPOSE);
         $response = $client->postJson(
             '/v1/music_generation',
             $this->buildComposeBody($ctx->settings, $prompt, $lyrics, $outputFormat),
+            timeoutSeconds: $composeTimeout,
         );
 
         $data     = is_array($response['data'] ?? null) ? $response['data'] : [];
-        $hexAudio = isset($data['audio']) && is_string($data['audio']) ? $data['audio'] : null;
-        $audioUrl = isset($data['audio_url']) && is_string($data['audio_url']) ? $data['audio_url'] : null;
+        $rawAudio = $data['audio'] ?? null;
+        $hexAudio = is_string($rawAudio) ? $rawAudio : null;
+        $audioUrl = is_string($data['audio_url'] ?? null) ? $data['audio_url'] : null;
 
         if ($hexAudio === null && $audioUrl === null) {
             $this->support->logFailure($ctx, $response, 'No audio in response');
@@ -264,13 +299,28 @@ final class MiniMaxMusicTool extends MiniMaxTool
         $this->support->logSuccess($ctx, $response);
 
         $promptSummary = $prompt !== '' ? "prompt: \"{$prompt}\"" : 'instrumental';
+
+        // Resolve a playback URL — either the CDN URL from MiniMax or a
+        // local/data URL the AssetStore hands back after decoding the hex
+        // payload. Multi-megabyte song payloads land in local mode unless
+        // the operator picks pure data_url.
+        $assetMode = null;
         if ($audioUrl !== null) {
-            $content = "Generated music ({$promptSummary}).\n\nCDN URL (valid 24h): {$audioUrl}";
-            return new ToolResult(true, $content, ['audio_url' => $audioUrl]);
+            $url = $audioUrl;
+        } elseif ($hexAudio !== '' && strlen($hexAudio) % 2 === 0) {
+            [$url, $assetMode] = $this->embedHex($hexAudio, 'audio/mpeg', 'song.mp3');
+        } else {
+            return new ToolResult(false, 'MiniMax returned audio in an unsupported format.');
         }
-        $byteCount = (int) (strlen($hexAudio) / 2);
-        $content = "Generated music ({$promptSummary}).\n\nAudio payload: {$byteCount} bytes (hex-encoded, inline).";
-        return new ToolResult(true, $content, ['audio_bytes' => $byteCount]);
+
+        $content = "Generated music ({$promptSummary}).\n\n"
+            . MediaEmbed::audioFromUrl($url);
+
+        return new ToolResult(true, $content, [
+            'audio_url'  => $audioUrl,
+            'asset_url'  => $url,
+            'asset_mode' => $assetMode,
+        ]);
     }
 
     /**
@@ -297,9 +347,14 @@ final class MiniMaxMusicTool extends MiniMaxTool
         $prompt = trim((string) ($arguments['prompt'] ?? ''));
         $lyrics = trim((string) ($arguments['lyrics'] ?? ''));
 
-        /** @var \Spora\Plugins\MiniMax\Support\MiniMaxHttpClient $client */
+        /** @var MiniMaxHttpClient $client */
         $client = $ctx->client;
-        $response = $client->postJson('/v1/lyrics_generation', $this->buildLyricsBody($mode, $prompt, $lyrics));
+        $lyricsTimeout = $this->resolveTimeout('http_timeout_seconds_lyrics', $ctx->settings, static::TIMEOUT_SECONDS_LYRICS);
+        $response = $client->postJson(
+            '/v1/lyrics_generation',
+            $this->buildLyricsBody($mode, $prompt, $lyrics),
+            timeoutSeconds: $lyricsTimeout,
+        );
 
         $generated = $response['lyrics'] ?? null;
         $songTitle = $response['song_title'] ?? null;

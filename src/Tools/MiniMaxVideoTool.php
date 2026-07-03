@@ -13,6 +13,7 @@ use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
+use Spora\Tools\MediaEmbed;
 use Spora\Tools\ValueObjects\ToolResult;
 
 /**
@@ -23,7 +24,7 @@ use Spora\Tools\ValueObjects\ToolResult;
  */
 #[Tool(
     name: 'video',
-    description: 'Generate a short video clip from a text prompt via MiniMax. Asynchronous — may take up to several minutes; the tool polls until the result is ready or the timeout elapses.',
+    description: 'Generate a short video clip (asynchronous). Embeds a video player in the chat bubble when ready. The download URL is valid for ~1 hour.',
     displayName: 'MiniMax Video',
     category: 'generation',
 )]
@@ -63,6 +64,20 @@ use Spora\Tools\ValueObjects\ToolResult;
     description: 'Maximum total wait for video generation (default: 600).',
     default: '600',
 )]
+#[ToolSetting(
+    key: 'plugin.minimax.video.submit_timeout_seconds',
+    label: 'Submit timeout (s)',
+    type: 'number',
+    description: 'Per-request timeout for the submit API call (MiniMax queues the task server-side; default: 120).',
+    default: '120',
+)]
+#[ToolSetting(
+    key: 'plugin.minimax.video.retrieve_timeout_seconds',
+    label: 'File retrieve timeout (s)',
+    type: 'number',
+    description: 'Per-request timeout for the /v1/files/retrieve call (default: 30).',
+    default: '30',
+)]
 #[ToolParameter(
     name: 'prompt',
     type: 'string',
@@ -89,7 +104,7 @@ final class MiniMaxVideoTool extends MiniMaxTool
     protected const PROVIDER        = 'video';
     protected const DEFAULT_MODEL   = 'MiniMax-Hailuo-2.3';
     protected const QUALIFIED_NAME  = 'minimax:video';
-    protected const TIMEOUT_SECONDS = 30;
+    protected const TIMEOUT_SECONDS = 120;
     protected const TOOL_LABEL      = 'Video generation';
 
     public function describeAction(array $arguments): string
@@ -131,40 +146,71 @@ final class MiniMaxVideoTool extends MiniMaxTool
         /** @var MiniMaxHttpClient $client */
         $client = $ctx->client;
 
-        $taskId = $this->submitGeneration($client, $ctx->settings, $prompt, $duration, $resolution);
+        $submitTimeout = $this->resolveTimeout('submit_timeout_seconds', $ctx->settings, static::TIMEOUT_SECONDS);
+        $taskId = $this->submitGeneration($client, $ctx->settings, $prompt, $duration, $resolution, $submitTimeout);
         $this->support->logger()?->info('MiniMaxVideoTool: video generation started', [
-            'task_id'  => $taskId,
-            'interval' => $pollInterval,
-            'timeout'  => $pollTimeout,
+            'task_id'      => $taskId,
+            'interval'     => $pollInterval,
+            'poll_timeout' => $pollTimeout,
+            'submit_timeout' => $submitTimeout,
         ]);
 
         $finalResponse = $this->pollUntilDone($client, $taskId, $pollInterval, $pollTimeout);
-
-        // The success response carries a file_id, not a direct download URL.
-        // Retrieving the underlying file requires MiniMax's file-management
-        // endpoints (not documented on the public API page at the time of
-        // v1). v1 returns the file_id so a downstream caller can fetch the
-        // asset via a separate authenticated request when they need it.
         $this->support->logSuccess($ctx, $finalResponse);
 
         $fileId = is_string($finalResponse['file_id'] ?? null) ? $finalResponse['file_id'] : null;
         $width  = is_int($finalResponse['video_width'] ?? null) ? $finalResponse['video_width'] : null;
         $height = is_int($finalResponse['video_height'] ?? null) ? $finalResponse['video_height'] : null;
 
+        if ($fileId === null) {
+            return new ToolResult(false, 'MiniMax video succeeded but returned no file_id.');
+        }
+
+        // After success, fetch the actual download URL via /v1/files/retrieve.
+        // The retrieve response carries a `download_url` valid for ~1 hour;
+        // embed it directly in the chat so the browser plays it.
+        $retrieveTimeout = $this->resolveTimeout('retrieve_timeout_seconds', $ctx->settings, 30);
+        $downloadUrl = $this->retrieveDownloadUrl($client, $fileId, $retrieveTimeout);
+
         $sizeLine = ($width !== null && $height !== null) ? " ({$width}x{$height})" : '';
+        if ($downloadUrl === null) {
+            return new ToolResult(
+                false,
+                "MiniMax video succeeded (task_id={$taskId}, file_id={$fileId}) "
+                . "but the file-retrieve API did not return a download_url. "
+                . "Try again or fetch the file directly from your MiniMax dashboard.",
+            );
+        }
+
         $content = "Generated video{$sizeLine} for prompt: \"{$prompt}\"\n\n"
-            . "task_id: {$taskId}\nfile_id: {$fileId}\n\n"
-            . "Retrieve the file via MiniMax's file-management API using this file_id "
-            . "(the public docs do not document the file-retrieval endpoint at the time of v1).";
+            . MediaEmbed::videoFromUrl($downloadUrl, $width, $height) . "\n\n"
+            . "task_id: {$taskId}  file_id: {$fileId}  (URL valid ~1 hour)";
 
         return new ToolResult(true, $content, [
-            'task_id'    => $taskId,
-            'file_id'    => $fileId,
-            'width'      => $width,
-            'height'     => $height,
-            'duration'   => $duration,
-            'resolution' => $resolution !== '' ? $resolution : null,
+            'task_id'      => $taskId,
+            'file_id'      => $fileId,
+            'download_url' => $downloadUrl,
+            'width'        => $width,
+            'height'       => $height,
+            'duration'     => $duration,
+            'resolution'   => $resolution !== '' ? $resolution : null,
         ]);
+    }
+
+    /**
+     * Call /v1/files/retrieve to convert a `file_id` into a downloadable URL.
+     * Returns null if the upstream didn't return one — the caller surfaces a
+     * clear failure rather than pretending success.
+     */
+    private function retrieveDownloadUrl(MiniMaxHttpClient $client, string $fileId, int $timeoutSeconds): ?string
+    {
+        $response = $client->getJson(
+            '/v1/files/retrieve',
+            ['file_id' => $fileId],
+            timeoutSeconds: $timeoutSeconds,
+        );
+        $file = is_array($response['file'] ?? null) ? $response['file'] : [];
+        return is_string($file['download_url'] ?? null) ? $file['download_url'] : null;
     }
 
     /**
@@ -180,6 +226,7 @@ final class MiniMaxVideoTool extends MiniMaxTool
         string $prompt,
         int $duration,
         string $resolution,
+        int $timeoutSeconds,
     ): string {
         $body = [
             'model'    => MiniMaxSettings::model(self::PROVIDER, $settings, self::DEFAULT_MODEL),
@@ -190,7 +237,7 @@ final class MiniMaxVideoTool extends MiniMaxTool
             $body['resolution'] = $resolution;
         }
 
-        $startResponse = $client->postJson('/v1/video_generation', $body);
+        $startResponse = $client->postJson('/v1/video_generation', $body, timeoutSeconds: $timeoutSeconds);
         $taskId = $startResponse['task_id'] ?? null;
         if (!is_string($taskId) || $taskId === '') {
             // Synthetic MiniMaxApiException so the shared try/catch in
