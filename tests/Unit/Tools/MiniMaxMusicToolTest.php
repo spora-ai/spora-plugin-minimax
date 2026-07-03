@@ -62,10 +62,14 @@ it('parses the music response and returns the audio URL for compose', function (
 
     $http->expects('request')
         ->with('POST', 'https://api.minimax.io/v1/music_generation', Mockery::on(function ($opts) {
+            // Per-call timeout MUST be passed through; previously this
+            // assertion only checked body keys, which let a regression
+            // where the timeout override was dropped slip past CI.
             return ($opts['json']['model'] ?? null) === 'music-2.6'
                 && ($opts['json']['output_format'] ?? null) === 'url'
                 && ($opts['json']['prompt'] ?? null) === MiniMaxMusicToolTestLiterals::PROMPT_SUNNY_DAY
-                && ($opts['json']['lyrics'] ?? null) === '';
+                && ($opts['json']['lyrics'] ?? null) === ''
+                && ($opts['timeout'] ?? null) === 180;
         }))
         ->andReturn(minimaxResponse(200, json_encode([
             'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
@@ -107,7 +111,10 @@ it('parses the lyrics response and returns the song title for write_lyrics', fun
         ->with('POST', 'https://api.minimax.io/v1/lyrics_generation', Mockery::on(function ($opts) {
             return ($opts['json']['mode'] ?? null) === 'write_full_song'
                 && ($opts['json']['prompt'] ?? null) === 'a song about the sea'
-                && !array_key_exists('lyrics', $opts['json'] ?? []);
+                && !array_key_exists('lyrics', $opts['json'] ?? [])
+                // Per-call timeout MUST be passed through for lyrics
+                // too (separate from compose timeout).
+                && ($opts['timeout'] ?? null) === 30;
         }))
         ->andReturn(minimaxResponse(200, json_encode([
             'base_resp'  => ['status_code' => 0, 'status_msg' => 'success'],

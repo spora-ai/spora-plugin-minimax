@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "8973a501f807fcdd6d3728a51c1dcd92",
+    "content-hash": "94ec680313e17b33b0f24695a6290a65",
     "packages": [
         {
             "name": "brick/math",
@@ -2429,12 +2429,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/spora-ai/spora-core.git",
-                "reference": "573018a3e4aec9a20b9765650d986636a93d0edc"
+                "reference": "6e50e58"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/spora-ai/spora-core/zipball/573018a3e4aec9a20b9765650d986636a93d0edc",
-                "reference": "573018a3e4aec9a20b9765650d986636a93d0edc",
+                "url": "https://api.github.com/repos/spora-ai/spora-core/zipball/6e50e58",
+                "reference": "6e50e58",
                 "shasum": ""
             },
             "require": {
@@ -2548,7 +2548,7 @@
                 "source": "https://github.com/spora-ai/spora-core/tree/feat/asset-store-and-routes",
                 "issues": "https://github.com/spora-ai/spora-core/issues"
             },
-            "time": "2026-07-03T11:10:54+00:00"
+            "time": "2026-07-03T13:10:16+00:00"
         },
         {
             "name": "symfony/clock",

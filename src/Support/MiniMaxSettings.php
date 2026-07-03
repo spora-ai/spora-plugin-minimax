@@ -118,12 +118,22 @@ final class MiniMaxSettings
      * Multi-operation tools (music, video) call this per stage with a
      * different `$field` (e.g. `http_timeout_seconds_lyrics`).
      *
+     * Throws on unknown $field — typos in field names would otherwise
+     * silently fall back to the global default and reintroduce the
+     * short timeouts this method is meant to fix.
+     *
      * @param array<string, mixed> $settings
      */
     public static function timeoutSeconds(string $provider, string $field, array $settings): int
     {
         self::assertProvider($provider);
-        $default = (int) (self::PROVIDER_DEFAULTS[$provider][$field] ?? 30);
+        if (!array_key_exists($field, self::PROVIDER_DEFAULTS[$provider] ?? [])) {
+            throw new InvalidArgumentException(
+                "Unknown timeout field '{$field}' for provider '{$provider}'. "
+                . "Add it to MiniMaxSettings::PROVIDER_DEFAULTS if intentional.",
+            );
+        }
+        $default = (int) self::PROVIDER_DEFAULTS[$provider][$field];
         $key     = "plugin.minimax.{$provider}.{$field}";
 
         // Operator-configured setting wins. Only consulted when the key is

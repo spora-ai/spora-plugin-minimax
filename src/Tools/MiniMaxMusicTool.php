@@ -279,9 +279,11 @@ final class MiniMaxMusicTool extends MiniMaxTool
 
         /** @var MiniMaxHttpClient $client */
         $client = $ctx->client;
+        $composeTimeout = $this->resolveTimeout('http_timeout_seconds', $ctx->settings, static::TIMEOUT_SECONDS_COMPOSE);
         $response = $client->postJson(
             '/v1/music_generation',
             $this->buildComposeBody($ctx->settings, $prompt, $lyrics, $outputFormat),
+            timeoutSeconds: $composeTimeout,
         );
 
         $data     = is_array($response['data'] ?? null) ? $response['data'] : [];
@@ -347,7 +349,12 @@ final class MiniMaxMusicTool extends MiniMaxTool
 
         /** @var MiniMaxHttpClient $client */
         $client = $ctx->client;
-        $response = $client->postJson('/v1/lyrics_generation', $this->buildLyricsBody($mode, $prompt, $lyrics));
+        $lyricsTimeout = $this->resolveTimeout('http_timeout_seconds_lyrics', $ctx->settings, static::TIMEOUT_SECONDS_LYRICS);
+        $response = $client->postJson(
+            '/v1/lyrics_generation',
+            $this->buildLyricsBody($mode, $prompt, $lyrics),
+            timeoutSeconds: $lyricsTimeout,
+        );
 
         $generated = $response['lyrics'] ?? null;
         $songTitle = $response['song_title'] ?? null;

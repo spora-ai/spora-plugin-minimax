@@ -126,19 +126,35 @@ final class MiniMaxImageTool extends MiniMaxTool
 
         $this->support->logSuccess($ctx, $response);
 
+        // Coerce to a clean, sequentially-indexed list of URL strings. The
+        // upstream API always returns int keys today, but defending against
+        // non-int / non-string keys here keeps array_map()'s typed callback
+        // from throwing a TypeError that would crash the tool instead of
+        // surfacing as a clean ToolResult::fail.
+        $cleanUrls = [];
+        foreach ($urls as $u) {
+            if (is_string($u) && $u !== '') {
+                $cleanUrls[] = $u;
+            }
+        }
+        if ($cleanUrls === []) {
+            $this->support->logFailure($ctx, $response, 'Image URLs were non-string or empty');
+            return new ToolResult(false, 'MiniMax returned image URLs that are not strings.');
+        }
+
         // Use the shared MediaEmbed helper so the markdown format is
         // identical to what every other image-producing plugin emits.
         $lines = array_map(
             static fn(int $i, string $u): string => MediaEmbed::image($u, "Generated image " . ($i + 1) . ": {$prompt}"),
-            array_keys($urls),
-            array_values($urls),
+            array_keys($cleanUrls),
+            $cleanUrls,
         );
-        $count = count($urls);
+        $count = count($cleanUrls);
         $content = "Generated {$count} image" . ($count === 1 ? '' : 's') . " for prompt: \"{$prompt}\"\n\n"
             . implode("\n\n", $lines);
 
         return new ToolResult(true, $content, [
-            'image_urls'  => array_values($urls),
+            'image_urls'  => $cleanUrls,
             'model'       => MiniMaxSettings::model(self::PROVIDER, $ctx->settings, self::DEFAULT_MODEL),
         ]);
     }

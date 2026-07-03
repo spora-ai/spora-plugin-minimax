@@ -42,3 +42,10 @@ it('throws on unknown provider', function () {
     expect(static fn() => MiniMaxSettings::timeoutSeconds('bogus', 'x', []))
         ->toThrow(InvalidArgumentException::class);
 });
+
+it('throws when timeout field is not declared in PROVIDER_DEFAULTS', function () {
+    // A typo'd field name would otherwise silently fall back to 30s and
+    // reintroduce the short timeouts this method is meant to fix.
+    expect(static fn() => MiniMaxSettings::timeoutSeconds('music', 'http_timeout_secondz', []))
+        ->toThrow(InvalidArgumentException::class, 'Unknown timeout field');
+});
