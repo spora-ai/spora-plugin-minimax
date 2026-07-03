@@ -32,7 +32,7 @@ it('returns an error when the API key is missing', function () {
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
 
-    $tool = new MiniMaxMusicTool($config, $http, $log);
+    $tool = new MiniMaxMusicTool($config, $http, $log, Mockery::mock(Spora\Services\AssetStore::class));
 
     $result = $tool->execute(['prompt' => MiniMaxMusicToolTestLiterals::PROMPT_SUNNY_DAY], 1);
     expect($result->success)->toBeFalse()
@@ -46,7 +46,7 @@ it('returns an error when neither prompt nor lyrics is supplied for compose', fu
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
 
-    $tool = new MiniMaxMusicTool($config, $http, $log);
+    $tool = new MiniMaxMusicTool($config, $http, $log, Mockery::mock(Spora\Services\AssetStore::class));
 
     $result = $tool->execute(['action' => 'compose'], 1);
     expect($result->success)->toBeFalse()
@@ -72,7 +72,7 @@ it('parses the music response and returns the audio URL for compose', function (
             'data'      => ['audio_url' => MiniMaxMusicToolTestLiterals::CDN_URL_SONG],
         ])));
 
-    $tool = new MiniMaxMusicTool($config, $http, $log);
+    $tool = new MiniMaxMusicTool($config, $http, $log, Mockery::mock(Spora\Services\AssetStore::class));
     $result = $tool->execute(['action' => 'compose', 'prompt' => MiniMaxMusicToolTestLiterals::PROMPT_SUNNY_DAY], 1);
 
     expect($result->success)->toBeTrue()
@@ -89,7 +89,7 @@ it('returns an error when write_lyrics is missing prompt and lyrics', function (
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
 
-    $tool = new MiniMaxMusicTool($config, $http, $log);
+    $tool = new MiniMaxMusicTool($config, $http, $log, Mockery::mock(Spora\Services\AssetStore::class));
 
     $result = $tool->execute(['action' => 'write_lyrics'], 1);
     expect($result->success)->toBeFalse()
@@ -116,7 +116,7 @@ it('parses the lyrics response and returns the song title for write_lyrics', fun
             'style_tags' => 'dream pop, ethereal',
         ])));
 
-    $tool = new MiniMaxMusicTool($config, $http, $log);
+    $tool = new MiniMaxMusicTool($config, $http, $log, Mockery::mock(Spora\Services\AssetStore::class));
     $result = $tool->execute(['action' => 'write_lyrics', 'prompt' => 'a song about the sea'], 1);
 
     expect($result->success)->toBeTrue()
@@ -135,7 +135,7 @@ it('returns an error when edit_lyrics is missing lyrics', function () {
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
 
-    $tool = new MiniMaxMusicTool($config, $http, $log);
+    $tool = new MiniMaxMusicTool($config, $http, $log, Mockery::mock(Spora\Services\AssetStore::class));
 
     $result = $tool->execute(['action' => 'edit_lyrics', 'prompt' => MiniMaxMusicToolTestLiterals::EDIT_PROMPT_SADDER], 1);
     expect($result->success)->toBeFalse()
@@ -163,7 +163,7 @@ it('parses the lyrics response for edit_lyrics with mode=edit', function () {
             'lyrics'     => "[Verse]\nGrey morning\n[Chorus]\nRain on the waves",
         ])));
 
-    $tool = new MiniMaxMusicTool($config, $http, $log);
+    $tool = new MiniMaxMusicTool($config, $http, $log, Mockery::mock(Spora\Services\AssetStore::class));
     $result = $tool->execute([
         'action'  => 'edit_lyrics',
         'prompt'  => MiniMaxMusicToolTestLiterals::EDIT_PROMPT_SADDER,
@@ -193,7 +193,7 @@ it('falls back to the first declared operation when action is absent', function 
             'data'      => ['audio_url' => MiniMaxMusicToolTestLiterals::CDN_URL_SONG],
         ])));
 
-    $tool = new MiniMaxMusicTool($config, $http, $log);
+    $tool = new MiniMaxMusicTool($config, $http, $log, Mockery::mock(Spora\Services\AssetStore::class));
     $result = $tool->execute(['prompt' => 'lo-fi beat'], 1);
 
     expect($result->success)->toBeTrue()
@@ -207,7 +207,7 @@ it('returns an error for an unknown action', function () {
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
 
-    $tool = new MiniMaxMusicTool($config, $http, $log);
+    $tool = new MiniMaxMusicTool($config, $http, $log, Mockery::mock(Spora\Services\AssetStore::class));
     $result = $tool->execute(['action' => 'karaoke', 'prompt' => 'something'], 1);
 
     expect($result->success)->toBeFalse()

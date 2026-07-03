@@ -54,6 +54,11 @@ abstract class MiniMaxTool extends AbstractTool
 
     public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
     {
+        // Resolve the timeout from per-tool settings before runWithValidation
+        // so the value isn't baked into the constant. Settings are not yet
+        // available here (they live on the context), so the safe default is
+        // the class constant; per-tool overrides apply inside doWork via
+        // MiniMaxSettings::timeoutSeconds().
         return $this->runWithValidation(
             $arguments,
             $agentId,
@@ -63,6 +68,19 @@ abstract class MiniMaxTool extends AbstractTool
             fn(MiniMaxToolContext $ctx) => $this->doWork($ctx, $arguments),
             fn(array $a) => $this->validateArguments($a),
         );
+    }
+
+    /**
+     * Resolve a per-stage HTTP timeout from the layered config (per-tool
+     * setting → env → default). Subclasses call this instead of reading
+     * `static::TIMEOUT_SECONDS` so the operator can override individual
+     * stages via the settings UI.
+     *
+     * @param array<string, mixed> $settings
+     */
+    protected function resolveTimeout(string $field, array $settings, int $fallback): int
+    {
+        return MiniMaxSettings::timeoutSeconds(static::PROVIDER, $field, $settings) ?: $fallback;
     }
 
     /**

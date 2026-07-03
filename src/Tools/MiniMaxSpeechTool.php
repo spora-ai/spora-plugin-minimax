@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 namespace Spora\Plugins\MiniMax\Tools;
 
+use Spora\Plugins\Concerns\StoresBinaryAssets;
+use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Plugins\MiniMax\Support\MiniMaxTool;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
+use Spora\Services\AssetStore;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
+use Spora\Tools\MediaEmbed;
 use Spora\Tools\ValueObjects\ToolResult;
 
 /**
@@ -20,7 +24,7 @@ use Spora\Tools\ValueObjects\ToolResult;
  */
 #[Tool(
     name: 'speech',
-    description: 'Synthesize speech from text via MiniMax (text-to-speech). Returns a CDN URL valid for 24 hours when available, otherwise inline hex-encoded audio.',
+    description: 'Synthesize speech from text. Returns an embedded audio player in the chat bubble.',
     displayName: 'MiniMax Speech',
     category: 'generation',
 )]
@@ -53,6 +57,13 @@ use Spora\Tools\ValueObjects\ToolResult;
     description: 'Default voice id from the MiniMax voice library (overridden by the `voice_id` parameter).',
     default: 'English_PassionateWarrior',
 )]
+#[ToolSetting(
+    key: 'plugin.minimax.speech.http_timeout_seconds',
+    label: 'HTTP timeout (s)',
+    type: 'number',
+    description: 'Per-request timeout for the MiniMax API. Default 60 seconds.',
+    default: '60',
+)]
 #[ToolParameter(
     name: 'text',
     type: 'string',
@@ -77,12 +88,26 @@ use Spora\Tools\ValueObjects\ToolResult;
 )]
 final class MiniMaxSpeechTool extends MiniMaxTool
 {
+    use StoresBinaryAssets;
+
     protected const PROVIDER        = 'speech';
     protected const DEFAULT_MODEL   = 'speech-2.8-hd';
     protected const DEFAULT_VOICE   = 'English_PassionateWarrior';
     protected const QUALIFIED_NAME  = 'minimax:speech';
     protected const TIMEOUT_SECONDS = 60;
     protected const TOOL_LABEL      = 'Speech synthesis';
+
+    public function __construct(
+        \Spora\Services\ToolConfigService $configService,
+        \Symfony\Contracts\HttpClient\HttpClientInterface $httpClient,
+        \Spora\Plugins\MiniMax\Support\MiniMaxLogWriter $logWriter,
+        AssetStore $assetStore,
+        ?\Psr\Log\LoggerInterface $logger = null,
+        ?\Spora\Plugins\MiniMax\Support\MiniMaxToolSupport $support = null,
+    ) {
+        parent::__construct($configService, $httpClient, $logWriter, $logger, $support);
+        $this->setAssetStore($assetStore);
+    }
 
     public function describeAction(array $arguments): string
     {
@@ -161,9 +186,14 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         $speed  = (float) ($arguments['speed'] ?? 1.0);
         $voiceId = $this->resolveVoiceId($arguments, $ctx->settings);
 
-        /** @var \Spora\Plugins\MiniMax\Support\MiniMaxHttpClient $client */
+        /** @var MiniMaxHttpClient $client */
         $client = $ctx->client;
-        $response = $client->postJson('/v1/t2a_v2', $this->buildRequestBody($ctx->settings, $text, $voiceId, $speed));
+        $timeout = $this->resolveTimeout('http_timeout_seconds', $ctx->settings, static::TIMEOUT_SECONDS);
+        $response = $client->postJson(
+            '/v1/t2a_v2',
+            $this->buildRequestBody($ctx->settings, $text, $voiceId, $speed),
+            timeoutSeconds: $timeout,
+        );
 
         $hexAudio   = $response['data']['audio'] ?? null;
         $audioUrl   = $response['data']['audio_url'] ?? null;
@@ -180,14 +210,31 @@ final class MiniMaxSpeechTool extends MiniMaxTool
 
         $statsLine = $this->formatStatsLine($lengthMs, $sizeBytes, $usageChars);
 
+        // Resolve a playback URL — either the CDN URL from MiniMax or a
+        // local / data URL the AssetStore hands back after decoding the
+        // hex payload.
+        $assetMode = null;
         if (is_string($audioUrl) && $audioUrl !== '') {
-            $content = "Synthesized speech{$statsLine}.\n\nCDN URL (valid 24h): {$audioUrl}";
-            return new ToolResult(true, $content, ['audio_url' => $audioUrl, 'voice_id' => $voiceId]);
+            $url = $audioUrl;
+        } elseif (is_string($hexAudio) && $hexAudio !== '' && strlen($hexAudio) % 2 === 0) {
+            // embedHex() throws on odd-length hex; we surface that as a
+            // clear failure rather than a silent byte-count.
+            [$url, $assetMode] = $this->embedHex($hexAudio, 'audio/mpeg', 'speech.mp3');
+        } else {
+            return new ToolResult(false, 'MiniMax returned audio in an unsupported format.');
         }
 
-        $byteCount = is_string($hexAudio) ? (int) (strlen($hexAudio) / 2) : 0;
-        $content = "Synthesized speech{$statsLine}.\n\nAudio payload: {$byteCount} bytes (hex-encoded, inline). Voice: {$voiceId}.";
-        return new ToolResult(true, $content, ['audio_bytes' => $byteCount, 'voice_id' => $voiceId]);
+        $content = "Synthesized speech{$statsLine}.\n\n"
+            . MediaEmbed::audioFromUrl($url) . "\n\n"
+            . "Voice: {$voiceId}.";
+
+        return new ToolResult(true, $content, [
+            'audio_url'  => $audioUrl,
+            'asset_url'  => $url,
+            'asset_mode' => $assetMode,
+            'voice_id'   => $voiceId,
+            'audio_size' => is_int($sizeBytes) ? $sizeBytes : null,
+        ]);
     }
 
     private function formatStatsLine(mixed $lengthMs, mixed $sizeBytes, mixed $usageChars): string

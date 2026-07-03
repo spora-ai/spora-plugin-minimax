@@ -12,6 +12,7 @@ use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
+use Spora\Tools\MediaEmbed;
 use Spora\Tools\ValueObjects\ToolResult;
 
 /**
@@ -21,7 +22,7 @@ use Spora\Tools\ValueObjects\ToolResult;
  */
 #[Tool(
     name: 'image',
-    description: 'Generate an image from a text prompt via MiniMax. Returns a URL that is valid for 24 hours.',
+    description: 'Generate an image from a text prompt. Returns an embedded image in the chat bubble.',
     displayName: 'MiniMax Image',
     category: 'generation',
 )]
@@ -46,6 +47,13 @@ use Spora\Tools\ValueObjects\ToolResult;
     type: 'text',
     description: 'Image model id (default: image-01).',
     default: 'image-01',
+)]
+#[ToolSetting(
+    key: 'plugin.minimax.image.http_timeout_seconds',
+    label: 'HTTP timeout (s)',
+    type: 'number',
+    description: 'Per-request timeout for the MiniMax API. Default 60 seconds.',
+    default: '60',
 )]
 #[ToolParameter(
     name: 'prompt',
@@ -98,12 +106,17 @@ final class MiniMaxImageTool extends MiniMaxTool
 
         /** @var MiniMaxHttpClient $client */
         $client = $ctx->client;
-        $response = $client->postJson('/v1/image_generation', [
-            'model'        => MiniMaxSettings::model(self::PROVIDER, $ctx->settings, self::DEFAULT_MODEL),
-            'prompt'       => $prompt,
-            'aspect_ratio' => $aspectRatio,
-            'response_format' => 'url',
-        ]);
+        $timeout = $this->resolveTimeout('http_timeout_seconds', $ctx->settings, static::TIMEOUT_SECONDS);
+        $response = $client->postJson(
+            '/v1/image_generation',
+            [
+                'model'        => MiniMaxSettings::model(self::PROVIDER, $ctx->settings, self::DEFAULT_MODEL),
+                'prompt'       => $prompt,
+                'aspect_ratio' => $aspectRatio,
+                'response_format' => 'url',
+            ],
+            timeoutSeconds: $timeout,
+        );
 
         $urls = $response['data']['image_urls'] ?? [];
         if (!is_array($urls) || $urls === []) {
@@ -113,9 +126,16 @@ final class MiniMaxImageTool extends MiniMaxTool
 
         $this->support->logSuccess($ctx, $response);
 
-        $list = array_map(static fn($i, $u) => '[' . ($i + 1) . "] {$u}", array_keys($urls), $urls);
-        $urlsBlock = implode("\n", $list);
-        $content = "Generated image for prompt: \"{$prompt}\"\n\nImage URLs (valid for 24 hours):\n{$urlsBlock}";
+        // Use the shared MediaEmbed helper so the markdown format is
+        // identical to what every other image-producing plugin emits.
+        $lines = array_map(
+            static fn(int $i, string $u): string => MediaEmbed::image($u, "Generated image " . ($i + 1) . ": {$prompt}"),
+            array_keys($urls),
+            array_values($urls),
+        );
+        $count = count($urls);
+        $content = "Generated {$count} image" . ($count === 1 ? '' : 's') . " for prompt: \"{$prompt}\"\n\n"
+            . implode("\n\n", $lines);
 
         return new ToolResult(true, $content, [
             'image_urls'  => array_values($urls),
