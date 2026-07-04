@@ -2,10 +2,5 @@
     "slug": "minimax",
     "description": "Image, speech, music (with lyrics), and video generation via MiniMax's multimodal APIs. Text/chat is provided by Spora's built-in Anthropic-compatible driver pointed at MiniMax's base URL.",
     "class": "Spora\\Plugins\\MiniMax\\MiniMaxPlugin",
-    "icon": "<svg viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M9 9h6v6H9z\"/></svg>",
-    "autoload": {
-        "psr-4": {
-            "Spora\\Plugins\\MiniMax\\": "src/"
-        }
-    }
+    "icon": "<svg viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M9 9h6v6H9z\"/></svg>"
 }
