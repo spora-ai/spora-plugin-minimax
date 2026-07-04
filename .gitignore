@@ -9,3 +9,4 @@
 /.claude/
 *.swp
 .DS_Store
+/.worktrees/
