@@ -44,8 +44,8 @@ China-region endpoint.
 | `plugin.minimax.{provider}.base_url` | no | `https://api.minimax.io` (Global) |
 | `plugin.minimax.{provider}.model` | no | per provider (see below) |
 | `plugin.minimax.speech.voice_id` | no | `English_PassionateWarrior` |
-| `plugin.minimax.video.poll_interval_seconds` | no | `10` |
-| `plugin.minimax.video.poll_timeout_seconds` | no | `600` |
+| `poll_interval_seconds` (video) | no | `10` |
+| `poll_timeout_seconds` (video) | no | `600` |
 
 `api_key` fields are encrypted at rest by Spora's `ToolConfigService`, masked
 in the UI, and never logged.

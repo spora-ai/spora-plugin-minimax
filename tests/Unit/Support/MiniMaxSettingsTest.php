@@ -49,3 +49,34 @@ it('throws when timeout field is not declared in PROVIDER_DEFAULTS', function ()
     expect(static fn() => MiniMaxSettings::timeoutSeconds('music', 'http_timeout_secondz', []))
         ->toThrow(InvalidArgumentException::class, 'Unknown timeout field');
 });
+
+it('reads bare-key settings for the video provider (no plugin.minimax.video. prefix)', function () {
+    // The video tool is the one outlier that exposes bare field names to
+    // operators instead of namespacing them under plugin.minimax.video.*.
+    $settings = [
+        'api_key'                  => 'k',
+        'base_url'                 => 'https://api.minimaxi.com',
+        'model'                    => 'MiniMax-Hailuo-2.3',
+        'poll_interval_seconds'    => '7',
+        'poll_timeout_seconds'     => '777',
+        'submit_timeout_seconds'   => '111',
+        'retrieve_timeout_seconds' => '22',
+    ];
+
+    expect(MiniMaxSettings::apiKey('video', $settings))->toBe('k')
+        ->and(MiniMaxSettings::baseUrl('video', $settings))->toBe('https://api.minimaxi.com')
+        ->and(MiniMaxSettings::model('video', $settings, 'fallback'))->toBe('MiniMax-Hailuo-2.3')
+        ->and(MiniMaxSettings::intSetting('video', 'poll_interval_seconds', $settings, 10))->toBe(7)
+        ->and(MiniMaxSettings::intSetting('video', 'poll_timeout_seconds', $settings, 600))->toBe(777)
+        ->and(MiniMaxSettings::timeoutSeconds('video', 'submit_timeout_seconds', $settings))->toBe(111)
+        ->and(MiniMaxSettings::timeoutSeconds('video', 'retrieve_timeout_seconds', $settings))->toBe(22);
+});
+
+it('falls back to defaults for bare-key video settings when none are configured', function () {
+    expect(MiniMaxSettings::apiKey('video', []))->toBe('')
+        ->and(MiniMaxSettings::baseUrl('video', []))->toBe('https://api.minimax.io')
+        ->and(MiniMaxSettings::model('video', [], 'MiniMax-Hailuo-2.3'))->toBe('MiniMax-Hailuo-2.3')
+        ->and(MiniMaxSettings::intSetting('video', 'poll_interval_seconds', [], 10))->toBe(10)
+        ->and(MiniMaxSettings::timeoutSeconds('video', 'submit_timeout_seconds', []))->toBe(120)
+        ->and(MiniMaxSettings::timeoutSeconds('video', 'retrieve_timeout_seconds', []))->toBe(30);
+});

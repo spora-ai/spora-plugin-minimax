@@ -13,6 +13,11 @@ use InvalidArgumentException;
  * attributes. Spora's `ToolConfigService::getEffectiveSettings()` returns the merged
  * settings array; this helper pulls the named fields out with a consistent default.
  *
+ * The video tool is the one outlier: it declares bare field names
+ * (`api_key`, `base_url`, `model`, ...) instead of `plugin.minimax.video.*`.
+ * Providers in {@see BARE_PROVIDERS} are looked up with the field name
+ * verbatim; every other provider is namespaced under `plugin.minimax.`.
+ *
  * Using a static helper rather than passing the settings array around as
  * `array<string, mixed>` keeps the per-tool execute() methods small and the
  * settings key prefix in one place.
@@ -20,6 +25,15 @@ use InvalidArgumentException;
 final class MiniMaxSettings
 {
     public const PROVIDERS = ['image', 'speech', 'music', 'video'];
+
+    /**
+     * Providers whose `#[ToolSetting]` keys are bare field names (no
+     * `plugin.minimax.{$provider}.` prefix). The video tool is the
+     * outlier — see the class docblock for the rationale.
+     *
+     * @var list<string>
+     */
+    public const BARE_PROVIDERS = ['video'];
 
     /**
      * Global / international MiniMax API endpoint. Operators in China can
@@ -65,7 +79,7 @@ final class MiniMaxSettings
     public static function apiKey(string $provider, array $settings): string
     {
         self::assertProvider($provider);
-        $key = "plugin.minimax.{$provider}.api_key";
+        $key = self::settingKey($provider, 'api_key');
         $value = $settings[$key] ?? '';
         return is_string($value) ? trim($value) : '';
     }
@@ -76,7 +90,7 @@ final class MiniMaxSettings
     public static function baseUrl(string $provider, array $settings): string
     {
         self::assertProvider($provider);
-        $key = "plugin.minimax.{$provider}.base_url";
+        $key = self::settingKey($provider, 'base_url');
         $value = $settings[$key] ?? self::DEFAULT_BASE_URL;
         if (!is_string($value) || trim($value) === '') {
             return self::DEFAULT_BASE_URL;
@@ -90,7 +104,7 @@ final class MiniMaxSettings
     public static function model(string $provider, array $settings, string $default): string
     {
         self::assertProvider($provider);
-        $key = "plugin.minimax.{$provider}.model";
+        $key = self::settingKey($provider, 'model');
         $value = $settings[$key] ?? $default;
         return is_string($value) && trim($value) !== '' ? trim($value) : $default;
     }
@@ -101,7 +115,7 @@ final class MiniMaxSettings
     public static function intSetting(string $provider, string $field, array $settings, int $default): int
     {
         self::assertProvider($provider);
-        $key = "plugin.minimax.{$provider}.{$field}";
+        $key = self::settingKey($provider, $field);
         $value = $settings[$key] ?? null;
         if (is_numeric($value)) {
             $int = (int) $value;
@@ -134,7 +148,7 @@ final class MiniMaxSettings
             );
         }
         $default = (int) self::PROVIDER_DEFAULTS[$provider][$field];
-        $key     = "plugin.minimax.{$provider}.{$field}";
+        $key     = self::settingKey($provider, $field);
 
         // Operator-configured setting wins. Only consulted when the key is
         // explicitly present in $settings — otherwise env / default applies.
@@ -143,6 +157,19 @@ final class MiniMaxSettings
         }
         $env = (int) ($_ENV['SPORA_TOOL_HTTP_TIMEOUT'] ?? getenv('SPORA_TOOL_HTTP_TIMEOUT') ?: 0);
         return $env > 0 ? $env : $default;
+    }
+
+    /**
+     * Build the settings-array key for a (provider, field) pair. Providers
+     * in {@see BARE_PROVIDERS} use the bare field name; every other
+     * provider is namespaced under `plugin.minimax.{provider}.`.
+     */
+    private static function settingKey(string $provider, string $field): string
+    {
+        if (in_array($provider, self::BARE_PROVIDERS, true)) {
+            return $field;
+        }
+        return "plugin.minimax.{$provider}.{$field}";
     }
 
     private static function assertProvider(string $provider): void
