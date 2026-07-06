@@ -30,49 +30,49 @@ use Spora\Tools\ValueObjects\ToolResult;
 )]
 #[ToolOperation(name: 'generate', description: 'Generate a short video clip from a text prompt', enabledByDefault: true, requiresApprovalByDefault: false)]
 #[ToolSetting(
-    key: 'plugin.minimax.video.api_key',
+    key: 'api_key',
     label: 'MiniMax API Key',
     type: 'password',
     description: 'API key for api.minimax.io (shared across all MiniMax tools).',
     required: true,
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.video.base_url',
+    key: 'base_url',
     label: 'Base URL',
     type: 'text',
     description: 'MiniMax base URL. Default is the Global endpoint (https://api.minimax.io). For China-region, set to https://api.minimaxi.com.',
     default: 'https://api.minimax.io',
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.video.model',
+    key: 'model',
     label: 'Model',
     type: 'text',
     description: 'Video model id (default: MiniMax-Hailuo-2.3).',
     default: 'MiniMax-Hailuo-2.3',
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.video.poll_interval_seconds',
+    key: 'poll_interval_seconds',
     label: 'Poll interval (s)',
     type: 'text',
     description: 'Seconds between status polls (default: 10).',
     default: '10',
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.video.poll_timeout_seconds',
+    key: 'poll_timeout_seconds',
     label: 'Poll timeout (s)',
     type: 'text',
     description: 'Maximum total wait for video generation (default: 600).',
     default: '600',
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.video.submit_timeout_seconds',
+    key: 'submit_timeout_seconds',
     label: 'Submit timeout (s)',
     type: 'number',
     description: 'Per-request timeout for the submit API call (MiniMax queues the task server-side; default: 120).',
     default: '120',
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.video.retrieve_timeout_seconds',
+    key: 'retrieve_timeout_seconds',
     label: 'File retrieve timeout (s)',
     type: 'number',
     description: 'Per-request timeout for the /v1/files/retrieve call (default: 30).',

@@ -7,15 +7,17 @@ namespace Spora\Plugins\MiniMax\Support;
 use InvalidArgumentException;
 
 /**
- * Centralized accessor for the per-tool `plugin.minimax.{provider}.*` settings.
+ * Centralized accessor for the per-tool settings of every MiniMax provider.
  *
- * Each tool declares its settings via `#[ToolSetting(key: 'plugin.minimax.{provider}.{field}')]`
- * attributes. Spora's `ToolConfigService::getEffectiveSettings()` returns the merged
- * settings array; this helper pulls the named fields out with a consistent default.
+ * Each tool declares its settings via `#[ToolSetting(key: '{field}')]`
+ * attributes with bare field names (no `plugin.minimax.{provider}.` prefix).
+ * Spora's `ToolConfigService::getEffectiveSettings()` returns the merged
+ * settings array; this helper pulls the named fields out with a consistent
+ * default.
  *
  * Using a static helper rather than passing the settings array around as
- * `array<string, mixed>` keeps the per-tool execute() methods small and the
- * settings key prefix in one place.
+ * `array<string, mixed>` keeps the per-tool execute() methods small and
+ * the default-per-provider lookup in one place.
  */
 final class MiniMaxSettings
 {
@@ -23,7 +25,7 @@ final class MiniMaxSettings
 
     /**
      * Global / international MiniMax API endpoint. Operators in China can
-     * override `plugin.minimax.{provider}.base_url` to the China-region
+     * override `base_url` on the relevant tool's settings to the China-region
      * endpoint at https://api.minimaxi.com — see the README for details.
      */
     public const DEFAULT_BASE_URL = 'https://api.minimax.io';
@@ -65,8 +67,7 @@ final class MiniMaxSettings
     public static function apiKey(string $provider, array $settings): string
     {
         self::assertProvider($provider);
-        $key = "plugin.minimax.{$provider}.api_key";
-        $value = $settings[$key] ?? '';
+        $value = $settings['api_key'] ?? '';
         return is_string($value) ? trim($value) : '';
     }
 
@@ -76,8 +77,7 @@ final class MiniMaxSettings
     public static function baseUrl(string $provider, array $settings): string
     {
         self::assertProvider($provider);
-        $key = "plugin.minimax.{$provider}.base_url";
-        $value = $settings[$key] ?? self::DEFAULT_BASE_URL;
+        $value = $settings['base_url'] ?? self::DEFAULT_BASE_URL;
         if (!is_string($value) || trim($value) === '') {
             return self::DEFAULT_BASE_URL;
         }
@@ -90,8 +90,7 @@ final class MiniMaxSettings
     public static function model(string $provider, array $settings, string $default): string
     {
         self::assertProvider($provider);
-        $key = "plugin.minimax.{$provider}.model";
-        $value = $settings[$key] ?? $default;
+        $value = $settings['model'] ?? $default;
         return is_string($value) && trim($value) !== '' ? trim($value) : $default;
     }
 
@@ -101,8 +100,7 @@ final class MiniMaxSettings
     public static function intSetting(string $provider, string $field, array $settings, int $default): int
     {
         self::assertProvider($provider);
-        $key = "plugin.minimax.{$provider}.{$field}";
-        $value = $settings[$key] ?? null;
+        $value = $settings[$field] ?? null;
         if (is_numeric($value)) {
             $int = (int) $value;
             return $int > 0 ? $int : $default;
@@ -134,12 +132,11 @@ final class MiniMaxSettings
             );
         }
         $default = (int) self::PROVIDER_DEFAULTS[$provider][$field];
-        $key     = "plugin.minimax.{$provider}.{$field}";
 
         // Operator-configured setting wins. Only consulted when the key is
         // explicitly present in $settings — otherwise env / default applies.
-        if (array_key_exists($key, $settings) && is_numeric($settings[$key]) && (int) $settings[$key] > 0) {
-            return (int) $settings[$key];
+        if (array_key_exists($field, $settings) && is_numeric($settings[$field]) && (int) $settings[$field] > 0) {
+            return (int) $settings[$field];
         }
         $env = (int) ($_ENV['SPORA_TOOL_HTTP_TIMEOUT'] ?? getenv('SPORA_TOOL_HTTP_TIMEOUT') ?: 0);
         return $env > 0 ? $env : $default;

@@ -41,7 +41,7 @@ it('returns an error when the API key is missing', function () {
 
 it('returns an error when neither prompt nor lyrics is supplied for compose', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.music.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
@@ -55,7 +55,7 @@ it('returns an error when neither prompt nor lyrics is supplied for compose', fu
 
 it('parses the music response and returns the audio URL for compose', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.music.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
@@ -88,7 +88,7 @@ it('parses the music response and returns the audio URL for compose', function (
 
 it('returns an error when write_lyrics is missing prompt and lyrics', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.music.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
@@ -102,7 +102,7 @@ it('returns an error when write_lyrics is missing prompt and lyrics', function (
 
 it('parses the lyrics response and returns the song title for write_lyrics', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.music.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
@@ -137,7 +137,7 @@ it('parses the lyrics response and returns the song title for write_lyrics', fun
 
 it('returns an error when edit_lyrics is missing lyrics', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.music.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
@@ -151,7 +151,7 @@ it('returns an error when edit_lyrics is missing lyrics', function () {
 
 it('parses the lyrics response for edit_lyrics with mode=edit', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.music.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
@@ -187,7 +187,7 @@ it('parses the lyrics response for edit_lyrics with mode=edit', function () {
 
 it('falls back to the first declared operation when action is absent', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.music.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
@@ -209,7 +209,7 @@ it('falls back to the first declared operation when action is absent', function 
 
 it('returns an error for an unknown action', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.music.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();

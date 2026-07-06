@@ -11,7 +11,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 it('decodes a hex payload via the AssetStore when output_format=hex', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.music.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $hex = bin2hex(random_bytes(32)); // 32 bytes of music
 

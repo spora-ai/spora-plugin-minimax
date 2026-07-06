@@ -32,7 +32,7 @@ it('returns an error when the API key is missing', function () {
 
 it('returns an error when duration_seconds is invalid', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.video.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
@@ -47,11 +47,11 @@ it('returns an error when duration_seconds is invalid', function () {
 it('polls the task status, calls file-retrieve, and embeds the download URL', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn([
-        'plugin.minimax.video.api_key'                  => 'k',
+        'api_key'                  => 'k',
         // Poll quickly: interval=1s, timeout=5s — the happy path doesn't wait
         // long, but the loop still has a real deadline.
-        'plugin.minimax.video.poll_interval_seconds'    => '1',
-        'plugin.minimax.video.poll_timeout_seconds'     => '5',
+        'poll_interval_seconds'    => '1',
+        'poll_timeout_seconds'     => '5',
     ]);
 
     $http = Mockery::mock(HttpClientInterface::class);
@@ -115,9 +115,9 @@ it('polls the task status, calls file-retrieve, and embeds the download URL', fu
 it('returns a failure when file-retrieve omits the download URL', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn([
-        'plugin.minimax.video.api_key'               => 'k',
-        'plugin.minimax.video.poll_interval_seconds' => '1',
-        'plugin.minimax.video.poll_timeout_seconds'  => '5',
+        'api_key'               => 'k',
+        'poll_interval_seconds' => '1',
+        'poll_timeout_seconds'  => '5',
     ]);
 
     $http = Mockery::mock(HttpClientInterface::class);

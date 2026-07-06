@@ -28,28 +28,28 @@ use Spora\Tools\ValueObjects\ToolResult;
 )]
 #[ToolOperation(name: 'generate', description: 'Generate an image from a text prompt', enabledByDefault: true, requiresApprovalByDefault: false)]
 #[ToolSetting(
-    key: 'plugin.minimax.image.api_key',
+    key: 'api_key',
     label: 'MiniMax API Key',
     type: 'password',
     description: 'API key for api.minimax.io (shared across all MiniMax tools).',
     required: true,
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.image.base_url',
+    key: 'base_url',
     label: 'Base URL',
     type: 'text',
     description: 'MiniMax base URL. Default is the Global endpoint (https://api.minimax.io). For China-region, set to https://api.minimaxi.com.',
     default: 'https://api.minimax.io',
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.image.model',
+    key: 'model',
     label: 'Model',
     type: 'text',
     description: 'Image model id (default: image-01).',
     default: 'image-01',
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.image.http_timeout_seconds',
+    key: 'http_timeout_seconds',
     label: 'HTTP timeout (s)',
     type: 'number',
     description: 'Per-request timeout for the MiniMax API. Default 60 seconds.',
