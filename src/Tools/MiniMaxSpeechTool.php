@@ -109,8 +109,18 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     ) {
         parent::__construct($configService, $httpClient, $logWriter, $logger, $support);
         $this->setAssetStore($assetStore);
-        if ($mediaArchive !== null) {
-            $this->setMediaArchive($mediaArchive);
+        $this->attachSpeechMediaArchive($mediaArchive);
+    }
+
+    /**
+     * Wire the optional {@see MediaArchiveService} into the trait. The
+     * opt-in constructor parameter is null when the operator hasn't
+     * enabled the media archive; ignore that case silently.
+     */
+    private function attachSpeechMediaArchive(?\Spora\Services\MediaArchive\MediaArchiveService $archive): void
+    {
+        if ($archive !== null) {
+            $this->setMediaArchive($archive);
         }
     }
 

@@ -91,8 +91,18 @@ final class MiniMaxImageTool extends MiniMaxTool
         ?\Spora\Services\MediaArchive\MediaArchiveService $mediaArchive = null,
     ) {
         parent::__construct($configService, $httpClient, $logWriter, $logger, $support);
-        if ($mediaArchive !== null) {
-            $this->setMediaArchive($mediaArchive);
+        $this->attachImageMediaArchive($mediaArchive);
+    }
+
+    /**
+     * Wire the optional {@see MediaArchiveService} into the trait. The
+     * opt-in constructor parameter is null when the operator hasn't
+     * enabled the media archive; ignore that case silently.
+     */
+    private function attachImageMediaArchive(?\Spora\Services\MediaArchive\MediaArchiveService $archive): void
+    {
+        if ($archive !== null) {
+            $this->setMediaArchive($archive);
         }
     }
 
