@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Spora\Plugins\MiniMax\Tools;
 
+use Spora\Plugins\Concerns\StoresBinaryAssets;
 use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Plugins\MiniMax\Support\MiniMaxTool;
@@ -14,6 +15,7 @@ use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
 use Spora\Tools\MediaEmbed;
 use Spora\Tools\ValueObjects\ToolResult;
+use Throwable;
 
 /**
  * Generates an image from a text prompt via MiniMax's image_generation API.
@@ -72,11 +74,27 @@ use Spora\Tools\ValueObjects\ToolResult;
 )]
 final class MiniMaxImageTool extends MiniMaxTool
 {
+    use StoresBinaryAssets;
+
     protected const PROVIDER        = 'image';
     protected const DEFAULT_MODEL   = 'image-01';
     protected const QUALIFIED_NAME  = 'minimax:image';
     protected const TIMEOUT_SECONDS = 60;
     protected const TOOL_LABEL      = 'Image generation';
+
+    public function __construct(
+        \Spora\Services\ToolConfigService $configService,
+        \Symfony\Contracts\HttpClient\HttpClientInterface $httpClient,
+        \Spora\Plugins\MiniMax\Support\MiniMaxLogWriter $logWriter,
+        ?\Psr\Log\LoggerInterface $logger = null,
+        ?\Spora\Plugins\MiniMax\Support\MiniMaxToolSupport $support = null,
+        ?\Spora\Services\MediaArchive\MediaArchiveService $mediaArchive = null,
+    ) {
+        parent::__construct($configService, $httpClient, $logWriter, $logger, $support);
+        if ($mediaArchive !== null) {
+            $this->setMediaArchive($mediaArchive);
+        }
+    }
 
     public function describeAction(array $arguments): string
     {
@@ -152,6 +170,27 @@ final class MiniMaxImageTool extends MiniMaxTool
         $count = count($cleanUrls);
         $content = "Generated {$count} image" . ($count === 1 ? '' : 's') . " for prompt: \"{$prompt}\"\n\n"
             . implode("\n\n", $lines);
+
+        // Hand each upstream CDN URL to the Media Archive so the operator can
+        // browse, filter, and download generated media from the admin UI.
+        // Core fetches the bytes, sniffs MIME, and indexes a row per URL.
+        // Ingest failures must never break the tool — log and continue.
+        foreach ($cleanUrls as $cdnUrl) {
+            try {
+                $this->mediaArchive()->ingest(
+                    url: $cdnUrl,
+                    agentId: $ctx->agentId,
+                    pluginSlug: 'minimax',
+                    toolName: 'image',
+                    prompt: $prompt,
+                );
+            } catch (Throwable $e) {
+                $this->support->logger()?->warning('MediaArchive ingest failed (image)', [
+                    'exception' => $e,
+                    'url'       => $cdnUrl,
+                ]);
+            }
+        }
 
         return new ToolResult(true, $content, [
             'image_urls'  => $cleanUrls,

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Spora\Plugins\MiniMax\Tools;
 
+use Spora\Plugins\Concerns\StoresBinaryAssets;
 use Spora\Plugins\MiniMax\Support\Exceptions\MiniMaxApiException;
 use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
@@ -15,6 +16,7 @@ use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
 use Spora\Tools\MediaEmbed;
 use Spora\Tools\ValueObjects\ToolResult;
+use Throwable;
 
 /**
  * Generates a video from a text prompt via MiniMax's video_generation API.
@@ -101,11 +103,27 @@ use Spora\Tools\ValueObjects\ToolResult;
 )]
 final class MiniMaxVideoTool extends MiniMaxTool
 {
+    use StoresBinaryAssets;
+
     protected const PROVIDER        = 'video';
     protected const DEFAULT_MODEL   = 'MiniMax-Hailuo-2.3';
     protected const QUALIFIED_NAME  = 'minimax:video';
     protected const TIMEOUT_SECONDS = 120;
     protected const TOOL_LABEL      = 'Video generation';
+
+    public function __construct(
+        \Spora\Services\ToolConfigService $configService,
+        \Symfony\Contracts\HttpClient\HttpClientInterface $httpClient,
+        \Spora\Plugins\MiniMax\Support\MiniMaxLogWriter $logWriter,
+        ?\Psr\Log\LoggerInterface $logger = null,
+        ?\Spora\Plugins\MiniMax\Support\MiniMaxToolSupport $support = null,
+        ?\Spora\Services\MediaArchive\MediaArchiveService $mediaArchive = null,
+    ) {
+        parent::__construct($configService, $httpClient, $logWriter, $logger, $support);
+        if ($mediaArchive !== null) {
+            $this->setMediaArchive($mediaArchive);
+        }
+    }
 
     public function describeAction(array $arguments): string
     {
@@ -185,6 +203,29 @@ final class MiniMaxVideoTool extends MiniMaxTool
         $content = "Generated video{$sizeLine} for prompt: \"{$prompt}\"\n\n"
             . MediaEmbed::videoFromUrl($downloadUrl, $width, $height) . "\n\n"
             . "task_id: {$taskId}  file_id: {$fileId}  (URL valid ~1 hour)";
+
+        // Hand the upstream download URL to the Media Archive so the
+        // operator can browse, filter, and download generated videos.
+        // Core fetches the bytes (subject to the 100 MiB promote cap),
+        // sniffs MIME, and indexes a row. Ingest failures must never
+        // break the tool — log and continue.
+        try {
+            $this->mediaArchive()->ingest(
+                url: $downloadUrl,
+                agentId: $ctx->agentId,
+                pluginSlug: 'minimax',
+                toolName: 'video',
+                prompt: $prompt,
+                width: $width,
+                height: $height,
+                durationSeconds: $duration,
+            );
+        } catch (Throwable $e) {
+            $this->support->logger()?->warning('MediaArchive ingest failed (video)', [
+                'exception' => $e,
+                'url'       => $downloadUrl,
+            ]);
+        }
 
         return new ToolResult(true, $content, [
             'task_id'      => $taskId,

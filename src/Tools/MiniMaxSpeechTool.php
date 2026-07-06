@@ -16,6 +16,7 @@ use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
 use Spora\Tools\MediaEmbed;
 use Spora\Tools\ValueObjects\ToolResult;
+use Throwable;
 
 /**
  * Synthesizes speech from text via MiniMax's t2a_v2 (text-to-audio) API.
@@ -104,9 +105,13 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         AssetStore $assetStore,
         ?\Psr\Log\LoggerInterface $logger = null,
         ?\Spora\Plugins\MiniMax\Support\MiniMaxToolSupport $support = null,
+        ?\Spora\Services\MediaArchive\MediaArchiveService $mediaArchive = null,
     ) {
         parent::__construct($configService, $httpClient, $logWriter, $logger, $support);
         $this->setAssetStore($assetStore);
+        if ($mediaArchive !== null) {
+            $this->setMediaArchive($mediaArchive);
+        }
     }
 
     public function describeAction(array $arguments): string
@@ -227,6 +232,34 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         $content = "Synthesized speech{$statsLine}.\n\n"
             . MediaEmbed::audioFromUrl($url) . "\n\n"
             . "Voice: {$voiceId}.";
+
+        // Hand the audio to the Media Archive so the operator can browse,
+        // filter, and download generated speech from the admin UI. Core
+        // fetches (when a CDN URL is given) or decodes (when hex bytes
+        // were routed through the AssetStore), sniffs MIME, and indexes
+        // a row. Ingest failures must never break the tool — log and continue.
+        try {
+            $ingestParams = [
+                'agentId'    => $ctx->agentId,
+                'pluginSlug' => 'minimax',
+                'toolName'   => 'speech',
+                'mime'       => 'audio/mpeg',
+                'prompt'     => $text,
+            ];
+            if ($audioUrl !== null && $audioUrl !== '') {
+                $ingestParams['url'] = $audioUrl;
+            } elseif (is_string($hexAudio) && $hexAudio !== '') {
+                $ingestParams['hex'] = $hexAudio;
+            }
+            if (is_int($sizeBytes)) {
+                $ingestParams['byteSize'] = $sizeBytes;
+            }
+            $this->mediaArchive()->ingest(...$ingestParams);
+        } catch (Throwable $e) {
+            $this->support->logger()?->warning('MediaArchive ingest failed (speech)', [
+                'exception' => $e,
+            ]);
+        }
 
         return new ToolResult(true, $content, [
             'audio_url'  => $audioUrl,

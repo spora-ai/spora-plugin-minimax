@@ -17,6 +17,7 @@ use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
 use Spora\Tools\MediaEmbed;
 use Spora\Tools\ValueObjects\ToolResult;
+use Throwable;
 
 /**
  * Song-making operations for MiniMax, consolidated into one tool:
@@ -113,9 +114,13 @@ final class MiniMaxMusicTool extends MiniMaxTool
         AssetStore $assetStore,
         ?\Psr\Log\LoggerInterface $logger = null,
         ?\Spora\Plugins\MiniMax\Support\MiniMaxToolSupport $support = null,
+        ?\Spora\Services\MediaArchive\MediaArchiveService $mediaArchive = null,
     ) {
         parent::__construct($configService, $httpClient, $logWriter, $logger, $support);
         $this->setAssetStore($assetStore);
+        if ($mediaArchive !== null) {
+            $this->setMediaArchive($mediaArchive);
+        }
     }
 
     /**
@@ -315,6 +320,31 @@ final class MiniMaxMusicTool extends MiniMaxTool
 
         $content = "Generated music ({$promptSummary}).\n\n"
             . MediaEmbed::audioFromUrl($url);
+
+        // Hand the audio to the Media Archive so the operator can browse,
+        // filter, and download generated music from the admin UI. Core
+        // fetches (when a CDN URL is given) or decodes (when hex bytes
+        // were routed through the AssetStore), sniffs MIME, and indexes
+        // a row. Ingest failures must never break the tool — log and continue.
+        try {
+            $ingestParams = [
+                'agentId'    => $ctx->agentId,
+                'pluginSlug' => 'minimax',
+                'toolName'   => 'music',
+                'mime'       => 'audio/mpeg',
+                'prompt'     => $prompt,
+            ];
+            if ($audioUrl !== null && $audioUrl !== '') {
+                $ingestParams['url'] = $audioUrl;
+            } elseif (is_string($hexAudio) && $hexAudio !== '') {
+                $ingestParams['hex'] = $hexAudio;
+            }
+            $this->mediaArchive()->ingest(...$ingestParams);
+        } catch (Throwable $e) {
+            $this->support->logger()?->warning('MediaArchive ingest failed (music)', [
+                'exception' => $e,
+            ]);
+        }
 
         return new ToolResult(true, $content, [
             'audio_url'  => $audioUrl,
