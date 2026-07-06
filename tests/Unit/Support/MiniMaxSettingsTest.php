@@ -11,7 +11,7 @@ it('returns the per-tool default timeout when no setting is configured', functio
 });
 
 it('prefers the operator-configured setting over the default', function () {
-    $settings = ['plugin.minimax.music.http_timeout_seconds' => 300];
+    $settings = ['http_timeout_seconds' => 300];
     expect(MiniMaxSettings::timeoutSeconds('music', 'http_timeout_seconds', $settings))->toBe(300);
 });
 
@@ -30,7 +30,7 @@ it('setting wins over env var when both are present', function () {
     putenv('SPORA_TOOL_HTTP_TIMEOUT=45');
     $_ENV['SPORA_TOOL_HTTP_TIMEOUT'] = '45';
     try {
-        $settings = ['plugin.minimax.music.http_timeout_seconds' => 250];
+        $settings = ['http_timeout_seconds' => 250];
         expect(MiniMaxSettings::timeoutSeconds('music', 'http_timeout_seconds', $settings))->toBe(250);
     } finally {
         putenv('SPORA_TOOL_HTTP_TIMEOUT');
@@ -50,9 +50,7 @@ it('throws when timeout field is not declared in PROVIDER_DEFAULTS', function ()
         ->toThrow(InvalidArgumentException::class, 'Unknown timeout field');
 });
 
-it('reads bare-key settings for the video provider (no plugin.minimax.video. prefix)', function () {
-    // The video tool is the one outlier that exposes bare field names to
-    // operators instead of namespacing them under plugin.minimax.video.*.
+it('reads bare-key settings for every provider', function () {
     $settings = [
         'api_key'                  => 'k',
         'base_url'                 => 'https://api.minimaxi.com',
@@ -72,7 +70,7 @@ it('reads bare-key settings for the video provider (no plugin.minimax.video. pre
         ->and(MiniMaxSettings::timeoutSeconds('video', 'retrieve_timeout_seconds', $settings))->toBe(22);
 });
 
-it('falls back to defaults for bare-key video settings when none are configured', function () {
+it('falls back to defaults for bare-key settings when none are configured', function () {
     expect(MiniMaxSettings::apiKey('video', []))->toBe('')
         ->and(MiniMaxSettings::baseUrl('video', []))->toBe('https://api.minimax.io')
         ->and(MiniMaxSettings::model('video', [], 'MiniMax-Hailuo-2.3'))->toBe('MiniMax-Hailuo-2.3')

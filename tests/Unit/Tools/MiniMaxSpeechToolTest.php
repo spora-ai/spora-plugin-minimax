@@ -27,7 +27,7 @@ function minimaxMockResponse(int $status, string $body): ResponseInterface
 
 it('embeds a CDN URL directly when audio_url is present', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.speech.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $http->expects('request')
@@ -56,7 +56,7 @@ it('decodes a hex payload and routes it through the AssetStore', function () {
     $fixture = MinimaxFixtures::speechHexPayload();
 
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.speech.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $http->expects('request')
@@ -88,7 +88,7 @@ it('routes the hex payload to the local store when over the auto threshold', fun
     $fixture = MinimaxFixtures::speechHexPayload();
 
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.speech.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $http->expects('request')->andReturn(minimaxMockResponse(200, json_encode($fixture['response'])));
@@ -110,7 +110,7 @@ it('routes the hex payload to the local store when over the auto threshold', fun
 
 it('returns a clear failure on odd-length hex payload', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.speech.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $http->expects('request')->andReturn(minimaxMockResponse(200, json_encode([

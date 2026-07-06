@@ -35,17 +35,17 @@ Settings → Tools → MiniMax. All four tools share the same `MINIMAX_API_KEY`
 
 The default `base_url` is the **Global** endpoint
 (`https://api.minimax.io`). Operators in China should override
-`plugin.minimax.{provider}.base_url` to `https://api.minimaxi.com` for the
+`base_url` to `https://api.minimaxi.com` for the
 China-region endpoint.
 
 | Setting | Required | Default |
 |---|---|---|
-| `plugin.minimax.{provider}.api_key` | yes | — |
-| `plugin.minimax.{provider}.base_url` | no | `https://api.minimax.io` (Global) |
-| `plugin.minimax.{provider}.model` | no | per provider (see below) |
-| `plugin.minimax.speech.voice_id` | no | `English_PassionateWarrior` |
-| `poll_interval_seconds` (video) | no | `10` |
-| `poll_timeout_seconds` (video) | no | `600` |
+| `api_key` | yes | — |
+| `base_url` | no | `https://api.minimax.io` (Global) |
+| `model` | no | per provider (see below) |
+| `voice_id` | no | `English_PassionateWarrior` |
+| `poll_interval_seconds` | no | `10` |
+| `poll_timeout_seconds` | no | `600` |
 
 `api_key` fields are encrypted at rest by Spora's `ToolConfigService`, masked
 in the UI, and never logged.

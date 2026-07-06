@@ -38,35 +38,35 @@ use Spora\Tools\ValueObjects\ToolResult;
 #[ToolOperation(name: 'write_lyrics', description: 'Write a full song of lyrics from a topic or style description', enabledByDefault: true, requiresApprovalByDefault: false)]
 #[ToolOperation(name: 'edit_lyrics', description: 'Rewrite existing lyrics according to a prompt', enabledByDefault: true, requiresApprovalByDefault: false)]
 #[ToolSetting(
-    key: 'plugin.minimax.music.api_key',
+    key: 'api_key',
     label: 'MiniMax API Key',
     type: 'password',
     description: 'API key for api.minimax.io (shared across all MiniMax tools).',
     required: true,
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.music.base_url',
+    key: 'base_url',
     label: 'Base URL',
     type: 'text',
     description: 'MiniMax base URL. Default is the Global endpoint (https://api.minimax.io). For China-region, set to https://api.minimaxi.com.',
     default: 'https://api.minimax.io',
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.music.model',
+    key: 'model',
     label: 'Model',
     type: 'text',
     description: 'Music model id (default: music-2.6). Applies to `compose`; the lyrics endpoint has no model parameter.',
     default: 'music-2.6',
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.music.http_timeout_seconds',
+    key: 'http_timeout_seconds',
     label: 'Compose HTTP timeout (s)',
     type: 'number',
     description: 'Per-request timeout for the `compose` operation. Default 180 seconds (compose can take 60-180 s on slow networks).',
     default: '180',
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.music.http_timeout_seconds_lyrics',
+    key: 'http_timeout_seconds_lyrics',
     label: 'Lyrics HTTP timeout (s)',
     type: 'number',
     description: 'Per-request timeout for `write_lyrics` / `edit_lyrics`. Default 30 seconds.',

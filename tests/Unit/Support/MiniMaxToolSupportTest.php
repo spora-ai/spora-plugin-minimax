@@ -42,7 +42,7 @@ it('returns a failure ToolResult from prepare() when the API key setting is miss
 
 it('returns a failure ToolResult from run() when the work callable throws MiniMaxApiException', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.image.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     // Real (non-mockable) dependencies — only the result matters here.
     $http   = Mockery::mock(HttpClientInterface::class);
@@ -52,7 +52,7 @@ it('returns a failure ToolResult from run() when the work callable throws MiniMa
         provider: 'image',
         qualifiedName: 'minimax:image',
         client: new MiniMaxHttpClient($http, 'k', 'https://api.minimax.io', 30),
-        settings: ['plugin.minimax.image.api_key' => 'k'],
+        settings: ['api_key' => 'k'],
         arguments: ['prompt' => 'a fox'],
         userId: 7,
         agentId: 1,
@@ -69,7 +69,7 @@ it('returns a failure ToolResult from run() when the work callable throws MiniMa
 
 it('returns a failure ToolResult from run() when the work callable throws an arbitrary Throwable', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.image.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $logger = Mockery::mock(LoggerInterface::class);
     $logger->shouldReceive('error')->once();
@@ -81,7 +81,7 @@ it('returns a failure ToolResult from run() when the work callable throws an arb
         provider: 'image',
         qualifiedName: 'minimax:image',
         client: new MiniMaxHttpClient($http, 'k', 'https://api.minimax.io', 30),
-        settings: ['plugin.minimax.image.api_key' => 'k'],
+        settings: ['api_key' => 'k'],
         arguments: ['prompt' => 'a fox'],
         userId: 7,
         agentId: 1,
@@ -98,7 +98,7 @@ it('returns a failure ToolResult from run() when the work callable throws an arb
 
 it('returns the work callable result from run() on the happy path', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.image.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http   = Mockery::mock(HttpClientInterface::class);
     $writer = new MiniMaxLogWriter();
@@ -107,7 +107,7 @@ it('returns the work callable result from run() on the happy path', function () 
         provider: 'image',
         qualifiedName: 'minimax:image',
         client: new MiniMaxHttpClient($http, 'k', 'https://api.minimax.io', 30),
-        settings: ['plugin.minimax.image.api_key' => 'k'],
+        settings: ['api_key' => 'k'],
         arguments: ['prompt' => 'a fox'],
         userId: 7,
         agentId: 1,

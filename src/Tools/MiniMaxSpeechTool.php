@@ -135,7 +135,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
 
     /**
      * Resolution order: LLM-provided `voice_id` (per call) > operator-configured
-     * setting (`plugin.minimax.speech.voice_id`) > hard-coded default. The
+     * setting (`voice_id`) > hard-coded default. The
      * LLM-visible #[ToolParameter] lets the model pick a voice per call; the
      * operator setting is the fallback when the model doesn't pass one.
      *

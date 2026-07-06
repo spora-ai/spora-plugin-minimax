@@ -38,7 +38,7 @@ it('returns an error when the API key is missing', function () {
 
 it('returns an error when the prompt is empty', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.image.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
@@ -52,7 +52,7 @@ it('returns an error when the prompt is empty', function () {
 
 it('makes a POST to /v1/image_generation and parses the image URLs on success', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.image.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
@@ -78,7 +78,7 @@ it('makes a POST to /v1/image_generation and parses the image URLs on success', 
 
 it('surfaces a business-error message when base_resp.status_code is non-zero', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.image.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
@@ -98,7 +98,7 @@ it('surfaces a business-error message when base_resp.status_code is non-zero', f
 
 it('returns a failure when the response contains no image URLs', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['plugin.minimax.image.api_key' => 'k']);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
     $log = new MiniMaxLogWriter();
