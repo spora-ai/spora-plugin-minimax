@@ -113,9 +113,9 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     }
 
     /**
-     * Wire the optional {@see MediaArchiveService} into the trait. The
-     * opt-in constructor parameter is null when the operator hasn't
-     * enabled the media archive; ignore that case silently.
+     * Wire the optional {@see \Spora\Services\MediaArchive\MediaArchiveService}
+     * into the trait. The opt-in constructor parameter is null when the
+     * operator hasn't enabled the media archive; ignore that case silently.
      */
     private function attachSpeechMediaArchive(?\Spora\Services\MediaArchive\MediaArchiveService $archive): void
     {
@@ -256,7 +256,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
                 'mime'       => 'audio/mpeg',
                 'prompt'     => $text,
             ];
-            if ($audioUrl !== null && $audioUrl !== '') {
+            if (is_string($audioUrl) && $audioUrl !== '') {
                 $ingestParams['url'] = $audioUrl;
             } elseif (is_string($hexAudio) && $hexAudio !== '') {
                 $ingestParams['hex'] = $hexAudio;

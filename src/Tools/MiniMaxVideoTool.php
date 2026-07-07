@@ -124,9 +124,9 @@ final class MiniMaxVideoTool extends MiniMaxTool
     }
 
     /**
-     * Wire the optional {@see MediaArchiveService} into the trait. The
-     * opt-in constructor parameter is null when the operator hasn't
-     * enabled the media archive; ignore that case silently.
+     * Wire the optional {@see \Spora\Services\MediaArchive\MediaArchiveService}
+     * into the trait. The opt-in constructor parameter is null when the
+     * operator hasn't enabled the media archive; ignore that case silently.
      */
     private function attachVideoMediaArchive(?\Spora\Services\MediaArchive\MediaArchiveService $archive): void
     {
