@@ -107,6 +107,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
     protected const TOOL_LABEL            = ''; // unused — dispatch via execute()
     protected const TIMEOUT_SECONDS_COMPOSE = 180;
     protected const TIMEOUT_SECONDS_LYRICS  = 30;
+    protected const AUDIO_MIME            = 'audio/mpeg';
 
     public function __construct(
         \Spora\Services\ToolConfigService $configService,
@@ -324,7 +325,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
         if ($audioUrl !== null) {
             $url = $audioUrl;
         } elseif ($hexAudio !== '' && strlen($hexAudio) % 2 === 0) {
-            [$url, $assetMode] = $this->embedHex($hexAudio, 'audio/mpeg', 'song.mp3');
+            [$url, $assetMode] = $this->embedHex($hexAudio, self::AUDIO_MIME, 'song.mp3');
         } else {
             return new ToolResult(false, 'MiniMax returned audio in an unsupported format.');
         }
@@ -344,7 +345,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
                     agentId: $ctx->agentId,
                     pluginSlug: 'minimax',
                     toolName: 'music',
-                    mime: 'audio/mpeg',
+                    mime: self::AUDIO_MIME,
                     prompt: $prompt,
                 ));
             } elseif ($hexAudio !== null && $hexAudio !== '') {
@@ -353,7 +354,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
                     agentId: $ctx->agentId,
                     pluginSlug: 'minimax',
                     toolName: 'music',
-                    mime: 'audio/mpeg',
+                    mime: self::AUDIO_MIME,
                     prompt: $prompt,
                 ));
             }

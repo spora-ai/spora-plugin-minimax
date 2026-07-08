@@ -98,6 +98,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     protected const QUALIFIED_NAME  = 'minimax:speech';
     protected const TIMEOUT_SECONDS = 60;
     protected const TOOL_LABEL      = 'Speech synthesis';
+    protected const AUDIO_MIME      = 'audio/mpeg';
 
     public function __construct(
         \Spora\Services\ToolConfigService $configService,
@@ -235,7 +236,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         } elseif (is_string($hexAudio) && $hexAudio !== '' && strlen($hexAudio) % 2 === 0) {
             // embedHex() throws on odd-length hex; we surface that as a
             // clear failure rather than a silent byte-count.
-            [$url, $assetMode] = $this->embedHex($hexAudio, 'audio/mpeg', 'speech.mp3');
+            [$url, $assetMode] = $this->embedHex($hexAudio, self::AUDIO_MIME, 'speech.mp3');
         } else {
             return new ToolResult(false, 'MiniMax returned audio in an unsupported format.');
         }
@@ -254,7 +255,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
                 'agentId'    => $ctx->agentId,
                 'pluginSlug' => 'minimax',
                 'toolName'   => 'speech',
-                'mime'       => 'audio/mpeg',
+                'mime'       => self::AUDIO_MIME,
                 'prompt'     => $text,
             ];
             if (is_int($sizeBytes)) {
