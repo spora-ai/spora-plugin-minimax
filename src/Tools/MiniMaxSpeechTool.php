@@ -10,6 +10,7 @@ use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Plugins\MiniMax\Support\MiniMaxTool;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
 use Spora\Services\AssetStore;
+use Spora\Services\MediaArchive\MediaIngestRequest;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
@@ -249,22 +250,23 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         // were routed through the AssetStore), sniffs MIME, and indexes
         // a row. Ingest failures must never break the tool — log and continue.
         try {
-            $ingestParams = [
+            $ingestArgs = [
                 'agentId'    => $ctx->agentId,
                 'pluginSlug' => 'minimax',
                 'toolName'   => 'speech',
                 'mime'       => 'audio/mpeg',
                 'prompt'     => $text,
             ];
-            if (is_string($audioUrl) && $audioUrl !== '') {
-                $ingestParams['url'] = $audioUrl;
-            } elseif (is_string($hexAudio) && $hexAudio !== '') {
-                $ingestParams['hex'] = $hexAudio;
-            }
             if (is_int($sizeBytes)) {
-                $ingestParams['byteSize'] = $sizeBytes;
+                $ingestArgs['byteSize'] = $sizeBytes;
             }
-            $this->mediaArchive()->ingest(...$ingestParams);
+            if ($audioUrl !== null) {
+                $ingestArgs['url'] = $audioUrl;
+                $this->mediaArchive()->ingest(new MediaIngestRequest(...$ingestArgs));
+            } elseif ($hexAudio !== null) {
+                $ingestArgs['hex'] = $hexAudio;
+                $this->mediaArchive()->ingest(new MediaIngestRequest(...$ingestArgs));
+            }
         } catch (Throwable $e) {
             $this->support->logger()?->warning('MediaArchive ingest failed (speech)', [
                 'exception' => $e,

@@ -11,6 +11,7 @@ use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Plugins\MiniMax\Support\MiniMaxTool;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
 use Spora\Services\AssetStore;
+use Spora\Services\MediaArchive\MediaIngestRequest;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
@@ -337,19 +338,25 @@ final class MiniMaxMusicTool extends MiniMaxTool
         // were routed through the AssetStore), sniffs MIME, and indexes
         // a row. Ingest failures must never break the tool — log and continue.
         try {
-            $ingestParams = [
-                'agentId'    => $ctx->agentId,
-                'pluginSlug' => 'minimax',
-                'toolName'   => 'music',
-                'mime'       => 'audio/mpeg',
-                'prompt'     => $prompt,
-            ];
             if ($audioUrl !== null && $audioUrl !== '') {
-                $ingestParams['url'] = $audioUrl;
-            } elseif (is_string($hexAudio) && $hexAudio !== '') {
-                $ingestParams['hex'] = $hexAudio;
+                $this->mediaArchive()->ingest(new MediaIngestRequest(
+                    url: $audioUrl,
+                    agentId: $ctx->agentId,
+                    pluginSlug: 'minimax',
+                    toolName: 'music',
+                    mime: 'audio/mpeg',
+                    prompt: $prompt,
+                ));
+            } elseif ($hexAudio !== null && $hexAudio !== '') {
+                $this->mediaArchive()->ingest(new MediaIngestRequest(
+                    hex: $hexAudio,
+                    agentId: $ctx->agentId,
+                    pluginSlug: 'minimax',
+                    toolName: 'music',
+                    mime: 'audio/mpeg',
+                    prompt: $prompt,
+                ));
             }
-            $this->mediaArchive()->ingest(...$ingestParams);
         } catch (Throwable $e) {
             $this->support->logger()?->warning('MediaArchive ingest failed (music)', [
                 'exception' => $e,

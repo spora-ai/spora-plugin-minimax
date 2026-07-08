@@ -9,6 +9,7 @@ use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Plugins\MiniMax\Support\MiniMaxTool;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
+use Spora\Services\MediaArchive\MediaIngestRequest;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
@@ -187,13 +188,13 @@ final class MiniMaxImageTool extends MiniMaxTool
         // Ingest failures must never break the tool — log and continue.
         foreach ($cleanUrls as $cdnUrl) {
             try {
-                $this->mediaArchive()->ingest(
+                $this->mediaArchive()->ingest(new MediaIngestRequest(
                     url: $cdnUrl,
                     agentId: $ctx->agentId,
                     pluginSlug: 'minimax',
                     toolName: 'image',
                     prompt: $prompt,
-                );
+                ));
             } catch (Throwable $e) {
                 $this->support->logger()?->warning('MediaArchive ingest failed (image)', [
                     'exception' => $e,

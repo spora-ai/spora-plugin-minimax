@@ -10,6 +10,7 @@ use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Plugins\MiniMax\Support\MiniMaxTool;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
+use Spora\Services\MediaArchive\MediaIngestRequest;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
@@ -220,7 +221,7 @@ final class MiniMaxVideoTool extends MiniMaxTool
         // sniffs MIME, and indexes a row. Ingest failures must never
         // break the tool — log and continue.
         try {
-            $this->mediaArchive()->ingest(
+            $this->mediaArchive()->ingest(new MediaIngestRequest(
                 url: $downloadUrl,
                 agentId: $ctx->agentId,
                 pluginSlug: 'minimax',
@@ -228,8 +229,8 @@ final class MiniMaxVideoTool extends MiniMaxTool
                 prompt: $prompt,
                 width: $width,
                 height: $height,
-                durationSeconds: $duration,
-            );
+                durationSeconds: (float) $duration,
+            ));
         } catch (Throwable $e) {
             $this->support->logger()?->warning('MediaArchive ingest failed (video)', [
                 'exception' => $e,
