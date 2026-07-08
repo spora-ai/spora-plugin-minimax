@@ -11,12 +11,14 @@ use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Plugins\MiniMax\Support\MiniMaxTool;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
 use Spora\Services\AssetStore;
+use Spora\Services\MediaArchive\MediaIngestRequest;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
 use Spora\Tools\MediaEmbed;
 use Spora\Tools\ValueObjects\ToolResult;
+use Throwable;
 
 /**
  * Song-making operations for MiniMax, consolidated into one tool:
@@ -105,6 +107,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
     protected const TOOL_LABEL            = ''; // unused — dispatch via execute()
     protected const TIMEOUT_SECONDS_COMPOSE = 180;
     protected const TIMEOUT_SECONDS_LYRICS  = 30;
+    protected const AUDIO_MIME            = 'audio/mpeg';
 
     public function __construct(
         \Spora\Services\ToolConfigService $configService,
@@ -113,9 +116,23 @@ final class MiniMaxMusicTool extends MiniMaxTool
         AssetStore $assetStore,
         ?\Psr\Log\LoggerInterface $logger = null,
         ?\Spora\Plugins\MiniMax\Support\MiniMaxToolSupport $support = null,
+        ?\Spora\Services\MediaArchive\MediaArchiveService $mediaArchive = null,
     ) {
         parent::__construct($configService, $httpClient, $logWriter, $logger, $support);
         $this->setAssetStore($assetStore);
+        $this->attachMusicMediaArchive($mediaArchive);
+    }
+
+    /**
+     * Wire the optional {@see \Spora\Services\MediaArchive\MediaArchiveService}
+     * into the trait. The opt-in constructor parameter is null when the
+     * operator hasn't enabled the media archive; ignore that case silently.
+     */
+    private function attachMusicMediaArchive(?\Spora\Services\MediaArchive\MediaArchiveService $archive): void
+    {
+        if ($archive !== null) {
+            $this->setMediaArchive($archive);
+        }
     }
 
     /**
@@ -308,13 +325,44 @@ final class MiniMaxMusicTool extends MiniMaxTool
         if ($audioUrl !== null) {
             $url = $audioUrl;
         } elseif ($hexAudio !== '' && strlen($hexAudio) % 2 === 0) {
-            [$url, $assetMode] = $this->embedHex($hexAudio, 'audio/mpeg', 'song.mp3');
+            [$url, $assetMode] = $this->embedHex($hexAudio, self::AUDIO_MIME, 'song.mp3');
         } else {
             return new ToolResult(false, 'MiniMax returned audio in an unsupported format.');
         }
 
         $content = "Generated music ({$promptSummary}).\n\n"
             . MediaEmbed::audioFromUrl($url);
+
+        // Hand the audio to the Media Archive so the operator can browse,
+        // filter, and download generated music from the admin UI. Core
+        // fetches (when a CDN URL is given) or decodes (when hex bytes
+        // were routed through the AssetStore), sniffs MIME, and indexes
+        // a row. Ingest failures must never break the tool — log and continue.
+        try {
+            if ($audioUrl !== null && $audioUrl !== '') {
+                $this->mediaArchive()->ingest(new MediaIngestRequest(
+                    url: $audioUrl,
+                    agentId: $ctx->agentId,
+                    pluginSlug: 'minimax',
+                    toolName: 'music',
+                    mime: self::AUDIO_MIME,
+                    prompt: $prompt,
+                ));
+            } elseif ($hexAudio !== null && $hexAudio !== '') {
+                $this->mediaArchive()->ingest(new MediaIngestRequest(
+                    hex: $hexAudio,
+                    agentId: $ctx->agentId,
+                    pluginSlug: 'minimax',
+                    toolName: 'music',
+                    mime: self::AUDIO_MIME,
+                    prompt: $prompt,
+                ));
+            }
+        } catch (Throwable $e) {
+            $this->support->logger()?->warning('MediaArchive ingest failed (music)', [
+                'exception' => $e,
+            ]);
+        }
 
         return new ToolResult(true, $content, [
             'audio_url'  => $audioUrl,

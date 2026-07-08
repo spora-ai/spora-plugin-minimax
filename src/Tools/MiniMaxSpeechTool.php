@@ -10,12 +10,14 @@ use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Plugins\MiniMax\Support\MiniMaxTool;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
 use Spora\Services\AssetStore;
+use Spora\Services\MediaArchive\MediaIngestRequest;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
 use Spora\Tools\Attributes\ToolSetting;
 use Spora\Tools\MediaEmbed;
 use Spora\Tools\ValueObjects\ToolResult;
+use Throwable;
 
 /**
  * Synthesizes speech from text via MiniMax's t2a_v2 (text-to-audio) API.
@@ -96,6 +98,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     protected const QUALIFIED_NAME  = 'minimax:speech';
     protected const TIMEOUT_SECONDS = 60;
     protected const TOOL_LABEL      = 'Speech synthesis';
+    protected const AUDIO_MIME      = 'audio/mpeg';
 
     public function __construct(
         \Spora\Services\ToolConfigService $configService,
@@ -104,9 +107,23 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         AssetStore $assetStore,
         ?\Psr\Log\LoggerInterface $logger = null,
         ?\Spora\Plugins\MiniMax\Support\MiniMaxToolSupport $support = null,
+        ?\Spora\Services\MediaArchive\MediaArchiveService $mediaArchive = null,
     ) {
         parent::__construct($configService, $httpClient, $logWriter, $logger, $support);
         $this->setAssetStore($assetStore);
+        $this->attachSpeechMediaArchive($mediaArchive);
+    }
+
+    /**
+     * Wire the optional {@see \Spora\Services\MediaArchive\MediaArchiveService}
+     * into the trait. The opt-in constructor parameter is null when the
+     * operator hasn't enabled the media archive; ignore that case silently.
+     */
+    private function attachSpeechMediaArchive(?\Spora\Services\MediaArchive\MediaArchiveService $archive): void
+    {
+        if ($archive !== null) {
+            $this->setMediaArchive($archive);
+        }
     }
 
     public function describeAction(array $arguments): string
@@ -219,7 +236,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         } elseif (is_string($hexAudio) && $hexAudio !== '' && strlen($hexAudio) % 2 === 0) {
             // embedHex() throws on odd-length hex; we surface that as a
             // clear failure rather than a silent byte-count.
-            [$url, $assetMode] = $this->embedHex($hexAudio, 'audio/mpeg', 'speech.mp3');
+            [$url, $assetMode] = $this->embedHex($hexAudio, self::AUDIO_MIME, 'speech.mp3');
         } else {
             return new ToolResult(false, 'MiniMax returned audio in an unsupported format.');
         }
@@ -227,6 +244,35 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         $content = "Synthesized speech{$statsLine}.\n\n"
             . MediaEmbed::audioFromUrl($url) . "\n\n"
             . "Voice: {$voiceId}.";
+
+        // Hand the audio to the Media Archive so the operator can browse,
+        // filter, and download generated speech from the admin UI. Core
+        // fetches (when a CDN URL is given) or decodes (when hex bytes
+        // were routed through the AssetStore), sniffs MIME, and indexes
+        // a row. Ingest failures must never break the tool — log and continue.
+        try {
+            $ingestArgs = [
+                'agentId'    => $ctx->agentId,
+                'pluginSlug' => 'minimax',
+                'toolName'   => 'speech',
+                'mime'       => self::AUDIO_MIME,
+                'prompt'     => $text,
+            ];
+            if (is_int($sizeBytes)) {
+                $ingestArgs['byteSize'] = $sizeBytes;
+            }
+            if ($audioUrl !== null) {
+                $ingestArgs['url'] = $audioUrl;
+                $this->mediaArchive()->ingest(new MediaIngestRequest(...$ingestArgs));
+            } elseif ($hexAudio !== null) {
+                $ingestArgs['hex'] = $hexAudio;
+                $this->mediaArchive()->ingest(new MediaIngestRequest(...$ingestArgs));
+            }
+        } catch (Throwable $e) {
+            $this->support->logger()?->warning('MediaArchive ingest failed (speech)', [
+                'exception' => $e,
+            ]);
+        }
 
         return new ToolResult(true, $content, [
             'audio_url'  => $audioUrl,
