@@ -211,17 +211,20 @@ final class MiniMaxVideoTool extends MiniMaxTool
             );
         }
 
-        $content = "Generated video{$sizeLine} for prompt: \"{$prompt}\"\n\n"
-            . MediaEmbed::videoFromUrl($downloadUrl, $width, $height) . "\n\n"
-            . "task_id: {$taskId}  file_id: {$fileId}  (URL valid ~1 hour)";
-
         // Hand the upstream download URL to the Media Archive so the
         // operator can browse, filter, and download generated videos.
         // Core fetches the bytes (subject to the 100 MiB promote cap),
-        // sniffs MIME, and indexes a row. Ingest failures must never
-        // break the tool — log and continue.
+        // sniffs MIME, and indexes a row.
+        //
+        // For the chat bubble we prefer the row's asset_url (durable
+        // `/api/v1/assets/<token>.<ext>` in local mode — the upstream
+        // URL is only valid for ~1 hour). In `external` mode — or when
+        // ingest() throws — we keep the original URL so today's behavior
+        // is preserved. Ingest failures must never break the tool — log
+        // and continue with the original URL.
+        $archiveAsset = null;
         try {
-            $this->mediaArchive()->ingest(new MediaIngestRequest(
+            $archiveAsset = $this->mediaArchive()->ingest(new MediaIngestRequest(
                 url: $downloadUrl,
                 agentId: $ctx->agentId,
                 pluginSlug: 'minimax',
@@ -238,10 +241,22 @@ final class MiniMaxVideoTool extends MiniMaxTool
             ]);
         }
 
+        $embedUrl = ($archiveAsset !== null && $archiveAsset->asset_url !== '')
+            ? $archiveAsset->asset_url
+            : $downloadUrl;
+        $durationNote = $archiveAsset !== null && $archiveAsset->asset_url !== '' && $archiveAsset->asset_url !== $downloadUrl
+            ? ''
+            : ' (URL valid ~1 hour)';
+
+        $content = "Generated video{$sizeLine} for prompt: \"{$prompt}\"\n\n"
+            . MediaEmbed::videoFromUrl($embedUrl, $width, $height) . "\n\n"
+            . "task_id: {$taskId}  file_id: {$fileId}{$durationNote}";
+
         return new ToolResult(true, $content, [
             'task_id'      => $taskId,
             'file_id'      => $fileId,
             'download_url' => $downloadUrl,
+            'asset_url'    => $embedUrl,
             'width'        => $width,
             'height'       => $height,
             'duration'     => $duration,

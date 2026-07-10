@@ -330,17 +330,23 @@ final class MiniMaxMusicTool extends MiniMaxTool
             return new ToolResult(false, 'MiniMax returned audio in an unsupported format.');
         }
 
-        $content = "Generated music ({$promptSummary}).\n\n"
-            . MediaEmbed::audioFromUrl($url);
-
         // Hand the audio to the Media Archive so the operator can browse,
         // filter, and download generated music from the admin UI. Core
         // fetches (when a CDN URL is given) or decodes (when hex bytes
         // were routed through the AssetStore), sniffs MIME, and indexes
-        // a row. Ingest failures must never break the tool — log and continue.
+        // a row.
+        //
+        // For the chat bubble we prefer the row's asset_url (durable
+        // `/api/v1/assets/<token>.<ext>` in local mode). In `external`
+        // mode — or when ingest() throws — the original CDN URL is
+        // retained so today's behavior is preserved.
+        //
+        // Ingest failures must never break the tool — log and continue
+        // with the original URL.
+        $archiveAsset = null;
         try {
             if ($audioUrl !== null && $audioUrl !== '') {
-                $this->mediaArchive()->ingest(new MediaIngestRequest(
+                $archiveAsset = $this->mediaArchive()->ingest(new MediaIngestRequest(
                     url: $audioUrl,
                     agentId: $ctx->agentId,
                     pluginSlug: 'minimax',
@@ -349,7 +355,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
                     prompt: $prompt,
                 ));
             } elseif ($hexAudio !== null && $hexAudio !== '') {
-                $this->mediaArchive()->ingest(new MediaIngestRequest(
+                $archiveAsset = $this->mediaArchive()->ingest(new MediaIngestRequest(
                     hex: $hexAudio,
                     agentId: $ctx->agentId,
                     pluginSlug: 'minimax',
@@ -363,6 +369,13 @@ final class MiniMaxMusicTool extends MiniMaxTool
                 'exception' => $e,
             ]);
         }
+
+        if ($archiveAsset !== null && $archiveAsset->asset_url !== '') {
+            $url = $archiveAsset->asset_url;
+        }
+
+        $content = "Generated music ({$promptSummary}).\n\n"
+            . MediaEmbed::audioFromUrl($url);
 
         return new ToolResult(true, $content, [
             'audio_url'  => $audioUrl,

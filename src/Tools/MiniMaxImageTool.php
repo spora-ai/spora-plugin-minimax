@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Spora\Plugins\MiniMax\Tools;
 
+use Spora\Models\MediaAsset;
 use Spora\Plugins\Concerns\StoresBinaryAssets;
 use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
@@ -20,8 +21,14 @@ use Throwable;
 
 /**
  * Generates an image from a text prompt via MiniMax's image_generation API.
- * Returns the upstream image URL (expires in 24h — the LLM must consume it
- * in the same task).
+ *
+ * Each upstream URL is handed to {@see \Spora\Services\MediaArchive\MediaArchiveService::ingest()}
+ * first; the chat embed is then built from the persisted
+ * {@see MediaAsset::$asset_url} rather than the upstream CDN URL. When
+ * local promotion succeeds this is `/api/v1/assets/<token>.<ext>` (durable,
+ * HMAC-signed). When the archive plugin is absent or the upstream fetch
+ * failed (→ `external` storage mode), `asset_url` collapses to the same
+ * CDN URL so the chat bubble still renders.
  */
 #[Tool(
     name: 'image',
@@ -171,40 +178,49 @@ final class MiniMaxImageTool extends MiniMaxTool
             return new ToolResult(false, 'MiniMax returned image URLs that are not strings.');
         }
 
-        // Use the shared MediaEmbed helper so the markdown format is
-        // identical to what every other image-producing plugin emits.
-        $lines = array_map(
-            static fn(int $i, string $u): string => MediaEmbed::image($u, "Generated image " . ($i + 1) . ": {$prompt}"),
-            array_keys($cleanUrls),
-            $cleanUrls,
-        );
-        $count = count($cleanUrls);
-        $content = "Generated {$count} image" . ($count === 1 ? '' : 's') . " for prompt: \"{$prompt}\"\n\n"
-            . implode("\n\n", $lines);
-
-        // Hand each upstream CDN URL to the Media Archive so the operator can
-        // browse, filter, and download generated media from the admin UI.
-        // Core fetches the bytes, sniffs MIME, and indexes a row per URL.
-        // Ingest failures must never break the tool — log and continue.
+        // Hand each upstream URL to the Media Archive first, then build the
+        // embed from the row's resolved asset_url. In local mode the URL is
+        // the durable `/api/v1/assets/<token>.<ext>` (HMAC-signed daily
+        // token) — the upstream CDN URL has a ~24h TTL and would expire.
+        // In `external` mode (archive plugin absent, or `promote_external=
+        // false`, or the upstream fetch failed) the asset_url is the CDN
+        // URL unchanged, so the chat bubble still renders.
+        //
+        // Ingest failures must never break the tool — log and continue with
+        // the original CDN URL so today's behavior is preserved.
+        $archiveUrls = [];
         foreach ($cleanUrls as $cdnUrl) {
             try {
-                $this->mediaArchive()->ingest(new MediaIngestRequest(
+                $asset = $this->mediaArchive()->ingest(new MediaIngestRequest(
                     url: $cdnUrl,
                     agentId: $ctx->agentId,
                     pluginSlug: 'minimax',
                     toolName: 'image',
                     prompt: $prompt,
                 ));
+                $archiveUrls[] = $asset->asset_url;
             } catch (Throwable $e) {
                 $this->support->logger()?->warning('MediaArchive ingest failed (image)', [
                     'exception' => $e,
                     'url'       => $cdnUrl,
                 ]);
+                $archiveUrls[] = $cdnUrl;
             }
         }
 
+        // Use the shared MediaEmbed helper so the markdown format is
+        // identical to what every other image-producing plugin emits.
+        $lines = array_map(
+            static fn(int $i, string $u): string => MediaEmbed::image($u, "Generated image " . ($i + 1) . ": {$prompt}"),
+            array_keys($archiveUrls),
+            $archiveUrls,
+        );
+        $count = count($archiveUrls);
+        $content = "Generated {$count} image" . ($count === 1 ? '' : 's') . " for prompt: \"{$prompt}\"\n\n"
+            . implode("\n\n", $lines);
+
         return new ToolResult(true, $content, [
-            'image_urls'  => $cleanUrls,
+            'image_urls'  => $archiveUrls,
             'model'       => MiniMaxSettings::model(self::PROVIDER, $ctx->settings, self::DEFAULT_MODEL),
         ]);
     }

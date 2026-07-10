@@ -241,15 +241,20 @@ final class MiniMaxSpeechTool extends MiniMaxTool
             return new ToolResult(false, 'MiniMax returned audio in an unsupported format.');
         }
 
-        $content = "Synthesized speech{$statsLine}.\n\n"
-            . MediaEmbed::audioFromUrl($url) . "\n\n"
-            . "Voice: {$voiceId}.";
-
         // Hand the audio to the Media Archive so the operator can browse,
         // filter, and download generated speech from the admin UI. Core
         // fetches (when a CDN URL is given) or decodes (when hex bytes
         // were routed through the AssetStore), sniffs MIME, and indexes
-        // a row. Ingest failures must never break the tool — log and continue.
+        // a row.
+        //
+        // For the chat bubble we prefer the row's asset_url (durable
+        // `/api/v1/assets/<token>.<ext>` in local mode). In `external`
+        // mode — or when ingest() throws — the original CDN URL is
+        // retained so today's behavior is preserved.
+        //
+        // Ingest failures must never break the tool — log and continue
+        // with the original URL.
+        $archiveAsset = null;
         try {
             $ingestArgs = [
                 'agentId'    => $ctx->agentId,
@@ -263,16 +268,24 @@ final class MiniMaxSpeechTool extends MiniMaxTool
             }
             if ($audioUrl !== null) {
                 $ingestArgs['url'] = $audioUrl;
-                $this->mediaArchive()->ingest(new MediaIngestRequest(...$ingestArgs));
+                $archiveAsset = $this->mediaArchive()->ingest(new MediaIngestRequest(...$ingestArgs));
             } elseif ($hexAudio !== null) {
                 $ingestArgs['hex'] = $hexAudio;
-                $this->mediaArchive()->ingest(new MediaIngestRequest(...$ingestArgs));
+                $archiveAsset = $this->mediaArchive()->ingest(new MediaIngestRequest(...$ingestArgs));
             }
         } catch (Throwable $e) {
             $this->support->logger()?->warning('MediaArchive ingest failed (speech)', [
                 'exception' => $e,
             ]);
         }
+
+        if ($archiveAsset !== null && $archiveAsset->asset_url !== '') {
+            $url = $archiveAsset->asset_url;
+        }
+
+        $content = "Synthesized speech{$statsLine}.\n\n"
+            . MediaEmbed::audioFromUrl($url) . "\n\n"
+            . "Voice: {$voiceId}.";
 
         return new ToolResult(true, $content, [
             'audio_url'  => $audioUrl,
