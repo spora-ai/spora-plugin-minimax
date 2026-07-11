@@ -190,9 +190,7 @@ final class MiniMaxVideoTool extends MiniMaxTool
             return new ToolResult(false, 'MiniMax video succeeded but returned no file_id.');
         }
 
-        // After success, fetch the actual download URL via /v1/files/retrieve.
-        // The retrieve response carries a `download_url` valid for ~1 hour;
-        // embed it directly in the chat so the browser plays it.
+        // The retrieve response carries a `download_url` valid for ~1 hour.
         $retrieveTimeout = $this->resolveTimeout('retrieve_timeout_seconds', $ctx->settings, 30);
         $downloadUrl = $this->retrieveDownloadUrl($client, $fileId, $retrieveTimeout);
 
@@ -206,11 +204,7 @@ final class MiniMaxVideoTool extends MiniMaxTool
             );
         }
 
-        // Persist through MediaArchive (Core fetches bytes, sniffs MIME, indexes a
-        // row). The chat bubble prefers the row's asset_url (durable) over
-        // the upstream URL which is only valid for ~1 hour. In `external`
-        // mode — or when ingest() throws — the original URL is kept. Ingest
-        // failures must never break the tool.
+        // Ingest failures must never break the tool — fall back to the CDN URL.
         $archiveAsset = null;
         try {
             $archiveAsset = $this->mediaArchive()->ingest(new MediaIngestRequest(
@@ -254,9 +248,8 @@ final class MiniMaxVideoTool extends MiniMaxTool
     }
 
     /**
-     * Call /v1/files/retrieve to convert a `file_id` into a downloadable URL.
-     * Returns null if the upstream didn't return one — the caller surfaces a
-     * clear failure rather than pretending success.
+     * Returns null if the upstream didn't return a download URL — the caller
+     * surfaces a clear failure rather than pretending success.
      */
     private function retrieveDownloadUrl(MiniMaxHttpClient $client, string $fileId, int $timeoutSeconds): ?string
     {
@@ -270,10 +263,6 @@ final class MiniMaxVideoTool extends MiniMaxTool
     }
 
     /**
-     * Submit the generation request and return the upstream `task_id`. Records
-     * a failure log row and returns a ToolResult-flavoured exception if MiniMax
-     * didn't return a usable id.
-     *
      * @param array<string, mixed> $settings
      */
     private function submitGeneration(
@@ -304,9 +293,6 @@ final class MiniMaxVideoTool extends MiniMaxTool
     }
 
     /**
-     * Poll the task status endpoint until it transitions out of `processing`,
-     * or until the timeout elapses. Returns the final status response.
-     *
      * @return array<string, mixed>
      */
     private function pollUntilDone(MiniMaxHttpClient $client, string $taskId, int $intervalSeconds, int $timeoutSeconds): array

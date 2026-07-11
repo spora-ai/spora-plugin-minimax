@@ -22,13 +22,8 @@ use Throwable;
 
 /**
  * Song-making operations for MiniMax, consolidated into one tool:
- *   - `compose`      — generate music (instrumental or with lyrics) via `/v1/music_generation`
- *   - `write_lyrics` — generate a full song's lyrics via `/v1/lyrics_generation` (mode: write_full_song)
- *   - `edit_lyrics`  — rewrite existing lyrics via `/v1/lyrics_generation` (mode: edit)
- *
- * Returning the upstream audio URL (24h expiry) when `output_format=url`; hex
- * otherwise. Lyrics operations return the upstream text + optional song title
- * and style tags.
+ * `compose`, `write_lyrics`, `edit_lyrics`. Returns the upstream audio URL
+ * (24h expiry) when `output_format=url`; hex otherwise.
  */
 #[Tool(
     name: 'music',
@@ -131,9 +126,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
     }
 
     /**
-     * Multi-operation tool: dispatch on the `action` argument. Each per-op
-     * method calls {@see MiniMaxTool::runWithValidation()} for the standard
-     * validate→prepare→run orchestration.
+     * Multi-operation tool: dispatch on the `action` argument.
      */
     public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
     {
@@ -200,10 +193,8 @@ final class MiniMaxMusicTool extends MiniMaxTool
     }
 
     /**
-     * The base class declares `validateArguments` / `doWork` as abstract for
-     * the single-operation tools. MusicTool overrides `execute()` to dispatch
-     * across multiple operations, so these base-class hooks are unused —
-     * throwing here surfaces a programming error if they ever get called.
+     * Base-class hooks unused by this multi-operation tool — dispatch
+     * happens in {@see execute()}. Throwing surfaces accidental calls.
      */
     protected function validateArguments(array $arguments): ?ToolResult
     {
@@ -316,9 +307,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
         }
         [$url, $assetMode] = $resolved;
 
-        // Persist the audio through MediaArchive (asset_url is always opaque
-        // `/api/v1/assets/<uuid>`). Ingest failures are swallowed so the
-        // tool still returns the playback URL the resolver produced.
+        // Ingest failures are swallowed so the tool still returns the playback URL.
         $archiveAsset = $this->ingestIntoMediaArchive($ctx, $audioUrl, $hexAudio, $prompt);
         if ($archiveAsset !== null && $archiveAsset->asset_url !== '') {
             $url = $archiveAsset->asset_url;
@@ -334,9 +323,8 @@ final class MiniMaxMusicTool extends MiniMaxTool
     }
 
     /**
-     * Pick the playback URL + asset mode from a MiniMax compose response.
-     * Returns `[url, mode]` or null when the payload is neither a usable
-     * URL nor a valid hex blob.
+     * Returns `[url, mode]` for the playback URL, or null if the payload is
+     * neither a usable URL nor a valid hex blob.
      *
      * @return array{0: string, 1: string|null}|null
      */

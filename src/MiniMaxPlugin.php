@@ -12,14 +12,6 @@ use Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxVideoTool;
 use Spora\Services\MediaArchive\MediaArchiveService;
 
-/**
- * Plugin entry point — extending {@see AbstractPlugin} (rather than directly
- * implementing {@see \Spora\Plugins\PluginInterface}) means we only have to
- * override the hooks we actually use.
- *
- * The base class provides no-op defaults for autoload(), drivers(),
- * recipePaths(), schemaVersion(), migrationsPath(), and register().
- */
 final class MiniMaxPlugin extends AbstractPlugin
 {
     public function getName(): string

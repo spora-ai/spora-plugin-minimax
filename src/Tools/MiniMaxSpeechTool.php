@@ -229,18 +229,12 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         if (is_string($audioUrl) && $audioUrl !== '') {
             $url = $audioUrl;
         } elseif (is_string($hexAudio) && $hexAudio !== '' && strlen($hexAudio) % 2 === 0) {
-            // embedHex() throws on odd-length hex; we surface that as a
-            // clear failure rather than a silent byte-count.
             [$url, $assetMode] = $this->embedHex($hexAudio, self::AUDIO_MIME, 'speech.mp3');
         } else {
             return new ToolResult(false, 'MiniMax returned audio in an unsupported format.');
         }
 
-        // Persist through MediaArchive: Core fetches (CDN URL) or decodes
-        // (hex via AssetStore), sniffs MIME, and indexes a row. In `external`
-        // mode — or when ingest() throws — the original CDN URL is retained
-        // so today's behavior is preserved. Ingest failures must never break
-        // the tool.
+        // Ingest failures must never break the tool — fall back to the resolved URL.
         $archiveAsset = null;
         try {
             $ingestArgs = [
