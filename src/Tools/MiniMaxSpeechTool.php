@@ -207,8 +207,8 @@ final class MiniMaxSpeechTool extends MiniMaxTool
             timeoutSeconds: $timeout,
         );
 
-        $hexAudio   = $response['data']['audio'] ?? null;
-        $audioUrl   = $response['data']['audio_url'] ?? null;
+        $hexAudio   = is_string($response['data']['audio'] ?? null) ? $response['data']['audio'] : null;
+        $audioUrl   = is_string($response['data']['audio_url'] ?? null) ? $response['data']['audio_url'] : null;
         $lengthMs   = $response['extra_info']['audio_length'] ?? null;
         $sizeBytes  = $response['extra_info']['audio_size'] ?? null;
         $usageChars = $response['extra_info']['usage_characters'] ?? null;
@@ -247,10 +247,10 @@ final class MiniMaxSpeechTool extends MiniMaxTool
             if (is_int($sizeBytes)) {
                 $ingestArgs['byteSize'] = $sizeBytes;
             }
-            if ($audioUrl !== null) {
+            if ($audioUrl !== '') {
                 $ingestArgs['url'] = $audioUrl;
                 $archiveAsset = $this->mediaArchive()->ingest(new MediaIngestRequest(...$ingestArgs));
-            } elseif ($hexAudio !== null) {
+            } elseif ($hexAudio !== '') {
                 $ingestArgs['hex'] = $hexAudio;
                 $archiveAsset = $this->mediaArchive()->ingest(new MediaIngestRequest(...$ingestArgs));
             }
@@ -260,7 +260,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
             ]);
         }
 
-        if ($archiveAsset !== null && $archiveAsset->asset_url !== '') {
+        if ($archiveAsset !== null && $archiveAsset->asset_url !== '' && !str_starts_with($archiveAsset->asset_url, 'data:')) {
             $url = $archiveAsset->asset_url;
         }
 

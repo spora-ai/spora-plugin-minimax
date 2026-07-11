@@ -176,7 +176,16 @@ final class MiniMaxImageTool extends MiniMaxTool
                     toolName: 'image',
                     prompt: $prompt,
                 ));
-                $archiveUrls[] = $asset->asset_url;
+                $archiveUrl = is_string($asset->asset_url ?? null) ? $asset->asset_url : null;
+                // Reject data: URLs — the whole point of the archive is to
+                // avoid inlining the payload in the chat bubble. Fall back
+                // to the CDN URL if the archive hands us a data: URL (older
+                // core, or a non-default AssetStore in tests).
+                if ($archiveUrl !== null && $archiveUrl !== '' && !str_starts_with($archiveUrl, 'data:')) {
+                    $archiveUrls[] = $archiveUrl;
+                } else {
+                    $archiveUrls[] = $cdnUrl;
+                }
             } catch (Throwable $e) {
                 $this->support->logger()?->warning('MediaArchive ingest failed (image)', [
                     'exception' => $e,

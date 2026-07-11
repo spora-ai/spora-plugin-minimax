@@ -233,11 +233,57 @@ it('ingests the audio_url into the MediaArchive and prefers asset_url in the emb
 
     $log = new MiniMaxLogWriter();
 
-    // Build a real MediaArchiveService whose HTTP probe fetches the
-    // CDN URL successfully. The service then writes a MediaAsset row
-    // whose asset_url (with the new opaque-URL architecture) is
-    // `/api/v1/assets/<uuid>` — the test asserts on the relative URL
-    // form so it survives both pre- and post-refactor cores.
+    // Wire Eloquent to an in-memory SQLite database so the archive's
+    // `MediaAsset::save()` call actually persists a row. Without this,
+    // the archive throws "Call to a member function connection() on null"
+    // and the tool's catch-all swallows it — which would also fail this
+    // test's assertion, but for the wrong reason (silent fallback
+    // masked as success). Boot SQLite + create the media_assets table
+    // inline so the test exercises the real codepath.
+    $capsule = new Illuminate\Database\Capsule\Manager();
+    $capsule->addConnection([
+        'driver'   => 'sqlite',
+        'database' => ':memory:',
+        'prefix'   => '',
+    ]);
+    $capsule->setAsGlobal();
+    $capsule->bootEloquent();
+    $capsule->schema()->create('media_assets', function (Illuminate\Database\Schema\Blueprint $table) {
+        $table->uuid('id')->primary();
+        $table->unsignedBigInteger('agent_id')->nullable();
+        $table->unsignedBigInteger('task_id')->nullable();
+        $table->unsignedBigInteger('tool_call_id')->nullable();
+        $table->string('plugin_slug', 64)->nullable();
+        $table->string('tool_name', 64)->nullable();
+        $table->string('media_type', 16)->nullable();
+        $table->string('mime_type', 127)->nullable();
+        $table->bigInteger('byte_size')->nullable();
+        $table->unsignedInteger('width')->nullable();
+        $table->unsignedInteger('height')->nullable();
+        $table->decimal('duration_seconds', 8, 2)->nullable();
+        $table->text('prompt')->nullable();
+        $table->text('tags')->nullable();
+        $table->text('metadata')->nullable();
+        $table->string('asset_url', 512);
+        $table->string('source_url', 512)->nullable();
+        $table->string('storage_mode', 16);
+        $table->timestamps();
+    });
+
+    // Build a real MediaArchiveService backed by a LocalAssetStore ONLY —
+    // not an AutoAssetStore. The PR's whole point is to avoid embedding
+    // `data:` URLs in the chat bubble; with AutoAssetStore the small
+    // 32-byte payload below would route through DataUrlAssetStore and
+    // produce a data: asset_url, defeating the assertion below. A
+    // LocalAssetStore yields `/api/v1/assets/<uuid>.mp3` URLs regardless
+    // of payload size, so the test exercises the real "prefer asset_url"
+    // codepath without a hidden `data:` fallback.
+    //
+    // The MockHttpClient queue serves one response per request: the
+    // resolver's HEAD probe consumes the first slot and the subsequent
+    // GET fetch consumes the second. Without the second mock, the GET
+    // would receive an empty body and the resolver would silently fall
+    // back to external storage — exactly the regression we want to catch.
     $archive = (function () {
         $logger = new Psr\Log\NullLogger();
         $sniffer = new Spora\Services\MediaArchive\MimeSniffer();
@@ -245,7 +291,11 @@ it('ingests the audio_url into the MediaArchive and prefers asset_url in the emb
             new Spora\Services\MediaArchive\RemoteMediaFetcher(
                 new Symfony\Component\HttpClient\MockHttpClient([
                     new Symfony\Component\HttpClient\Response\MockResponse(
-                        str_repeat("\x00", 32),  // 32 bytes of zero — fake audio payload
+                        '',  // HEAD probe — headers only, no body
+                        ['response_headers' => ['content-type: audio/mpeg', 'content-length: 32']],
+                    ),
+                    new Symfony\Component\HttpClient\Response\MockResponse(
+                        str_repeat("\x00", 32),  // 32 bytes of zero — fake audio payload for the GET fetch
                         ['response_headers' => ['content-type: audio/mpeg']],
                     ),
                 ]),
@@ -259,14 +309,10 @@ it('ingests the audio_url into the MediaArchive and prefers asset_url in the emb
             1024 * 1024,
         );
         return new Spora\Services\MediaArchive\MediaArchiveService(
-            new Spora\Services\AutoAssetStore(
-                new Spora\Services\DataUrlAssetStore(50 * 1024 * 1024),
-                new Spora\Services\LocalAssetStore(
-                    new Spora\Core\Paths(sys_get_temp_dir() . '/minimax-music-test'),
-                    new Spora\Core\SecurityManager(str_repeat("\0", SODIUM_CRYPTO_SECRETBOX_KEYBYTES)),
-                    50 * 1024 * 1024,
-                ),
-                1_048_576,
+            new Spora\Services\LocalAssetStore(
+                new Spora\Core\Paths(sys_get_temp_dir() . '/minimax-music-test'),
+                new Spora\Core\SecurityManager(str_repeat("\0", SODIUM_CRYPTO_SECRETBOX_KEYBYTES)),
+                50 * 1024 * 1024,
             ),
             $resolver,
             $sniffer,
@@ -280,7 +326,15 @@ it('ingests the audio_url into the MediaArchive and prefers asset_url in the emb
     expect($result->success)->toBeTrue()
         ->and($result->content)->toStartWith('Generated music')
         ->and($result->content)->toContain('<audio')
-        ->and($result->data['audio_url'])->toBe('https://cdn.example/song.mp3');
+        ->and($result->content)->not->toContain('data:audio')
+        ->and($result->data['audio_url'])->toBe('https://cdn.example/song.mp3')
+        // The point of the PR: the embed URL must be the archive's opaque
+        // /api/v1/assets/... URL, NOT the upstream CDN URL. A regression
+        // where the tool falls back to `$cdnUrl` for any reason (ingest
+        // throws, asset_url is empty, asset_url is a data: URL...) would
+        // produce `asset_url === audio_url` here.
+        ->and($result->data['asset_url'])->not->toBe('https://cdn.example/song.mp3')
+        ->and($result->data['asset_url'])->toStartWith('/api/v1/assets/');
 });
 
 it('falls back to the CDN URL when the MediaArchive ingest throws', function () {
@@ -335,7 +389,11 @@ it('falls back to the CDN URL when the MediaArchive ingest throws', function () 
     $result = $tool->execute(['action' => 'compose', 'prompt' => 'lofi piano'], 1);
 
     // Ingest failure must not break the tool — the CDN URL is preserved.
+    // Also assert data['asset_url'] falls back to the CDN URL (not the
+    // archive's null asset_url) so a regression where the tool leaves a
+    // `null`/`''` in `asset_url` after a failed ingest is loud.
     expect($result->success)->toBeTrue()
         ->and($result->content)->toContain('https://cdn.example/song.mp3')
-        ->and($result->data['audio_url'])->toBe('https://cdn.example/song.mp3');
+        ->and($result->data['audio_url'])->toBe('https://cdn.example/song.mp3')
+        ->and($result->data['asset_url'])->toBe('https://cdn.example/song.mp3');
 });

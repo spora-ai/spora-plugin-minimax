@@ -309,7 +309,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
 
         // Ingest failures are swallowed so the tool still returns the playback URL.
         $archiveAsset = $this->ingestIntoMediaArchive($ctx, $audioUrl, $hexAudio, $prompt);
-        if ($archiveAsset !== null && $archiveAsset->asset_url !== '') {
+        if ($archiveAsset !== null && $archiveAsset->asset_url !== '' && !str_starts_with($archiveAsset->asset_url, 'data:')) {
             $url = $archiveAsset->asset_url;
         }
 
@@ -330,7 +330,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
      */
     private function resolveComposePlayback(?string $audioUrl, ?string $hexAudio): ?array
     {
-        if ($audioUrl !== null) {
+        if ($audioUrl !== null && $audioUrl !== '') {
             return [$audioUrl, null];
         }
         if ($hexAudio !== '' && $hexAudio !== null && strlen($hexAudio) % 2 === 0) {

@@ -224,10 +224,11 @@ final class MiniMaxVideoTool extends MiniMaxTool
             ]);
         }
 
-        $embedUrl = ($archiveAsset !== null && $archiveAsset->asset_url !== '')
+        $archiveUrl = ($archiveAsset !== null && $archiveAsset->asset_url !== '' && !str_starts_with($archiveAsset->asset_url, 'data:'))
             ? $archiveAsset->asset_url
-            : $downloadUrl;
-        $durationNote = $archiveAsset !== null && $archiveAsset->asset_url !== '' && $archiveAsset->asset_url !== $downloadUrl
+            : null;
+        $embedUrl = $archiveUrl ?? $downloadUrl;
+        $durationNote = $archiveUrl !== null
             ? ''
             : ' (URL valid ~1 hour)';
 
@@ -259,7 +260,8 @@ final class MiniMaxVideoTool extends MiniMaxTool
             timeoutSeconds: $timeoutSeconds,
         );
         $file = is_array($response['file'] ?? null) ? $response['file'] : [];
-        return is_string($file['download_url'] ?? null) ? $file['download_url'] : null;
+        $url = $file['download_url'] ?? null;
+        return is_string($url) && $url !== '' ? $url : null;
     }
 
     /**
