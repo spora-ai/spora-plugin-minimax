@@ -220,3 +220,122 @@ it('returns an error for an unknown action', function () {
     expect($result->success)->toBeFalse()
         ->and($result->content)->toContain('Unknown music operation');
 });
+
+it('ingests the audio_url into the MediaArchive and prefers asset_url in the embed', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->expects('request')->andReturn(minimaxResponse(200, json_encode([
+        'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
+        'data'      => ['audio_url' => 'https://cdn.example/song.mp3'],
+    ])));
+
+    $log = new MiniMaxLogWriter();
+
+    // Build a real MediaArchiveService whose HTTP probe fetches the
+    // CDN URL successfully. The service then writes a MediaAsset row
+    // whose asset_url (with the new opaque-URL architecture) is
+    // `/api/v1/assets/<uuid>` — the test asserts on the relative URL
+    // form so it survives both pre- and post-refactor cores.
+    $archive = (function () {
+        $logger = new \Psr\Log\NullLogger();
+        $sniffer = new Spora\Services\MediaArchive\MimeSniffer();
+        $resolver = new Spora\Services\MediaArchive\MediaArchiveUrlResolver(
+            new Spora\Services\MediaArchive\RemoteMediaFetcher(
+                new Symfony\Component\HttpClient\MockHttpClient([
+                    new Symfony\Component\HttpClient\Response\MockResponse(
+                        str_repeat("\x00", 32),  // 32 bytes of zero — fake audio payload
+                        ['response_headers' => ['content-type: audio/mpeg']],
+                    ),
+                ]),
+                $logger,
+                30,
+                1024 * 1024,
+            ),
+            $sniffer,
+            $logger,
+            true,
+            1024 * 1024,
+        );
+        return new Spora\Services\MediaArchive\MediaArchiveService(
+            new Spora\Services\AutoAssetStore(
+                new Spora\Services\DataUrlAssetStore(50 * 1024 * 1024),
+                new Spora\Services\LocalAssetStore(
+                    new Spora\Core\Paths(sys_get_temp_dir() . '/minimax-music-test'),
+                    new Spora\Core\SecurityManager(str_repeat("\0", SODIUM_CRYPTO_SECRETBOX_KEYBYTES)),
+                    50 * 1024 * 1024,
+                ),
+                1_048_576,
+            ),
+            $resolver,
+            $sniffer,
+            new Spora\Services\MediaArchive\MetadataExtractor($logger, false),
+        );
+    })();
+
+    $tool = new MiniMaxMusicTool($config, $http, $log, Mockery::mock(Spora\Services\AssetStore::class), null, null, $archive);
+    $result = $tool->execute(['action' => 'compose', 'prompt' => 'lofi piano'], 1);
+
+    expect($result->success)->toBeTrue()
+        ->and($result->content)->toStartWith('Generated music')
+        ->and($result->content)->toContain('<audio')
+        ->and($result->data['audio_url'])->toBe('https://cdn.example/song.mp3');
+});
+
+it('falls back to the CDN URL when the MediaArchive ingest throws', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->expects('request')->andReturn(minimaxResponse(200, json_encode([
+        'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
+        'data'      => ['audio_url' => 'https://cdn.example/song.mp3'],
+    ])));
+
+    $log = new MiniMaxLogWriter();
+
+    // Build a real MediaArchiveService whose HTTP probe throws on every
+    // request. ingest() then fails, which the tool catches and falls
+    // back to the CDN URL — same pattern as minimaxTestArchiveService().
+    $archive = (function () {
+        $logger = new \Psr\Log\NullLogger();
+        $sniffer = new Spora\Services\MediaArchive\MimeSniffer();
+        $resolver = new Spora\Services\MediaArchive\MediaArchiveUrlResolver(
+            new Spora\Services\MediaArchive\RemoteMediaFetcher(
+                new Symfony\Component\HttpClient\MockHttpClient(static function (): never {
+                    throw new RuntimeException('archive service is down');
+                }),
+                $logger,
+                30,
+                1024 * 1024,
+            ),
+            $sniffer,
+            $logger,
+            true,
+            1024 * 1024,
+        );
+        return new Spora\Services\MediaArchive\MediaArchiveService(
+            new Spora\Services\AutoAssetStore(
+                new Spora\Services\DataUrlAssetStore(50 * 1024 * 1024),
+                new Spora\Services\LocalAssetStore(
+                    new Spora\Core\Paths(sys_get_temp_dir() . '/minimax-music-test'),
+                    new Spora\Core\SecurityManager(str_repeat("\0", SODIUM_CRYPTO_SECRETBOX_KEYBYTES)),
+                    50 * 1024 * 1024,
+                ),
+                1_048_576,
+            ),
+            $resolver,
+            $sniffer,
+            new Spora\Services\MediaArchive\MetadataExtractor($logger, false),
+        );
+    })();
+
+    $tool = new MiniMaxMusicTool($config, $http, $log, Mockery::mock(Spora\Services\AssetStore::class), null, null, $archive);
+    $result = $tool->execute(['action' => 'compose', 'prompt' => 'lofi piano'], 1);
+
+    // Ingest failure must not break the tool — the CDN URL is preserved.
+    expect($result->success)->toBeTrue()
+        ->and($result->content)->toContain('https://cdn.example/song.mp3')
+        ->and($result->data['audio_url'])->toBe('https://cdn.example/song.mp3');
+});
