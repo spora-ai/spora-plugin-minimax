@@ -239,7 +239,7 @@ it('ingests the audio_url into the MediaArchive and prefers asset_url in the emb
     // `/api/v1/assets/<uuid>` — the test asserts on the relative URL
     // form so it survives both pre- and post-refactor cores.
     $archive = (function () {
-        $logger = new \Psr\Log\NullLogger();
+        $logger = new Psr\Log\NullLogger();
         $sniffer = new Spora\Services\MediaArchive\MimeSniffer();
         $resolver = new Spora\Services\MediaArchive\MediaArchiveUrlResolver(
             new Spora\Services\MediaArchive\RemoteMediaFetcher(
@@ -299,7 +299,7 @@ it('falls back to the CDN URL when the MediaArchive ingest throws', function () 
     // request. ingest() then fails, which the tool catches and falls
     // back to the CDN URL — same pattern as minimaxTestArchiveService().
     $archive = (function () {
-        $logger = new \Psr\Log\NullLogger();
+        $logger = new Psr\Log\NullLogger();
         $sniffer = new Spora\Services\MediaArchive\MimeSniffer();
         $resolver = new Spora\Services\MediaArchive\MediaArchiveUrlResolver(
             new Spora\Services\MediaArchive\RemoteMediaFetcher(
