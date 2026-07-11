@@ -24,11 +24,17 @@ use Throwable;
  *
  * Each upstream URL is handed to {@see \Spora\Services\MediaArchive\MediaArchiveService::ingest()}
  * first; the chat embed is then built from the persisted
- * {@see MediaAsset::$asset_url} rather than the upstream CDN URL. When
- * local promotion succeeds this is `/api/v1/assets/<token>.<ext>` (durable,
- * HMAC-signed). When the archive plugin is absent or the upstream fetch
- * failed (→ `external` storage mode), `asset_url` collapses to the same
- * CDN URL so the chat bubble still renders.
+ * {@see MediaAsset::$asset_url} rather than the upstream CDN URL. After
+ * the opaque-asset-URL refactor (PR #131 in spora-core), `asset_url` is
+ * always the short `/api/v1/assets/<uuid>` form regardless of underlying
+ * storage mode (`data_url`, `local`, `external`) — the chat bubble never
+ * sees the upstream CDN URL or the multi-MB base64 payload.
+ *
+ * When ingest fails (the archive plugin is absent, or the upstream fetch
+ * errored), the embed falls back to the CDN URL so the chat bubble still
+ * renders. {@see MediaArchiveService} catches and rethrows as external
+ * mode in that case — the row's `source_url` keeps the CDN URL for
+ * operator audit while `asset_url` stays opaque.
  */
 #[Tool(
     name: 'image',
@@ -104,8 +110,12 @@ final class MiniMaxImageTool extends MiniMaxTool
 
     /**
      * Wire the optional {@see \Spora\Services\MediaArchive\MediaArchiveService}
-     * into the trait. The opt-in constructor parameter is null when the
-     * operator hasn't enabled the media archive; ignore that case silently.
+     * into the trait. Production-time injection is performed by PHP-DI via
+     * the \`autowire()->method('setMediaArchive')\` definition registered in
+     * {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()} — that path
+     * avoids PHP-DI's nullable-with-default skip on the constructor
+     * parameter. Manual injection (tests, hand-rolled factories) still
+     * works through the nullable ctor arg.
      */
     private function attachImageMediaArchive(?\Spora\Services\MediaArchive\MediaArchiveService $archive): void
     {
@@ -179,12 +189,12 @@ final class MiniMaxImageTool extends MiniMaxTool
         }
 
         // Hand each upstream URL to the Media Archive first, then build the
-        // embed from the row's resolved asset_url. In local mode the URL is
-        // the durable `/api/v1/assets/<token>.<ext>` (HMAC-signed daily
-        // token) — the upstream CDN URL has a ~24h TTL and would expire.
-        // In `external` mode (archive plugin absent, or `promote_external=
-        // false`, or the upstream fetch failed) the asset_url is the CDN
-        // URL unchanged, so the chat bubble still renders.
+        // embed from the row's resolved asset_url. After the
+        // opaque-asset-URL refactor, `asset_url` is always
+        // `/api/v1/assets/<uuid>` regardless of storage mode — the chat
+        // bubble carries the Spora-side URL (so a future plugin can't
+        // leak the upstream CDN's ~24h-TTL URL into chat history), and
+        // the browser fetches the bytes via the AssetController.
         //
         // Ingest failures must never break the tool — log and continue with
         // the original CDN URL so today's behavior is preserved.

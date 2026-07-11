@@ -126,8 +126,12 @@ final class MiniMaxVideoTool extends MiniMaxTool
 
     /**
      * Wire the optional {@see \Spora\Services\MediaArchive\MediaArchiveService}
-     * into the trait. The opt-in constructor parameter is null when the
-     * operator hasn't enabled the media archive; ignore that case silently.
+     * into the trait. Production-time injection is performed by PHP-DI via
+     * the \`autowire()->method('setMediaArchive')\` definition registered in
+     * {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()} — that path
+     * avoids PHP-DI's nullable-with-default skip on the constructor
+     * parameter. Manual injection (tests, hand-rolled factories) still
+     * works through the nullable ctor arg.
      */
     private function attachVideoMediaArchive(?\Spora\Services\MediaArchive\MediaArchiveService $archive): void
     {
