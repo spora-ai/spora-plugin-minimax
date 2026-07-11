@@ -25,7 +25,7 @@ use Throwable;
  */
 #[Tool(
     name: 'image',
-    description: 'Generate an image from a text prompt. Returns an embedded image in the chat bubble.',
+    description: 'Generate an image from a text prompt.',
     displayName: 'MiniMax Image',
     category: 'generation',
 )]
@@ -180,7 +180,9 @@ final class MiniMaxImageTool extends MiniMaxTool
         );
         $count = count($cleanUrls);
         $content = "Generated {$count} image" . ($count === 1 ? '' : 's') . " for prompt: \"{$prompt}\"\n\n"
-            . implode("\n\n", $lines);
+            . implode("\n\n", $lines)
+            . "\n\nEmbed each URL above verbatim in the Markdown image syntax shown. "
+            . "The URL may be a server-relative path or an absolute CDN URL; do not prepend a domain.";
 
         // Hand each upstream CDN URL to the Media Archive so the operator can
         // browse, filter, and download generated media from the admin UI.

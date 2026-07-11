@@ -26,7 +26,7 @@ use Throwable;
  */
 #[Tool(
     name: 'speech',
-    description: 'Synthesize speech from text. Returns an embedded audio player in the chat bubble.',
+    description: 'Synthesize speech from text.',
     displayName: 'MiniMax Speech',
     category: 'generation',
 )]
@@ -243,7 +243,9 @@ final class MiniMaxSpeechTool extends MiniMaxTool
 
         $content = "Synthesized speech{$statsLine}.\n\n"
             . MediaEmbed::audioFromUrl($url) . "\n\n"
-            . "Voice: {$voiceId}.";
+            . "Voice: {$voiceId}."
+            . "\n\nThe audio player above is already embedded; do not modify the URL "
+            . "(it may be a server-relative path, a `data:` URL, or an upstream CDN URL).";
 
         // Hand the audio to the Media Archive so the operator can browse,
         // filter, and download generated speech from the admin UI. Core

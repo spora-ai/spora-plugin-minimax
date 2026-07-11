@@ -81,6 +81,8 @@ it('parses the music response and returns the audio URL for compose', function (
 
     expect($result->success)->toBeTrue()
         ->and($result->content)->toContain(MiniMaxMusicToolTestLiterals::CDN_URL_SONG)
+        // Postamble tells the LLM to embed the audio player verbatim.
+        ->and($result->content)->toContain('do not modify the URL')
         ->and($result->data['audio_url'])->toBe(MiniMaxMusicToolTestLiterals::CDN_URL_SONG);
 });
 

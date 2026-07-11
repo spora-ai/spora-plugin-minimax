@@ -27,7 +27,7 @@ use Throwable;
  */
 #[Tool(
     name: 'video',
-    description: 'Generate a short video clip (asynchronous). Embeds a video player in the chat bubble when ready. The download URL is valid for ~1 hour.',
+    description: 'Generate a short video clip (asynchronous; up to 10s). The download URL is valid for ~1 hour.',
     displayName: 'MiniMax Video',
     category: 'generation',
 )]
@@ -213,7 +213,9 @@ final class MiniMaxVideoTool extends MiniMaxTool
 
         $content = "Generated video{$sizeLine} for prompt: \"{$prompt}\"\n\n"
             . MediaEmbed::videoFromUrl($downloadUrl, $width, $height) . "\n\n"
-            . "task_id: {$taskId}  file_id: {$fileId}  (URL valid ~1 hour)";
+            . "task_id: {$taskId}  file_id: {$fileId}  (URL valid ~1 hour)"
+            . "\n\nThe video player above is already embedded; do not modify the URL "
+            . "(it may be a server-relative path or an upstream CDN URL).";
 
         // Hand the upstream download URL to the Media Archive so the
         // operator can browse, filter, and download generated videos.

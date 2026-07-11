@@ -32,7 +32,7 @@ use Throwable;
  */
 #[Tool(
     name: 'music',
-    description: 'Song-making: generate music (instrumental or with lyrics; returns an embedded audio player), or write/edit song lyrics. The "action" argument selects the operation.',
+    description: 'Generate music (instrumental or with lyrics) or write/edit song lyrics. The "action" argument selects the operation.',
     displayName: 'MiniMax Music',
     category: 'generation',
 )]
@@ -331,7 +331,9 @@ final class MiniMaxMusicTool extends MiniMaxTool
         }
 
         $content = "Generated music ({$promptSummary}).\n\n"
-            . MediaEmbed::audioFromUrl($url);
+            . MediaEmbed::audioFromUrl($url)
+            . "\n\nThe audio player above is already embedded; do not modify the URL "
+            . "(it may be a server-relative path, a `data:` URL, or an upstream CDN URL).";
 
         // Hand the audio to the Media Archive so the operator can browse,
         // filter, and download generated music from the admin UI. Core
