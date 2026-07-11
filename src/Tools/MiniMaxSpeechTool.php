@@ -114,15 +114,6 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         $this->attachSpeechMediaArchive($mediaArchive);
     }
 
-    /**
-     * Wire the optional {@see \Spora\Services\MediaArchive\MediaArchiveService}
-     * into the trait. Production-time injection is performed by PHP-DI via
-     * the \`autowire()->method('setMediaArchive')\` definition registered in
-     * {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()} — that path
-     * avoids PHP-DI's nullable-with-default skip on the constructor
-     * parameter. Manual injection (tests, hand-rolled factories) still
-     * works through the nullable ctor arg.
-     */
     private function attachSpeechMediaArchive(?\Spora\Services\MediaArchive\MediaArchiveService $archive): void
     {
         if ($archive !== null) {
@@ -245,19 +236,11 @@ final class MiniMaxSpeechTool extends MiniMaxTool
             return new ToolResult(false, 'MiniMax returned audio in an unsupported format.');
         }
 
-        // Hand the audio to the Media Archive so the operator can browse,
-        // filter, and download generated speech from the admin UI. Core
-        // fetches (when a CDN URL is given) or decodes (when hex bytes
-        // were routed through the AssetStore), sniffs MIME, and indexes
-        // a row.
-        //
-        // For the chat bubble we prefer the row's asset_url (durable
-        // `/api/v1/assets/<token>.<ext>` in local mode). In `external`
-        // mode — or when ingest() throws — the original CDN URL is
-        // retained so today's behavior is preserved.
-        //
-        // Ingest failures must never break the tool — log and continue
-        // with the original URL.
+        // Persist through MediaArchive: Core fetches (CDN URL) or decodes
+        // (hex via AssetStore), sniffs MIME, and indexes a row. In `external`
+        // mode — or when ingest() throws — the original CDN URL is retained
+        // so today's behavior is preserved. Ingest failures must never break
+        // the tool.
         $archiveAsset = null;
         try {
             $ingestArgs = [

@@ -124,15 +124,6 @@ final class MiniMaxVideoTool extends MiniMaxTool
         $this->attachVideoMediaArchive($mediaArchive);
     }
 
-    /**
-     * Wire the optional {@see \Spora\Services\MediaArchive\MediaArchiveService}
-     * into the trait. Production-time injection is performed by PHP-DI via
-     * the \`autowire()->method('setMediaArchive')\` definition registered in
-     * {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()} — that path
-     * avoids PHP-DI's nullable-with-default skip on the constructor
-     * parameter. Manual injection (tests, hand-rolled factories) still
-     * works through the nullable ctor arg.
-     */
     private function attachVideoMediaArchive(?\Spora\Services\MediaArchive\MediaArchiveService $archive): void
     {
         if ($archive !== null) {
@@ -215,17 +206,11 @@ final class MiniMaxVideoTool extends MiniMaxTool
             );
         }
 
-        // Hand the upstream download URL to the Media Archive so the
-        // operator can browse, filter, and download generated videos.
-        // Core fetches the bytes (subject to the 100 MiB promote cap),
-        // sniffs MIME, and indexes a row.
-        //
-        // For the chat bubble we prefer the row's asset_url (durable
-        // `/api/v1/assets/<token>.<ext>` in local mode — the upstream
-        // URL is only valid for ~1 hour). In `external` mode — or when
-        // ingest() throws — we keep the original URL so today's behavior
-        // is preserved. Ingest failures must never break the tool — log
-        // and continue with the original URL.
+        // Persist through MediaArchive (Core fetches bytes, sniffs MIME, indexes a
+        // row). The chat bubble prefers the row's asset_url (durable) over
+        // the upstream URL which is only valid for ~1 hour. In `external`
+        // mode — or when ingest() throws — the original URL is kept. Ingest
+        // failures must never break the tool.
         $archiveAsset = null;
         try {
             $archiveAsset = $this->mediaArchive()->ingest(new MediaIngestRequest(

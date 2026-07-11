@@ -108,15 +108,6 @@ final class MiniMaxImageTool extends MiniMaxTool
         $this->attachImageMediaArchive($mediaArchive);
     }
 
-    /**
-     * Wire the optional {@see \Spora\Services\MediaArchive\MediaArchiveService}
-     * into the trait. Production-time injection is performed by PHP-DI via
-     * the \`autowire()->method('setMediaArchive')\` definition registered in
-     * {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()} — that path
-     * avoids PHP-DI's nullable-with-default skip on the constructor
-     * parameter. Manual injection (tests, hand-rolled factories) still
-     * works through the nullable ctor arg.
-     */
     private function attachImageMediaArchive(?\Spora\Services\MediaArchive\MediaArchiveService $archive): void
     {
         if ($archive !== null) {
@@ -172,11 +163,10 @@ final class MiniMaxImageTool extends MiniMaxTool
 
         $this->support->logSuccess($ctx, $response);
 
-        // Coerce to a clean, sequentially-indexed list of URL strings. The
-        // upstream API always returns int keys today, but defending against
-        // non-int / non-string keys here keeps array_map()'s typed callback
-        // from throwing a TypeError that would crash the tool instead of
-        // surfacing as a clean ToolResult::fail.
+        // Defensive: the upstream always returns int keys today, but filtering
+        // to strings here keeps the array_map callback below from throwing
+        // a TypeError (which would crash the tool instead of returning a
+        // clean ToolResult::fail).
         $cleanUrls = [];
         foreach ($urls as $u) {
             if (is_string($u) && $u !== '') {
@@ -188,16 +178,10 @@ final class MiniMaxImageTool extends MiniMaxTool
             return new ToolResult(false, 'MiniMax returned image URLs that are not strings.');
         }
 
-        // Hand each upstream URL to the Media Archive first, then build the
-        // embed from the row's resolved asset_url. After the
-        // opaque-asset-URL refactor, `asset_url` is always
-        // `/api/v1/assets/<uuid>` regardless of storage mode — the chat
-        // bubble carries the Spora-side URL (so a future plugin can't
-        // leak the upstream CDN's ~24h-TTL URL into chat history), and
-        // the browser fetches the bytes via the AssetController.
-        //
-        // Ingest failures must never break the tool — log and continue with
-        // the original CDN URL so today's behavior is preserved.
+        // Each upstream URL goes through MediaArchive so the chat bubble
+        // carries the Spora-side `/api/v1/assets/<uuid>` (durable) rather
+        // than the upstream CDN's ~24h-TTL URL. Ingest failures must never
+        // break the tool — log and fall back to the CDN URL.
         $archiveUrls = [];
         foreach ($cleanUrls as $cdnUrl) {
             try {
@@ -218,8 +202,6 @@ final class MiniMaxImageTool extends MiniMaxTool
             }
         }
 
-        // Use the shared MediaEmbed helper so the markdown format is
-        // identical to what every other image-producing plugin emits.
         $lines = array_map(
             static fn(int $i, string $u): string => MediaEmbed::image($u, "Generated image " . ($i + 1) . ": {$prompt}"),
             array_keys($archiveUrls),

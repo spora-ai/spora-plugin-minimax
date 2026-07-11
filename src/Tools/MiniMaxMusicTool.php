@@ -123,15 +123,6 @@ final class MiniMaxMusicTool extends MiniMaxTool
         $this->attachMusicMediaArchive($mediaArchive);
     }
 
-    /**
-     * Wire the optional {@see \Spora\Services\MediaArchive\MediaArchiveService}
-     * into the trait. Production-time injection is performed by PHP-DI via
-     * the \`autowire()->method('setMediaArchive')\` definition registered in
-     * {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()} — that path
-     * avoids PHP-DI's nullable-with-default skip on the constructor
-     * parameter. Manual injection (tests, hand-rolled factories) still
-     * works through the nullable ctor arg.
-     */
     private function attachMusicMediaArchive(?\Spora\Services\MediaArchive\MediaArchiveService $archive): void
     {
         if ($archive !== null) {
@@ -325,10 +316,8 @@ final class MiniMaxMusicTool extends MiniMaxTool
         }
         [$url, $assetMode] = $resolved;
 
-        // Hand the audio to the Media Archive so the operator can browse,
-        // filter, and download generated music from the admin UI. The
-        // archive returns a MediaAsset with `asset_url` always opaque
-        // (`/api/v1/assets/<uuid>`); ingest failures are swallowed so the
+        // Persist the audio through MediaArchive (asset_url is always opaque
+        // `/api/v1/assets/<uuid>`). Ingest failures are swallowed so the
         // tool still returns the playback URL the resolver produced.
         $archiveAsset = $this->ingestIntoMediaArchive($ctx, $audioUrl, $hexAudio, $prompt);
         if ($archiveAsset !== null && $archiveAsset->asset_url !== '') {
@@ -363,11 +352,8 @@ final class MiniMaxMusicTool extends MiniMaxTool
     }
 
     /**
-     * Hand the MiniMax compose output to the Media Archive. Returns the
-     * persisted row, or null when ingest was skipped or failed.
-     *
-     * Ingest failures must never break the tool — log and continue so the
-     * chat bubble still renders.
+     * @return \Spora\Models\MediaAsset|null  null when ingest was skipped
+     *                                         (no payload) or failed.
      */
     private function ingestIntoMediaArchive(
         MiniMaxToolContext $ctx,
