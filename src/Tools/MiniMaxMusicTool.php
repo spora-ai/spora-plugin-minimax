@@ -319,73 +319,82 @@ final class MiniMaxMusicTool extends MiniMaxTool
 
         $this->support->logSuccess($ctx, $response);
 
-        $promptSummary = $prompt !== '' ? "prompt: \"{$prompt}\"" : 'instrumental';
-
-        // Resolve a playback URL — either the CDN URL from MiniMax or a
-        // local/data URL the AssetStore hands back after decoding the hex
-        // payload. Multi-megabyte song payloads land in local mode unless
-        // the operator picks pure data_url.
-        $assetMode = null;
-        if ($audioUrl !== null) {
-            $url = $audioUrl;
-        } elseif ($hexAudio !== '' && strlen($hexAudio) % 2 === 0) {
-            [$url, $assetMode] = $this->embedHex($hexAudio, self::AUDIO_MIME, 'song.mp3');
-        } else {
+        $resolved = $this->resolveComposePlayback($audioUrl, $hexAudio);
+        if ($resolved === null) {
             return new ToolResult(false, 'MiniMax returned audio in an unsupported format.');
         }
+        [$url, $assetMode] = $resolved;
 
         // Hand the audio to the Media Archive so the operator can browse,
-        // filter, and download generated music from the admin UI. Core
-        // fetches (when a CDN URL is given) or decodes (when hex bytes
-        // were routed through the AssetStore), sniffs MIME, and indexes
-        // a row.
-        //
-        // For the chat bubble we prefer the row's asset_url (durable
-        // `/api/v1/assets/<token>.<ext>` in local mode). In `external`
-        // mode — or when ingest() throws — the original CDN URL is
-        // retained so today's behavior is preserved.
-        //
-        // Ingest failures must never break the tool — log and continue
-        // with the original URL.
-        $archiveAsset = null;
-        try {
-            if ($audioUrl !== null && $audioUrl !== '') {
-                $archiveAsset = $this->mediaArchive()->ingest(new MediaIngestRequest(
-                    url: $audioUrl,
-                    agentId: $ctx->agentId,
-                    pluginSlug: 'minimax',
-                    toolName: 'music',
-                    mime: self::AUDIO_MIME,
-                    prompt: $prompt,
-                ));
-            } elseif ($hexAudio !== null && $hexAudio !== '') {
-                $archiveAsset = $this->mediaArchive()->ingest(new MediaIngestRequest(
-                    hex: $hexAudio,
-                    agentId: $ctx->agentId,
-                    pluginSlug: 'minimax',
-                    toolName: 'music',
-                    mime: self::AUDIO_MIME,
-                    prompt: $prompt,
-                ));
-            }
-        } catch (Throwable $e) {
-            $this->support->logger()?->warning('MediaArchive ingest failed (music)', [
-                'exception' => $e,
-            ]);
-        }
-
+        // filter, and download generated music from the admin UI. The
+        // archive returns a MediaAsset with `asset_url` always opaque
+        // (`/api/v1/assets/<uuid>`); ingest failures are swallowed so the
+        // tool still returns the playback URL the resolver produced.
+        $archiveAsset = $this->ingestIntoMediaArchive($ctx, $audioUrl, $hexAudio, $prompt);
         if ($archiveAsset !== null && $archiveAsset->asset_url !== '') {
             $url = $archiveAsset->asset_url;
         }
 
-        $content = "Generated music ({$promptSummary}).\n\n"
-            . MediaEmbed::audioFromUrl($url);
+        $promptSummary = $prompt !== '' ? "prompt: \"{$prompt}\"" : 'instrumental';
 
-        return new ToolResult(true, $content, [
+        return new ToolResult(true, "Generated music ({$promptSummary}).\n\n" . MediaEmbed::audioFromUrl($url), [
             'audio_url'  => $audioUrl,
             'asset_url'  => $url,
             'asset_mode' => $assetMode,
         ]);
+    }
+
+    /**
+     * Pick the playback URL + asset mode from a MiniMax compose response.
+     * Returns `[url, mode]` or null when the payload is neither a usable
+     * URL nor a valid hex blob.
+     *
+     * @return array{0: string, 1: string|null}|null
+     */
+    private function resolveComposePlayback(?string $audioUrl, ?string $hexAudio): ?array
+    {
+        if ($audioUrl !== null) {
+            return [$audioUrl, null];
+        }
+        if ($hexAudio !== '' && $hexAudio !== null && strlen($hexAudio) % 2 === 0) {
+            return $this->embedHex($hexAudio, self::AUDIO_MIME, 'song.mp3');
+        }
+        return null;
+    }
+
+    /**
+     * Hand the MiniMax compose output to the Media Archive. Returns the
+     * persisted row, or null when ingest was skipped or failed.
+     *
+     * Ingest failures must never break the tool — log and continue so the
+     * chat bubble still renders.
+     */
+    private function ingestIntoMediaArchive(
+        MiniMaxToolContext $ctx,
+        ?string $audioUrl,
+        ?string $hexAudio,
+        string $prompt,
+    ): ?\Spora\Models\MediaAsset {
+        if ($audioUrl === null && ($hexAudio === null || $hexAudio === '')) {
+            return null;
+        }
+
+        try {
+            return $this->mediaArchive()->ingest(new MediaIngestRequest(
+                url: $audioUrl,
+                hex: $audioUrl === null ? $hexAudio : null,
+                agentId: $ctx->agentId,
+                pluginSlug: 'minimax',
+                toolName: 'music',
+                mime: self::AUDIO_MIME,
+                prompt: $prompt,
+            ));
+        } catch (Throwable $e) {
+            $this->support->logger()?->warning('MediaArchive ingest failed (music)', [
+                'exception' => $e,
+            ]);
+            return null;
+        }
     }
 
     /**
