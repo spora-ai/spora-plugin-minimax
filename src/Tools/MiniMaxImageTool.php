@@ -146,67 +146,82 @@ final class MiniMaxImageTool extends MiniMaxTool
             timeoutSeconds: $timeout,
         );
 
-        $urls = $response['data']['image_urls'] ?? [];
-        if (!is_array($urls) || $urls === []) {
-            $this->support->logFailure($ctx, $response, 'No image URLs returned');
+        $cleanUrls = $this->extractImageUrls($ctx, $response);
+        if ($cleanUrls === null) {
             return new ToolResult(false, 'MiniMax returned no image URLs.');
-        }
-
-        $this->support->logSuccess($ctx, $response);
-
-        $cleanUrls = [];
-        foreach ($urls as $u) {
-            if (is_string($u) && $u !== '') {
-                $cleanUrls[] = $u;
-            }
         }
         if ($cleanUrls === []) {
             $this->support->logFailure($ctx, $response, 'Image URLs were non-string or empty');
             return new ToolResult(false, 'MiniMax returned image URLs that are not strings.');
         }
 
-        // Ingest failures must never break the tool — fall back to the CDN URL.
+        $this->support->logSuccess($ctx, $response);
+
         $archiveUrls = [];
         foreach ($cleanUrls as $cdnUrl) {
-            try {
-                $asset = $this->mediaArchive()->ingest(new MediaIngestRequest(
-                    url: $cdnUrl,
-                    agentId: $ctx->agentId,
-                    pluginSlug: 'minimax',
-                    toolName: 'image',
-                    prompt: $prompt,
-                ));
-                $archiveUrl = is_string($asset->asset_url ?? null) ? $asset->asset_url : null;
-                // Reject data: URLs — the whole point of the archive is to
-                // avoid inlining the payload in the chat bubble. Fall back
-                // to the CDN URL if the archive hands us a data: URL (older
-                // core, or a non-default AssetStore in tests).
-                if ($archiveUrl !== null && $archiveUrl !== '' && !str_starts_with($archiveUrl, 'data:')) {
-                    $archiveUrls[] = $archiveUrl;
-                } else {
-                    $archiveUrls[] = $cdnUrl;
-                }
-            } catch (Throwable $e) {
-                $this->support->logger()?->warning('MediaArchive ingest failed (image)', [
-                    'exception' => $e,
-                    'url'       => $cdnUrl,
-                ]);
-                $archiveUrls[] = $cdnUrl;
-            }
+            $archiveUrls[] = $this->ingestImageUrl($ctx, $cdnUrl, $prompt);
         }
 
-        $lines = array_map(
-            static fn(int $i, string $u): string => MediaEmbed::image($u, "Generated image " . ($i + 1) . ": {$prompt}"),
-            array_keys($archiveUrls),
-            $archiveUrls,
-        );
-        $count = count($archiveUrls);
+        $count   = count($archiveUrls);
         $content = "Generated {$count} image" . ($count === 1 ? '' : 's') . " for prompt: \"{$prompt}\"\n\n"
-            . implode("\n\n", $lines);
+            . implode("\n\n", array_map(
+                static fn(int $i, string $u): string => MediaEmbed::image($u, "Generated image " . ($i + 1) . ": {$prompt}"),
+                array_keys($archiveUrls),
+                $archiveUrls,
+            ));
 
         return new ToolResult(true, $content, [
-            'image_urls'  => $archiveUrls,
-            'model'       => MiniMaxSettings::model(self::PROVIDER, $ctx->settings, self::DEFAULT_MODEL),
+            'image_urls' => $archiveUrls,
+            'model'      => MiniMaxSettings::model(self::PROVIDER, $ctx->settings, self::DEFAULT_MODEL),
         ]);
+    }
+
+    /**
+     * @return list<string>|null  Null signals "API didn't return image_urls at all";
+     *                         empty list signals "every entry was filtered out".
+     */
+    private function extractImageUrls(MiniMaxToolContext $ctx, array $response): ?array
+    {
+        $urls = $response['data']['image_urls'] ?? [];
+        if (!is_array($urls) || $urls === []) {
+            $this->support->logFailure($ctx, $response, 'No image URLs returned');
+            return null;
+        }
+        $clean = [];
+        foreach ($urls as $u) {
+            if (is_string($u) && $u !== '') {
+                $clean[] = $u;
+            }
+        }
+        return $clean;
+    }
+
+    /**
+     * Hand one CDN URL to the Media Archive. Returns the URL to embed in
+     * the chat — either the archive's opaque URL, or the original CDN URL
+     * if the archive is absent, fails, or hands us a `data:` URL (older
+     * core, or a non-default AssetStore in tests).
+     */
+    private function ingestImageUrl(MiniMaxToolContext $ctx, string $cdnUrl, string $prompt): string
+    {
+        try {
+            $asset = $this->mediaArchive()->ingest(new MediaIngestRequest(
+                url: $cdnUrl,
+                agentId: $ctx->agentId,
+                pluginSlug: 'minimax',
+                toolName: 'image',
+                prompt: $prompt,
+            ));
+            $archiveUrl = is_string($asset->asset_url ?? null) ? $asset->asset_url : null;
+            if ($archiveUrl !== null && $archiveUrl !== '' && !str_starts_with($archiveUrl, 'data:')) {
+                return $archiveUrl;
+            }
+        } catch (Throwable $e) {
+            $this->support->logger()?->warning('MediaArchive ingest failed (image)', [
+                'exception' => $e,
+                'url'       => $cdnUrl,
+            ]);
+        }
+        return $cdnUrl;
     }
 }
