@@ -114,11 +114,6 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         $this->attachSpeechMediaArchive($mediaArchive);
     }
 
-    /**
-     * Wire the optional {@see \Spora\Services\MediaArchive\MediaArchiveService}
-     * into the trait. The opt-in constructor parameter is null when the
-     * operator hasn't enabled the media archive; ignore that case silently.
-     */
     private function attachSpeechMediaArchive(?\Spora\Services\MediaArchive\MediaArchiveService $archive): void
     {
         if ($archive !== null) {
@@ -212,8 +207,8 @@ final class MiniMaxSpeechTool extends MiniMaxTool
             timeoutSeconds: $timeout,
         );
 
-        $hexAudio   = $response['data']['audio'] ?? null;
-        $audioUrl   = $response['data']['audio_url'] ?? null;
+        $hexAudio   = is_string($response['data']['audio'] ?? null) ? $response['data']['audio'] : null;
+        $audioUrl   = is_string($response['data']['audio_url'] ?? null) ? $response['data']['audio_url'] : null;
         $lengthMs   = $response['extra_info']['audio_length'] ?? null;
         $sizeBytes  = $response['extra_info']['audio_size'] ?? null;
         $usageChars = $response['extra_info']['usage_characters'] ?? null;
@@ -226,53 +221,20 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         $this->support->logSuccess($ctx, $response);
 
         $statsLine = $this->formatStatsLine($lengthMs, $sizeBytes, $usageChars);
-
-        // Resolve a playback URL — either the CDN URL from MiniMax or a
-        // local / data URL the AssetStore hands back after decoding the
-        // hex payload.
-        $assetMode = null;
-        if (is_string($audioUrl) && $audioUrl !== '') {
-            $url = $audioUrl;
-        } elseif (is_string($hexAudio) && $hexAudio !== '' && strlen($hexAudio) % 2 === 0) {
-            // embedHex() throws on odd-length hex; we surface that as a
-            // clear failure rather than a silent byte-count.
-            [$url, $assetMode] = $this->embedHex($hexAudio, self::AUDIO_MIME, 'speech.mp3');
-        } else {
+        $resolved  = $this->resolveSpeechPlayback($audioUrl, $hexAudio);
+        if ($resolved === null) {
             return new ToolResult(false, 'MiniMax returned audio in an unsupported format.');
+        }
+        [$url, $assetMode] = $resolved;
+
+        $archiveAsset = $this->ingestIntoMediaArchive($ctx, $text, $audioUrl, $hexAudio, $sizeBytes);
+        if ($archiveAsset !== null && $archiveAsset->asset_url !== '' && !str_starts_with($archiveAsset->asset_url, 'data:')) {
+            $url = $archiveAsset->asset_url;
         }
 
         $content = "Synthesized speech{$statsLine}.\n\n"
             . MediaEmbed::audioFromUrl($url) . "\n\n"
             . "Voice: {$voiceId}.";
-
-        // Hand the audio to the Media Archive so the operator can browse,
-        // filter, and download generated speech from the admin UI. Core
-        // fetches (when a CDN URL is given) or decodes (when hex bytes
-        // were routed through the AssetStore), sniffs MIME, and indexes
-        // a row. Ingest failures must never break the tool — log and continue.
-        try {
-            $ingestArgs = [
-                'agentId'    => $ctx->agentId,
-                'pluginSlug' => 'minimax',
-                'toolName'   => 'speech',
-                'mime'       => self::AUDIO_MIME,
-                'prompt'     => $text,
-            ];
-            if (is_int($sizeBytes)) {
-                $ingestArgs['byteSize'] = $sizeBytes;
-            }
-            if ($audioUrl !== null) {
-                $ingestArgs['url'] = $audioUrl;
-                $this->mediaArchive()->ingest(new MediaIngestRequest(...$ingestArgs));
-            } elseif ($hexAudio !== null) {
-                $ingestArgs['hex'] = $hexAudio;
-                $this->mediaArchive()->ingest(new MediaIngestRequest(...$ingestArgs));
-            }
-        } catch (Throwable $e) {
-            $this->support->logger()?->warning('MediaArchive ingest failed (speech)', [
-                'exception' => $e,
-            ]);
-        }
 
         return new ToolResult(true, $content, [
             'audio_url'  => $audioUrl,
@@ -281,6 +243,65 @@ final class MiniMaxSpeechTool extends MiniMaxTool
             'voice_id'   => $voiceId,
             'audio_size' => is_int($sizeBytes) ? $sizeBytes : null,
         ]);
+    }
+
+    /**
+     * @return array{0: string, 1: string|null}|null  [url, mode] or null
+     *          when the payload is neither a usable URL nor valid hex.
+     */
+    private function resolveSpeechPlayback(?string $audioUrl, ?string $hexAudio): ?array
+    {
+        if (is_string($audioUrl) && $audioUrl !== '') {
+            return [$audioUrl, null];
+        }
+        if (is_string($hexAudio) && $hexAudio !== '' && strlen($hexAudio) % 2 === 0) {
+            return $this->embedHex($hexAudio, self::AUDIO_MIME, 'speech.mp3');
+        }
+        return null;
+    }
+
+    /**
+     * Hand the MiniMax speech payload to the Media Archive. Returns the
+     * persisted row, or null when ingest was skipped or failed.
+     *
+     * Ingest failures must never break the tool — log and return null so
+     * the chat bubble still renders.
+     */
+    private function ingestIntoMediaArchive(
+        MiniMaxToolContext $ctx,
+        string $text,
+        ?string $audioUrl,
+        ?string $hexAudio,
+        mixed $sizeBytes,
+    ): ?\Spora\Models\MediaAsset {
+        if ($audioUrl === null && ($hexAudio === null || $hexAudio === '')) {
+            return null;
+        }
+
+        $base = [
+            'agentId'    => $ctx->agentId,
+            'pluginSlug' => 'minimax',
+            'toolName'   => 'speech',
+            'mime'       => self::AUDIO_MIME,
+            'prompt'     => $text,
+        ];
+        if (is_int($sizeBytes)) {
+            $base['byteSize'] = $sizeBytes;
+        }
+
+        try {
+            if ($audioUrl !== '') {
+                $request = new MediaIngestRequest(...$base, url: $audioUrl);
+            } else {
+                $request = new MediaIngestRequest(...$base, hex: $hexAudio);
+            }
+            return $this->mediaArchive()->ingest($request);
+        } catch (Throwable $e) {
+            $this->support->logger()?->warning('MediaArchive ingest failed (speech)', [
+                'exception' => $e,
+            ]);
+            return null;
+        }
     }
 
     private function formatStatsLine(mixed $lengthMs, mixed $sizeBytes, mixed $usageChars): string

@@ -124,11 +124,6 @@ final class MiniMaxVideoTool extends MiniMaxTool
         $this->attachVideoMediaArchive($mediaArchive);
     }
 
-    /**
-     * Wire the optional {@see \Spora\Services\MediaArchive\MediaArchiveService}
-     * into the trait. The opt-in constructor parameter is null when the
-     * operator hasn't enabled the media archive; ignore that case silently.
-     */
     private function attachVideoMediaArchive(?\Spora\Services\MediaArchive\MediaArchiveService $archive): void
     {
         if ($archive !== null) {
@@ -195,9 +190,7 @@ final class MiniMaxVideoTool extends MiniMaxTool
             return new ToolResult(false, 'MiniMax video succeeded but returned no file_id.');
         }
 
-        // After success, fetch the actual download URL via /v1/files/retrieve.
-        // The retrieve response carries a `download_url` valid for ~1 hour;
-        // embed it directly in the chat so the browser plays it.
+        // The retrieve response carries a `download_url` valid for ~1 hour.
         $retrieveTimeout = $this->resolveTimeout('retrieve_timeout_seconds', $ctx->settings, 30);
         $downloadUrl = $this->retrieveDownloadUrl($client, $fileId, $retrieveTimeout);
 
@@ -211,17 +204,10 @@ final class MiniMaxVideoTool extends MiniMaxTool
             );
         }
 
-        $content = "Generated video{$sizeLine} for prompt: \"{$prompt}\"\n\n"
-            . MediaEmbed::videoFromUrl($downloadUrl, $width, $height) . "\n\n"
-            . "task_id: {$taskId}  file_id: {$fileId}  (URL valid ~1 hour)";
-
-        // Hand the upstream download URL to the Media Archive so the
-        // operator can browse, filter, and download generated videos.
-        // Core fetches the bytes (subject to the 100 MiB promote cap),
-        // sniffs MIME, and indexes a row. Ingest failures must never
-        // break the tool — log and continue.
+        // Ingest failures must never break the tool — fall back to the CDN URL.
+        $archiveAsset = null;
         try {
-            $this->mediaArchive()->ingest(new MediaIngestRequest(
+            $archiveAsset = $this->mediaArchive()->ingest(new MediaIngestRequest(
                 url: $downloadUrl,
                 agentId: $ctx->agentId,
                 pluginSlug: 'minimax',
@@ -238,10 +224,23 @@ final class MiniMaxVideoTool extends MiniMaxTool
             ]);
         }
 
+        $archiveUrl = ($archiveAsset !== null && $archiveAsset->asset_url !== '' && !str_starts_with($archiveAsset->asset_url, 'data:'))
+            ? $archiveAsset->asset_url
+            : null;
+        $embedUrl = $archiveUrl ?? $downloadUrl;
+        $durationNote = $archiveUrl !== null
+            ? ''
+            : ' (URL valid ~1 hour)';
+
+        $content = "Generated video{$sizeLine} for prompt: \"{$prompt}\"\n\n"
+            . MediaEmbed::videoFromUrl($embedUrl, $width, $height) . "\n\n"
+            . "task_id: {$taskId}  file_id: {$fileId}{$durationNote}";
+
         return new ToolResult(true, $content, [
             'task_id'      => $taskId,
             'file_id'      => $fileId,
             'download_url' => $downloadUrl,
+            'asset_url'    => $embedUrl,
             'width'        => $width,
             'height'       => $height,
             'duration'     => $duration,
@@ -250,9 +249,8 @@ final class MiniMaxVideoTool extends MiniMaxTool
     }
 
     /**
-     * Call /v1/files/retrieve to convert a `file_id` into a downloadable URL.
-     * Returns null if the upstream didn't return one — the caller surfaces a
-     * clear failure rather than pretending success.
+     * Returns null if the upstream didn't return a download URL — the caller
+     * surfaces a clear failure rather than pretending success.
      */
     private function retrieveDownloadUrl(MiniMaxHttpClient $client, string $fileId, int $timeoutSeconds): ?string
     {
@@ -262,14 +260,11 @@ final class MiniMaxVideoTool extends MiniMaxTool
             timeoutSeconds: $timeoutSeconds,
         );
         $file = is_array($response['file'] ?? null) ? $response['file'] : [];
-        return is_string($file['download_url'] ?? null) ? $file['download_url'] : null;
+        $url = $file['download_url'] ?? null;
+        return is_string($url) && $url !== '' ? $url : null;
     }
 
     /**
-     * Submit the generation request and return the upstream `task_id`. Records
-     * a failure log row and returns a ToolResult-flavoured exception if MiniMax
-     * didn't return a usable id.
-     *
      * @param array<string, mixed> $settings
      */
     private function submitGeneration(
@@ -300,9 +295,6 @@ final class MiniMaxVideoTool extends MiniMaxTool
     }
 
     /**
-     * Poll the task status endpoint until it transitions out of `processing`,
-     * or until the timeout elapses. Returns the final status response.
-     *
      * @return array<string, mixed>
      */
     private function pollUntilDone(MiniMaxHttpClient $client, string $taskId, int $intervalSeconds, int $timeoutSeconds): array
