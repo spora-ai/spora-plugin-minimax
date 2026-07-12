@@ -73,12 +73,7 @@ it('makes a POST to /v1/image_generation and parses the image URLs on success', 
 
     expect($result->success)->toBeTrue()
         ->and($result->content)->toContain(MiniMaxImageToolTestLiterals::CDN_URL_PNG)
-        // Postamble tells the LLM to embed the URL verbatim — the most
-        // important piece of the whole PR (see #[Tool(description: …)]
-        // rationale). A regression where the postamble is dropped would
-        // let the model prepend a domain to a server-relative URL.
-        ->and($result->content)->toContain('Embed each URL above verbatim')
-        ->and($result->content)->toContain('do not prepend a domain')
+        ->and($result->content)->toContain('Use the same Markdown image embed above to show the image')
         ->and($result->data['image_urls'][0])->toBe(MiniMaxImageToolTestLiterals::CDN_URL_PNG);
 });
 

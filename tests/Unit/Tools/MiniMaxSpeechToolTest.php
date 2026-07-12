@@ -48,8 +48,7 @@ it('embeds a CDN URL directly when audio_url is present', function () {
     expect($result->success)->toBeTrue()
         ->and($result->content)->toContain('<audio')
         ->and($result->content)->toContain('https://cdn.example/speech.mp3')
-        // Postamble tells the LLM to embed the audio player verbatim.
-        ->and($result->content)->toContain('do not modify the URL')
+        ->and($result->content)->toContain('Use the same audio embed above')
         ->and($result->data['audio_url'])->toBe('https://cdn.example/speech.mp3')
         ->and($result->data['asset_mode'])->toBeNull();
 });
@@ -82,7 +81,7 @@ it('decodes a hex payload and routes it through the AssetStore', function () {
     expect($result->success)->toBeTrue()
         ->and($result->content)->toContain('<audio')
         ->and($result->content)->toContain('data:audio/mpeg;base64,AAA')
-        ->and($result->content)->toContain('do not modify the URL')
+        ->and($result->content)->toContain('Use the same audio embed above')
         ->and($result->data['asset_mode'])->toBe('data_url')
         ->and($result->data['audio_size'])->toBe(115350);
 });
@@ -108,9 +107,7 @@ it('routes the hex payload to the local store when over the auto threshold', fun
     expect($result->success)->toBeTrue()
         ->and($result->content)->toContain('<audio')
         ->and($result->content)->toContain('/api/v1/assets/abc123def456.mp3')
-        // Postamble is most important here: the URL is server-relative,
-        // the failure mode the postamble was added to prevent.
-        ->and($result->content)->toContain('do not modify the URL')
+        ->and($result->content)->toContain('Use the same audio embed above')
         ->and($result->data['asset_mode'])->toBe('local');
 });
 

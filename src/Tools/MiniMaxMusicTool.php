@@ -22,13 +22,8 @@ use Throwable;
 
 /**
  * Song-making operations for MiniMax, consolidated into one tool:
- *   - `compose`      — generate music (instrumental or with lyrics) via `/v1/music_generation`
- *   - `write_lyrics` — generate a full song's lyrics via `/v1/lyrics_generation` (mode: write_full_song)
- *   - `edit_lyrics`  — rewrite existing lyrics via `/v1/lyrics_generation` (mode: edit)
- *
- * Returning the upstream audio URL (24h expiry) when `output_format=url`; hex
- * otherwise. Lyrics operations return the upstream text + optional song title
- * and style tags.
+ * `compose`, `write_lyrics`, `edit_lyrics`. Returns the upstream audio URL
+ * (24h expiry) when `output_format=url`; hex otherwise.
  */
 #[Tool(
     name: 'music',
@@ -123,11 +118,6 @@ final class MiniMaxMusicTool extends MiniMaxTool
         $this->attachMusicMediaArchive($mediaArchive);
     }
 
-    /**
-     * Wire the optional {@see \Spora\Services\MediaArchive\MediaArchiveService}
-     * into the trait. The opt-in constructor parameter is null when the
-     * operator hasn't enabled the media archive; ignore that case silently.
-     */
     private function attachMusicMediaArchive(?\Spora\Services\MediaArchive\MediaArchiveService $archive): void
     {
         if ($archive !== null) {
@@ -136,9 +126,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
     }
 
     /**
-     * Multi-operation tool: dispatch on the `action` argument. Each per-op
-     * method calls {@see MiniMaxTool::runWithValidation()} for the standard
-     * validate→prepare→run orchestration.
+     * Multi-operation tool: dispatch on the `action` argument.
      */
     public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
     {
@@ -205,10 +193,8 @@ final class MiniMaxMusicTool extends MiniMaxTool
     }
 
     /**
-     * The base class declares `validateArguments` / `doWork` as abstract for
-     * the single-operation tools. MusicTool overrides `execute()` to dispatch
-     * across multiple operations, so these base-class hooks are unused —
-     * throwing here surfaces a programming error if they ever get called.
+     * Base-class hooks unused by this multi-operation tool — dispatch
+     * happens in {@see execute()}. Throwing surfaces accidental calls.
      */
     protected function validateArguments(array $arguments): ?ToolResult
     {
@@ -315,62 +301,76 @@ final class MiniMaxMusicTool extends MiniMaxTool
 
         $this->support->logSuccess($ctx, $response);
 
-        $promptSummary = $prompt !== '' ? "prompt: \"{$prompt}\"" : 'instrumental';
-
-        // Resolve a playback URL — either the CDN URL from MiniMax or a
-        // local/data URL the AssetStore hands back after decoding the hex
-        // payload. Multi-megabyte song payloads land in local mode unless
-        // the operator picks pure data_url.
-        $assetMode = null;
-        if ($audioUrl !== null) {
-            $url = $audioUrl;
-        } elseif ($hexAudio !== '' && strlen($hexAudio) % 2 === 0) {
-            [$url, $assetMode] = $this->embedHex($hexAudio, self::AUDIO_MIME, 'song.mp3');
-        } else {
+        $resolved = $this->resolveComposePlayback($audioUrl, $hexAudio);
+        if ($resolved === null) {
             return new ToolResult(false, 'MiniMax returned audio in an unsupported format.');
         }
+        [$url, $assetMode] = $resolved;
 
-        $content = "Generated music ({$promptSummary}).\n\n"
+        // Ingest failures are swallowed so the tool still returns the playback URL.
+        $archiveAsset = $this->ingestIntoMediaArchive($ctx, $audioUrl, $hexAudio, $prompt);
+        if ($archiveAsset !== null && $archiveAsset->asset_url !== '' && !str_starts_with($archiveAsset->asset_url, 'data:')) {
+            $url = $archiveAsset->asset_url;
+        }
+
+        $promptSummary = $prompt !== '' ? "prompt: \"{$prompt}\"" : 'instrumental';
+
+        return new ToolResult(true, "Generated music ({$promptSummary}).\n\n"
             . MediaEmbed::audioFromUrl($url)
-            . "\n\nThe audio player above is already embedded; do not modify the URL "
-            . "(it may be a server-relative path, a `data:` URL, or an upstream CDN URL).";
+            . "\n\nUse the same audio embed above to show the media player in your reply.", [
+                'audio_url'  => $audioUrl,
+                'asset_url'  => $url,
+                'asset_mode' => $assetMode,
+            ]);
+    }
 
-        // Hand the audio to the Media Archive so the operator can browse,
-        // filter, and download generated music from the admin UI. Core
-        // fetches (when a CDN URL is given) or decodes (when hex bytes
-        // were routed through the AssetStore), sniffs MIME, and indexes
-        // a row. Ingest failures must never break the tool — log and continue.
+    /**
+     * Returns `[url, mode]` for the playback URL, or null if the payload is
+     * neither a usable URL nor a valid hex blob.
+     *
+     * @return array{0: string, 1: string|null}|null
+     */
+    private function resolveComposePlayback(?string $audioUrl, ?string $hexAudio): ?array
+    {
+        if ($audioUrl !== null && $audioUrl !== '') {
+            return [$audioUrl, null];
+        }
+        if ($hexAudio !== '' && $hexAudio !== null && strlen($hexAudio) % 2 === 0) {
+            return $this->embedHex($hexAudio, self::AUDIO_MIME, 'song.mp3');
+        }
+        return null;
+    }
+
+    /**
+     * @return \Spora\Models\MediaAsset|null  null when ingest was skipped
+     *                                         (no payload) or failed.
+     */
+    private function ingestIntoMediaArchive(
+        MiniMaxToolContext $ctx,
+        ?string $audioUrl,
+        ?string $hexAudio,
+        string $prompt,
+    ): ?\Spora\Models\MediaAsset {
+        if ($audioUrl === null && ($hexAudio === null || $hexAudio === '')) {
+            return null;
+        }
+
         try {
-            if ($audioUrl !== null && $audioUrl !== '') {
-                $this->mediaArchive()->ingest(new MediaIngestRequest(
-                    url: $audioUrl,
-                    agentId: $ctx->agentId,
-                    pluginSlug: 'minimax',
-                    toolName: 'music',
-                    mime: self::AUDIO_MIME,
-                    prompt: $prompt,
-                ));
-            } elseif ($hexAudio !== null && $hexAudio !== '') {
-                $this->mediaArchive()->ingest(new MediaIngestRequest(
-                    hex: $hexAudio,
-                    agentId: $ctx->agentId,
-                    pluginSlug: 'minimax',
-                    toolName: 'music',
-                    mime: self::AUDIO_MIME,
-                    prompt: $prompt,
-                ));
-            }
+            return $this->mediaArchive()->ingest(new MediaIngestRequest(
+                url: $audioUrl,
+                hex: $audioUrl === null ? $hexAudio : null,
+                agentId: $ctx->agentId,
+                pluginSlug: 'minimax',
+                toolName: 'music',
+                mime: self::AUDIO_MIME,
+                prompt: $prompt,
+            ));
         } catch (Throwable $e) {
             $this->support->logger()?->warning('MediaArchive ingest failed (music)', [
                 'exception' => $e,
             ]);
+            return null;
         }
-
-        return new ToolResult(true, $content, [
-            'audio_url'  => $audioUrl,
-            'asset_url'  => $url,
-            'asset_mode' => $assetMode,
-        ]);
     }
 
     /**
