@@ -27,7 +27,7 @@ use Throwable;
  */
 #[Tool(
     name: 'music',
-    description: 'Song-making: generate music (instrumental or with lyrics; returns an embedded audio player), or write/edit song lyrics. The "action" argument selects the operation.',
+    description: 'Generate music (instrumental or with lyrics) or write/edit song lyrics. The "action" argument selects the operation.',
     displayName: 'MiniMax Music',
     category: 'generation',
 )]
@@ -315,11 +315,13 @@ final class MiniMaxMusicTool extends MiniMaxTool
 
         $promptSummary = $prompt !== '' ? "prompt: \"{$prompt}\"" : 'instrumental';
 
-        return new ToolResult(true, "Generated music ({$promptSummary}).\n\n" . MediaEmbed::audioFromUrl($url), [
-            'audio_url'  => $audioUrl,
-            'asset_url'  => $url,
-            'asset_mode' => $assetMode,
-        ]);
+        return new ToolResult(true, "Generated music ({$promptSummary}).\n\n"
+            . MediaEmbed::audioFromUrl($url)
+            . "\n\nUse the same audio embed above to show the media player in your reply.", [
+                'audio_url'  => $audioUrl,
+                'asset_url'  => $url,
+                'asset_mode' => $assetMode,
+            ]);
     }
 
     /**

@@ -105,6 +105,7 @@ it('polls the task status, calls file-retrieve, and embeds the download URL', fu
         ->and($result->content)->toContain('height="1080"')
         ->and($result->content)->toContain('file_id: file-abc-123')
         ->and($result->content)->toContain('1 hour')
+        ->and($result->content)->toContain('Use the same video embed above')
         ->and($result->data['file_id'])->toBe('file-abc-123')
         ->and($result->data['task_id'])->toBe('task-xyz')
         ->and($result->data['download_url'])->toBe('https://minimax.example/output.mp4')

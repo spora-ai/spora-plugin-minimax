@@ -73,6 +73,7 @@ it('makes a POST to /v1/image_generation and parses the image URLs on success', 
 
     expect($result->success)->toBeTrue()
         ->and($result->content)->toContain(MiniMaxImageToolTestLiterals::CDN_URL_PNG)
+        ->and($result->content)->toContain('Use the same Markdown image embed above to show the image')
         ->and($result->data['image_urls'][0])->toBe(MiniMaxImageToolTestLiterals::CDN_URL_PNG);
 });
 

@@ -51,6 +51,7 @@ it('decodes a hex payload via the AssetStore when output_format=hex', function (
     expect($result->success)->toBeTrue()
         ->and($result->content)->toContain('<audio')
         ->and($result->content)->toContain('data:audio/mpeg;base64,XYZ')
+        ->and($result->content)->toContain('Use the same audio embed above')
         ->and($result->data['asset_mode'])->toBe('data_url');
 });
 

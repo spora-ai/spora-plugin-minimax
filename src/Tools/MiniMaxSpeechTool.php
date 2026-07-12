@@ -26,7 +26,7 @@ use Throwable;
  */
 #[Tool(
     name: 'speech',
-    description: 'Synthesize speech from text. Returns an embedded audio player in the chat bubble.',
+    description: 'Synthesize speech from text.',
     displayName: 'MiniMax Speech',
     category: 'generation',
 )]
@@ -234,7 +234,8 @@ final class MiniMaxSpeechTool extends MiniMaxTool
 
         $content = "Synthesized speech{$statsLine}.\n\n"
             . MediaEmbed::audioFromUrl($url) . "\n\n"
-            . "Voice: {$voiceId}.";
+            . "Voice: {$voiceId}."
+            . "\n\nUse the same audio embed above to show the media player in your reply.";
 
         return new ToolResult(true, $content, [
             'audio_url'  => $audioUrl,

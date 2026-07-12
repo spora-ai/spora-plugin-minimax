@@ -29,7 +29,7 @@ use Throwable;
  */
 #[Tool(
     name: 'image',
-    description: 'Generate an image from a text prompt. Returns an embedded image in the chat bubble.',
+    description: 'Generate an image from a text prompt.',
     displayName: 'MiniMax Image',
     category: 'generation',
 )]
@@ -168,7 +168,8 @@ final class MiniMaxImageTool extends MiniMaxTool
                 static fn(int $i, string $u): string => MediaEmbed::image($u, "Generated image " . ($i + 1) . ": {$prompt}"),
                 array_keys($archiveUrls),
                 $archiveUrls,
-            ));
+            ))
+            . "\n\nUse the same Markdown image embed above to show the image in your reply.";
 
         return new ToolResult(true, $content, [
             'image_urls' => $archiveUrls,
