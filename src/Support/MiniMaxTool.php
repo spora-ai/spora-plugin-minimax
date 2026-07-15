@@ -78,6 +78,18 @@ abstract class MiniMaxTool extends AbstractTool
      *
      * @param array<string, mixed> $settings
      */
+    /**
+     * Generate a deterministic filename for an archived asset, e.g.
+     * `minimax-image-2026-07-15-143022-1a2b3c4d.png`. Used by every
+     * tool's `MediaIngestRequest` so user downloads and the Media
+     * Archive detail page get a sensible name instead of the UUID.
+     */
+    protected static function buildFilename(string $prefix, string $extension): string
+    {
+        $shortId = substr(bin2hex(random_bytes(8)), 0, 8);
+        return sprintf('%s-%s-%s.%s', $prefix, date('Y-m-d-His'), $shortId, $extension);
+    }
+
     protected function resolveTimeout(string $field, array $settings, int $fallback): int
     {
         return MiniMaxSettings::timeoutSeconds(static::PROVIDER, $field, $settings) ?: $fallback;

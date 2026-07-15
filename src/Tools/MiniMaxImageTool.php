@@ -212,6 +212,7 @@ final class MiniMaxImageTool extends MiniMaxTool
                 pluginSlug: 'minimax',
                 toolName: 'image',
                 prompt: $prompt,
+                filename: self::buildFilename('minimax-image', 'png'),
             ));
             $archiveUrl = is_string($asset->asset_url ?? null) ? $asset->asset_url : null;
             if ($archiveUrl !== null && $archiveUrl !== '' && !str_starts_with($archiveUrl, 'data:')) {

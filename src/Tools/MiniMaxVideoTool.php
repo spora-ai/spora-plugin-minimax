@@ -216,6 +216,7 @@ final class MiniMaxVideoTool extends MiniMaxTool
                 width: $width,
                 height: $height,
                 durationSeconds: (float) $duration,
+                filename: self::buildFilename('minimax-video', 'mp4'),
             ));
         } catch (Throwable $e) {
             $this->support->logger()?->warning('MediaArchive ingest failed (video)', [

@@ -285,6 +285,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
             'toolName'   => 'speech',
             'mime'       => self::AUDIO_MIME,
             'prompt'     => $text,
+            'filename'   => self::buildFilename('minimax-speech', 'mp3'),
         ];
         if (is_int($sizeBytes)) {
             $base['byteSize'] = $sizeBytes;

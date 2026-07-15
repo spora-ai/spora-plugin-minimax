@@ -364,6 +364,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
                 toolName: 'music',
                 mime: self::AUDIO_MIME,
                 prompt: $prompt,
+                filename: self::buildFilename('minimax-music', 'mp3'),
             ));
         } catch (Throwable $e) {
             $this->support->logger()?->warning('MediaArchive ingest failed (music)', [
