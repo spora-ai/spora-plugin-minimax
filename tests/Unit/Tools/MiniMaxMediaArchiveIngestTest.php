@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Capsule\Manager;
+use Illuminate\Database\Schema\Blueprint;
 use Mockery as M;
 use Psr\Log\NullLogger;
 use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
@@ -9,6 +11,8 @@ use Spora\Plugins\MiniMax\Tools\MiniMaxImageTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxMusicTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxVideoTool;
+use Spora\Services\AssetReference;
+use Spora\Services\AssetStore;
 use Spora\Services\AutoAssetStore;
 use Spora\Services\DataUrlAssetStore;
 use Spora\Services\LocalAssetStore;
@@ -19,6 +23,7 @@ use Spora\Services\MediaArchive\MimeSniffer;
 use Spora\Services\MediaArchive\RemoteMediaFetcher;
 use Spora\Services\ToolConfigService;
 use Symfony\Component\HttpClient\MockHttpClient;
+use Symfony\Component\HttpClient\Response\MockResponse;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Contracts\HttpClient\ResponseInterface;
 
@@ -266,4 +271,257 @@ it('a failing MediaArchive::ingest() does not break the tool result (image tool)
     // The archive failure was logged and swallowed.
     expect($result->success)->toBeTrue()
         ->and($result->content)->toContain('https://cdn.example.com/a.png');
+});
+
+/**
+ * Filename-shape contract for every tool's MediaIngestRequest. The four
+ * tests below share the same regex (`minimax-<tool>-UTC-8hex.<ext>`)
+ * because the contract is per-plugin, not per-tool. The capture is done
+ * at the {@see AssetStore} seam: `MediaArchiveService::ingest()` is
+ * declared `final` in the vendored spora-core (v0.7.1) so Mockery
+ * cannot mock it, but the filename flows through to
+ * `AssetStore::store($bytes, $mime, $filename)` for every ingest path
+ * that handles bytes (URL branch, hex branch, base64 branch), and a
+ * small custom {@see AssetStore} implementation captures the value.
+ *
+ * For URL inputs the resolver must be configured to fetch the body
+ * (`promoteExternal=true`); the existing test helpers in this file
+ * keep it off so the URL branch falls back to the no-byte `external`
+ * path, which never touches the AssetStore. The helper below flips
+ * that flag and serves a small fixed payload for every HEAD/GET so
+ * the bytes flow through to the capturing store.
+ */
+const MINIMAX_FILENAME_REGEX = '/^minimax-(image|video|music|speech)-\d{4}-\d{2}-\d{2}-\d{6}-[0-9a-f]{8}\.(png|mp4|mp3)$/';
+
+/**
+ * Test double for {@see AssetStore} that records every filename passed
+ * to `store()` and replies with a tiny in-memory reference.
+ * Implementing the interface (rather than mocking `LocalAssetStore`,
+ * which is `final`) keeps the capture independent of the asset-store
+ * implementation spora-core chooses.
+ */
+final class MinimaxFilenameCapturingStore implements AssetStore
+{
+    /** @var list<string> */
+    public array $capturedFilenames = [];
+
+    public function store(string $bytes, ?string $mime = null, ?string $filename = null): AssetReference
+    {
+        if (is_string($filename)) {
+            $this->capturedFilenames[] = $filename;
+        }
+        return new AssetReference(
+            url: 'data:,' . bin2hex(random_bytes(4)),
+            mode: 'data_url',
+        );
+    }
+}
+
+/**
+ * Build a real {@see MediaArchiveService} whose {@see AssetStore}
+ * dependency is a {@see MinimaxFilenameCapturingStore}. The URL
+ * resolver is configured to fetch bytes (so the URL branch
+ * exercises `AssetStore::store()`, the only seam that sees the
+ * request's `filename`) and a {@see MockHttpClient} returns a tiny
+ * payload for any URL. Also boots an in-memory SQLite database so
+ * the row-persist step doesn't throw — without it, the service
+ * would log a warning and skip persisting, which would still let
+ * `store()` be called (so the capture works) but is cleaner when
+ * the row actually saves.
+ *
+ * @return array{0: MediaArchiveService, 1: MinimaxFilenameCapturingStore}
+ */
+function minimaxFilenameCaptureArchiveService(): array
+{
+    $capsule = new Manager();
+    $capsule->addConnection([
+        'driver'   => 'sqlite',
+        'database' => ':memory:',
+        'prefix'   => '',
+    ]);
+    $capsule->setAsGlobal();
+    $capsule->bootEloquent();
+    $capsule->schema()->create('media_assets', function (Blueprint $table): void {
+        $table->uuid('id')->primary();
+        $table->unsignedBigInteger('agent_id')->nullable();
+        $table->unsignedBigInteger('task_id')->nullable();
+        $table->unsignedBigInteger('tool_call_id')->nullable();
+        $table->string('plugin_slug', 64)->nullable();
+        $table->string('tool_name', 64)->nullable();
+        $table->string('media_type', 16)->nullable();
+        $table->string('mime_type', 127)->nullable();
+        $table->bigInteger('byte_size')->nullable();
+        $table->unsignedInteger('width')->nullable();
+        $table->unsignedInteger('height')->nullable();
+        $table->decimal('duration_seconds', 8, 2)->nullable();
+        $table->text('prompt')->nullable();
+        $table->text('tags')->nullable();
+        $table->text('metadata')->nullable();
+        $table->string('asset_url', 512);
+        $table->string('source_url', 512)->nullable();
+        $table->string('storage_mode', 16);
+        $table->string('asset_token', 64)->nullable();
+        $table->binary('payload')->nullable();
+        $table->boolean('migrated_from_inline_data_url')->default(false);
+        $table->timestamps();
+    });
+
+    $logger  = new NullLogger();
+    $sniffer = new MimeSniffer();
+    // Serve a tiny 8-byte payload for every HEAD/GET. The HEAD response
+    // declares content-type + content-length so the resolver doesn't
+    // skip the body fetch on a "too large" guess; the GET response
+    // returns the body itself.
+    $http = new MockHttpClient([
+        new MockResponse(
+            '',
+            ['response_headers' => ['content-type: application/octet-stream', 'content-length: 8']],
+        ),
+        new MockResponse(
+            str_repeat("\x00", 8),
+            ['response_headers' => ['content-type: application/octet-stream']],
+        ),
+    ]);
+    $resolver = new MediaArchiveUrlResolver(
+        new RemoteMediaFetcher($http, $logger, 30, 1024 * 1024),
+        $sniffer,
+        $logger,
+        true,         // promoteExternal — force the bytes branch
+        1024 * 1024,
+    );
+
+    $store = new MinimaxFilenameCapturingStore();
+    $archive = new MediaArchiveService(
+        $store,
+        $resolver,
+        $sniffer,
+        new MetadataExtractor($logger, false),
+    );
+    return [$archive, $store];
+}
+
+it('image tool sends a MediaIngestRequest with a deterministic .png filename', function () {
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->allows('request')->andReturn(minimaxArchiveResponse(200, json_encode([
+        'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
+        'data'      => ['image_urls' => ['https://cdn.example.com/a.png']],
+    ])));
+
+    $log = new MiniMaxLogWriter();
+    [$archive, $store] = minimaxFilenameCaptureArchiveService();
+
+    $tool = new MiniMaxImageTool($config, $http, $log, null, null, $archive);
+    $result = $tool->execute(['prompt' => 'a red fox'], 42);
+
+    expect($result->success)->toBeTrue();
+    expect($store->capturedFilenames)->toHaveCount(1);
+    expect($store->capturedFilenames[0])->toMatch(MINIMAX_FILENAME_REGEX);
+    expect(pathinfo($store->capturedFilenames[0], PATHINFO_EXTENSION))->toBe('png');
+    expect(pathinfo($store->capturedFilenames[0], PATHINFO_FILENAME))->toStartWith('minimax-image-');
+});
+
+it('video tool sends a MediaIngestRequest with a deterministic .mp4 filename', function () {
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn([
+        'api_key'                => 'k',
+        'poll_interval_seconds'  => '1',
+        'poll_timeout_seconds'   => '5',
+        'submit_timeout_seconds' => '30',
+    ]);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->allows('request')
+        ->with('POST', 'https://api.minimax.io/v1/video_generation', M::any())
+        ->andReturn(minimaxArchiveResponse(200, json_encode([
+            'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
+            'task_id'   => 'task-xyz',
+        ])));
+    $http->allows('request')
+        ->with('GET', 'https://api.minimax.io/v1/query/video_generation', M::any())
+        ->andReturn(minimaxArchiveResponse(200, json_encode([
+            'base_resp'    => ['status_code' => 0, 'status_msg' => 'success'],
+            'task_id'      => 'task-xyz',
+            'status'       => 'Success',
+            'file_id'      => 'file-abc-123',
+            'video_width'  => 1920,
+            'video_height' => 1080,
+        ])));
+    $http->allows('request')
+        ->with('GET', 'https://api.minimax.io/v1/files/retrieve', M::any())
+        ->andReturn(minimaxArchiveResponse(200, json_encode([
+            'file' => [
+                'file_id'      => 'file-abc-123',
+                'download_url' => 'https://minimax.example/output.mp4',
+            ],
+            'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
+        ])));
+
+    $log = new MiniMaxLogWriter();
+    [$archive, $store] = minimaxFilenameCaptureArchiveService();
+
+    $tool = new MiniMaxVideoTool($config, $http, $log, null, null, $archive);
+    $result = $tool->execute(['prompt' => '[Push in] a forest', 'duration_seconds' => '6'], 11);
+
+    expect($result->success)->toBeTrue();
+    expect($store->capturedFilenames)->toHaveCount(1);
+    expect($store->capturedFilenames[0])->toMatch(MINIMAX_FILENAME_REGEX);
+    expect(pathinfo($store->capturedFilenames[0], PATHINFO_EXTENSION))->toBe('mp4');
+    expect(pathinfo($store->capturedFilenames[0], PATHINFO_FILENAME))->toStartWith('minimax-video-');
+});
+
+it('music tool sends a MediaIngestRequest with a deterministic .mp3 filename', function () {
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->allows('request')->andReturn(minimaxArchiveResponse(200, json_encode([
+        'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
+        'data'      => ['audio' => str_repeat('00', 24)],
+    ])));
+
+    $log = new MiniMaxLogWriter();
+    [$archive, $store] = minimaxFilenameCaptureArchiveService();
+
+    $tool = new MiniMaxMusicTool($config, $http, $log, minimaxTestAssetStore(), null, null, $archive);
+    $result = $tool->execute([
+        'action'        => 'compose',
+        'prompt'        => 'lofi piano',
+        'output_format' => 'hex',
+    ], 99);
+
+    expect($result->success)->toBeTrue();
+    expect($store->capturedFilenames)->toHaveCount(1);
+    expect($store->capturedFilenames[0])->toMatch(MINIMAX_FILENAME_REGEX);
+    expect(pathinfo($store->capturedFilenames[0], PATHINFO_EXTENSION))->toBe('mp3');
+    expect(pathinfo($store->capturedFilenames[0], PATHINFO_FILENAME))->toStartWith('minimax-music-');
+});
+
+it('speech tool sends a MediaIngestRequest with a deterministic .mp3 filename', function () {
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->allows('request')->andReturn(minimaxArchiveResponse(200, json_encode([
+        'base_resp'  => ['status_code' => 0, 'status_msg' => 'success'],
+        'data'       => ['audio_url' => 'https://cdn.example.com/speech.mp3'],
+        'extra_info' => ['audio_size' => 12_345],
+    ])));
+
+    $log = new MiniMaxLogWriter();
+    [$archive, $store] = minimaxFilenameCaptureArchiveService();
+
+    $tool = new MiniMaxSpeechTool($config, $http, $log, minimaxTestAssetStore(), null, null, $archive);
+    $result = $tool->execute([
+        'text'     => 'hello world',
+        'voice_id' => 'English_PassionateWarrior',
+    ], 7);
+
+    expect($result->success)->toBeTrue();
+    expect($store->capturedFilenames)->toHaveCount(1);
+    expect($store->capturedFilenames[0])->toMatch(MINIMAX_FILENAME_REGEX);
+    expect(pathinfo($store->capturedFilenames[0], PATHINFO_EXTENSION))->toBe('mp3');
+    expect(pathinfo($store->capturedFilenames[0], PATHINFO_FILENAME))->toStartWith('minimax-speech-');
 });
