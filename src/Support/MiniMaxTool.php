@@ -200,26 +200,24 @@ abstract class MiniMaxTool extends AbstractTool
             $ascii = strtolower($ascii);
         }
 
-        $slug = preg_replace('#[^a-z0-9]+#', '-', $ascii) ?? '';
-        $slug = trim($slug, '-');
+        $slug = trim((string) preg_replace('#[^a-z0-9]+#', '-', $ascii), '-');
         if ($slug === '') {
             return $fallbackPrefix;
         }
 
         $stem = $fallbackPrefix . '-' . $slug;
-        if (strlen($stem) <= 60) {
-            return $stem;
+        if (strlen($stem) > 60) {
+            // Cap at 60 chars on a word boundary inside the slug —
+            // never cut at the prefix separator (`minimax-image`), so
+            // the kind tag always survives the cut.
+            $cut = substr($stem, 0, 60);
+            $lastDash = strrpos($cut, '-');
+            if ($lastDash !== false && $lastDash > strlen($fallbackPrefix)) {
+                $cut = substr($cut, 0, $lastDash);
+            }
+            $stem = rtrim($cut, '-');
         }
-
-        // Cap at 60 chars on a word boundary inside the slug — never
-        // cut at the prefix separator (`minimax-image`), so the kind
-        // tag always survives the cut.
-        $cut = substr($stem, 0, 60);
-        $lastDash = strrpos($cut, '-');
-        if ($lastDash !== false && $lastDash > strlen($fallbackPrefix)) {
-            $cut = substr($cut, 0, $lastDash);
-        }
-        return rtrim($cut, '-');
+        return $stem;
     }
 
     /**
