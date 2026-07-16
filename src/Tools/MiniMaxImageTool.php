@@ -77,6 +77,13 @@ use Throwable;
     enum: ['1:1', '16:9', '4:3', '3:2', '2:3', '3:4', '9:16', '21:9'],
     default: '1:1',
 )]
+#[ToolParameter(
+    name: 'filename',
+    type: 'string',
+    description: 'Optional human-readable filename without an extension (e.g. "sunset-at-the-beach"). The correct file extension is appended automatically. When omitted, a speaking name is generated from the prompt.',
+    required: false,
+    maximum: 120,
+)]
 final class MiniMaxImageTool extends MiniMaxTool
 {
     use StoresBinaryAssets;
@@ -159,7 +166,7 @@ final class MiniMaxImageTool extends MiniMaxTool
 
         $archiveUrls = [];
         foreach ($cleanUrls as $cdnUrl) {
-            $archiveUrls[] = $this->ingestImageUrl($ctx, $cdnUrl, $prompt);
+            $archiveUrls[] = $this->ingestImageUrl($ctx, $cdnUrl, $prompt, $arguments);
         }
 
         $count   = count($archiveUrls);
@@ -202,8 +209,10 @@ final class MiniMaxImageTool extends MiniMaxTool
      * the chat — either the archive's opaque URL, or the original CDN URL
      * if the archive is absent, fails, or hands us a `data:` URL (older
      * core, or a non-default AssetStore in tests).
+     *
+     * @param array<string, mixed> $arguments
      */
-    private function ingestImageUrl(MiniMaxToolContext $ctx, string $cdnUrl, string $prompt): string
+    private function ingestImageUrl(MiniMaxToolContext $ctx, string $cdnUrl, string $prompt, array $arguments): string
     {
         try {
             $asset = $this->mediaArchive()->ingest(new MediaIngestRequest(
@@ -212,7 +221,12 @@ final class MiniMaxImageTool extends MiniMaxTool
                 pluginSlug: 'minimax',
                 toolName: 'image',
                 prompt: $prompt,
-                filename: self::buildFilename('minimax-image', 'png'),
+                filename: self::resolveFilename(
+                    isset($arguments['filename']) ? (string) $arguments['filename'] : null,
+                    $prompt,
+                    'minimax-image',
+                    'png',
+                ),
             ));
             $archiveUrl = is_string($asset->asset_url ?? null) ? $asset->asset_url : null;
             if ($archiveUrl !== null && $archiveUrl !== '' && !str_starts_with($archiveUrl, 'data:')) {

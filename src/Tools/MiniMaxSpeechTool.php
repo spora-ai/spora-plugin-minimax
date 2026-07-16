@@ -88,6 +88,13 @@ use Throwable;
     maximum: 2.0,
     default: 1.0,
 )]
+#[ToolParameter(
+    name: 'filename',
+    type: 'string',
+    description: 'Optional human-readable filename without an extension (e.g. "intro-greeting"). The correct file extension is appended automatically. When omitted, a speaking name is generated from the text.',
+    required: false,
+    maximum: 120,
+)]
 final class MiniMaxSpeechTool extends MiniMaxTool
 {
     use StoresBinaryAssets;
@@ -227,7 +234,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         }
         [$url, $assetMode] = $resolved;
 
-        $archiveAsset = $this->ingestIntoMediaArchive($ctx, $text, $audioUrl, $hexAudio, $sizeBytes);
+        $archiveAsset = $this->ingestIntoMediaArchive($ctx, $text, $audioUrl, $hexAudio, $sizeBytes, $arguments);
         if ($archiveAsset !== null && $archiveAsset->asset_url !== '' && !str_starts_with($archiveAsset->asset_url, 'data:')) {
             $url = $archiveAsset->asset_url;
         }
@@ -267,6 +274,8 @@ final class MiniMaxSpeechTool extends MiniMaxTool
      *
      * Ingest failures must never break the tool — log and return null so
      * the chat bubble still renders.
+     *
+     * @param array<string, mixed> $arguments
      */
     private function ingestIntoMediaArchive(
         MiniMaxToolContext $ctx,
@@ -274,6 +283,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         ?string $audioUrl,
         ?string $hexAudio,
         mixed $sizeBytes,
+        array $arguments,
     ): ?\Spora\Models\MediaAsset {
         if ($audioUrl === null && ($hexAudio === null || $hexAudio === '')) {
             return null;
@@ -285,7 +295,12 @@ final class MiniMaxSpeechTool extends MiniMaxTool
             'toolName'   => 'speech',
             'mime'       => self::AUDIO_MIME,
             'prompt'     => $text,
-            'filename'   => self::buildFilename('minimax-speech', 'mp3'),
+            'filename'   => self::resolveFilename(
+                isset($arguments['filename']) ? (string) $arguments['filename'] : null,
+                $text,
+                'minimax-speech',
+                'mp3',
+            ),
         ];
         if (is_int($sizeBytes)) {
             $base['byteSize'] = $sizeBytes;

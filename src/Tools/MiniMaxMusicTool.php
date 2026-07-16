@@ -91,6 +91,13 @@ use Throwable;
     enum: ['url', 'hex'],
     default: 'url',
 )]
+#[ToolParameter(
+    name: 'filename',
+    type: 'string',
+    description: 'Optional human-readable filename without an extension (e.g. "midnight-lofi"). The correct file extension is appended automatically. When omitted, a speaking name is generated from the prompt.',
+    required: false,
+    maximum: 120,
+)]
 final class MiniMaxMusicTool extends MiniMaxTool
 {
     use StoresBinaryAssets;
@@ -308,7 +315,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
         [$url, $assetMode] = $resolved;
 
         // Ingest failures are swallowed so the tool still returns the playback URL.
-        $archiveAsset = $this->ingestIntoMediaArchive($ctx, $audioUrl, $hexAudio, $prompt);
+        $archiveAsset = $this->ingestIntoMediaArchive($ctx, $audioUrl, $hexAudio, $prompt, $arguments);
         if ($archiveAsset !== null && $archiveAsset->asset_url !== '' && !str_starts_with($archiveAsset->asset_url, 'data:')) {
             $url = $archiveAsset->asset_url;
         }
@@ -342,6 +349,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
     }
 
     /**
+     * @param  array<string, mixed> $arguments
      * @return \Spora\Models\MediaAsset|null  null when ingest was skipped
      *                                         (no payload) or failed.
      */
@@ -350,6 +358,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
         ?string $audioUrl,
         ?string $hexAudio,
         string $prompt,
+        array $arguments,
     ): ?\Spora\Models\MediaAsset {
         if ($audioUrl === null && ($hexAudio === null || $hexAudio === '')) {
             return null;
@@ -364,7 +373,12 @@ final class MiniMaxMusicTool extends MiniMaxTool
                 toolName: 'music',
                 mime: self::AUDIO_MIME,
                 prompt: $prompt,
-                filename: self::buildFilename('minimax-music', 'mp3'),
+                filename: self::resolveFilename(
+                    isset($arguments['filename']) ? (string) $arguments['filename'] : null,
+                    $prompt,
+                    'minimax-music',
+                    'mp3',
+                ),
             ));
         } catch (Throwable $e) {
             $this->support->logger()?->warning('MediaArchive ingest failed (music)', [

@@ -7,6 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Mockery as M;
 use Psr\Log\NullLogger;
 use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
+use Spora\Plugins\MiniMax\Support\MiniMaxTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxImageTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxMusicTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool;
@@ -274,24 +275,15 @@ it('a failing MediaArchive::ingest() does not break the tool result (image tool)
 });
 
 /**
- * Filename-shape contract for every tool's MediaIngestRequest. The four
- * tests below share the same regex (`minimax-<tool>-UTC-8hex.<ext>`)
- * because the contract is per-plugin, not per-tool. The capture is done
- * at the {@see AssetStore} seam: `MediaArchiveService::ingest()` is
- * declared `final` in the vendored spora-core (v0.7.1) so Mockery
- * cannot mock it, but the filename flows through to
- * `AssetStore::store($bytes, $mime, $filename)` for every ingest path
- * that handles bytes (URL branch, hex branch, base64 branch), and a
- * small custom {@see AssetStore} implementation captures the value.
- *
- * For URL inputs the resolver must be configured to fetch the body
- * (`promoteExternal=true`); the existing test helpers in this file
- * keep it off so the URL branch falls back to the no-byte `external`
- * path, which never touches the AssetStore. The helper below flips
- * that flag and serves a small fixed payload for every HEAD/GET so
- * the bytes flow through to the capturing store.
+ * Filename-shape contract for every tool's MediaIngestRequest. When the
+ * LLM supplies a name via the `filename` ToolParameter, that name is
+ * sanitised and returned with the canonical extension. When the LLM
+ * doesn't, {@see MiniMaxTool::resolveFilename()} falls back to a
+ * slugified prompt + canonical extension — `minimax-<tool>-<stem>.<ext>`.
+ * The shape below is the slug fallback only; LLM-supplied names are
+ * asserted exact-match in their own tests.
  */
-const MINIMAX_FILENAME_REGEX = '/^minimax-(image|video|music|speech)-\d{4}-\d{2}-\d{2}-\d{6}-[0-9a-f]{8}\.(png|mp4|mp3)$/';
+const MINIMAX_SLUG_REGEX = '/^minimax-(image|video|music|speech)-[a-z0-9-]+\.(png|mp4|mp3)$/';
 
 /**
  * Test double for {@see AssetStore} that records every filename passed
@@ -400,7 +392,31 @@ function minimaxFilenameCaptureArchiveService(): array
     return [$archive, $store];
 }
 
-it('image tool sends a MediaIngestRequest with a deterministic .png filename', function () {
+it('image tool honours the LLM-supplied filename and appends the canonical extension', function () {
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->allows('request')->andReturn(minimaxArchiveResponse(200, json_encode([
+        'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
+        'data'      => ['image_urls' => ['https://cdn.example.com/a.png']],
+    ])));
+
+    $log = new MiniMaxLogWriter();
+    [$archive, $store] = minimaxFilenameCaptureArchiveService();
+
+    $tool = new MiniMaxImageTool($config, $http, $log, null, null, $archive);
+    $result = $tool->execute([
+        'prompt'   => 'a red fox',
+        'filename' => 'sunset-at-the-beach',
+    ], 42);
+
+    expect($result->success)->toBeTrue();
+    expect($store->capturedFilenames)->toHaveCount(1);
+    expect($store->capturedFilenames[0])->toBe('sunset-at-the-beach.png');
+});
+
+it('image tool slugifies the prompt when no filename is supplied', function () {
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
@@ -418,12 +434,63 @@ it('image tool sends a MediaIngestRequest with a deterministic .png filename', f
 
     expect($result->success)->toBeTrue();
     expect($store->capturedFilenames)->toHaveCount(1);
-    expect($store->capturedFilenames[0])->toMatch(MINIMAX_FILENAME_REGEX);
+    expect($store->capturedFilenames[0])->toMatch(MINIMAX_SLUG_REGEX);
     expect(pathinfo($store->capturedFilenames[0], PATHINFO_EXTENSION))->toBe('png');
     expect(pathinfo($store->capturedFilenames[0], PATHINFO_FILENAME))->toStartWith('minimax-image-');
 });
 
-it('video tool sends a MediaIngestRequest with a deterministic .mp4 filename', function () {
+it('video tool honours the LLM-supplied filename and appends the canonical extension', function () {
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn([
+        'api_key'                => 'k',
+        'poll_interval_seconds'  => '1',
+        'poll_timeout_seconds'   => '5',
+        'submit_timeout_seconds' => '30',
+    ]);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->allows('request')
+        ->with('POST', 'https://api.minimax.io/v1/video_generation', M::any())
+        ->andReturn(minimaxArchiveResponse(200, json_encode([
+            'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
+            'task_id'   => 'task-xyz',
+        ])));
+    $http->allows('request')
+        ->with('GET', 'https://api.minimax.io/v1/query/video_generation', M::any())
+        ->andReturn(minimaxArchiveResponse(200, json_encode([
+            'base_resp'    => ['status_code' => 0, 'status_msg' => 'success'],
+            'task_id'      => 'task-xyz',
+            'status'       => 'Success',
+            'file_id'      => 'file-abc-123',
+            'video_width'  => 1920,
+            'video_height' => 1080,
+        ])));
+    $http->allows('request')
+        ->with('GET', 'https://api.minimax.io/v1/files/retrieve', M::any())
+        ->andReturn(minimaxArchiveResponse(200, json_encode([
+            'file' => [
+                'file_id'      => 'file-abc-123',
+                'download_url' => 'https://minimax.example/output.mp4',
+            ],
+            'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
+        ])));
+
+    $log = new MiniMaxLogWriter();
+    [$archive, $store] = minimaxFilenameCaptureArchiveService();
+
+    $tool = new MiniMaxVideoTool($config, $http, $log, null, null, $archive);
+    $result = $tool->execute([
+        'prompt'   => '[Push in] a forest',
+        'filename' => 'forest-push-in',
+        'duration_seconds' => '6',
+    ], 11);
+
+    expect($result->success)->toBeTrue();
+    expect($store->capturedFilenames)->toHaveCount(1);
+    expect($store->capturedFilenames[0])->toBe('forest-push-in.mp4');
+});
+
+it('video tool slugifies the prompt when no filename is supplied', function () {
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn([
         'api_key'                => 'k',
@@ -467,12 +534,38 @@ it('video tool sends a MediaIngestRequest with a deterministic .mp4 filename', f
 
     expect($result->success)->toBeTrue();
     expect($store->capturedFilenames)->toHaveCount(1);
-    expect($store->capturedFilenames[0])->toMatch(MINIMAX_FILENAME_REGEX);
+    expect($store->capturedFilenames[0])->toMatch(MINIMAX_SLUG_REGEX);
     expect(pathinfo($store->capturedFilenames[0], PATHINFO_EXTENSION))->toBe('mp4');
     expect(pathinfo($store->capturedFilenames[0], PATHINFO_FILENAME))->toStartWith('minimax-video-');
 });
 
-it('music tool sends a MediaIngestRequest with a deterministic .mp3 filename', function () {
+it('music tool honours the LLM-supplied filename and appends the canonical extension', function () {
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->allows('request')->andReturn(minimaxArchiveResponse(200, json_encode([
+        'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
+        'data'      => ['audio' => str_repeat('00', 24)],
+    ])));
+
+    $log = new MiniMaxLogWriter();
+    [$archive, $store] = minimaxFilenameCaptureArchiveService();
+
+    $tool = new MiniMaxMusicTool($config, $http, $log, minimaxTestAssetStore(), null, null, $archive);
+    $result = $tool->execute([
+        'action'        => 'compose',
+        'prompt'        => 'lofi piano',
+        'output_format' => 'hex',
+        'filename'      => 'midnight-lofi',
+    ], 99);
+
+    expect($result->success)->toBeTrue();
+    expect($store->capturedFilenames)->toHaveCount(1);
+    expect($store->capturedFilenames[0])->toBe('midnight-lofi.mp3');
+});
+
+it('music tool slugifies the prompt when no filename is supplied', function () {
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
@@ -494,12 +587,38 @@ it('music tool sends a MediaIngestRequest with a deterministic .mp3 filename', f
 
     expect($result->success)->toBeTrue();
     expect($store->capturedFilenames)->toHaveCount(1);
-    expect($store->capturedFilenames[0])->toMatch(MINIMAX_FILENAME_REGEX);
+    expect($store->capturedFilenames[0])->toMatch(MINIMAX_SLUG_REGEX);
     expect(pathinfo($store->capturedFilenames[0], PATHINFO_EXTENSION))->toBe('mp3');
     expect(pathinfo($store->capturedFilenames[0], PATHINFO_FILENAME))->toStartWith('minimax-music-');
 });
 
-it('speech tool sends a MediaIngestRequest with a deterministic .mp3 filename', function () {
+it('speech tool honours the LLM-supplied filename and appends the canonical extension', function () {
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->allows('request')->andReturn(minimaxArchiveResponse(200, json_encode([
+        'base_resp'  => ['status_code' => 0, 'status_msg' => 'success'],
+        'data'       => ['audio_url' => 'https://cdn.example.com/speech.mp3'],
+        'extra_info' => ['audio_size' => 12_345],
+    ])));
+
+    $log = new MiniMaxLogWriter();
+    [$archive, $store] = minimaxFilenameCaptureArchiveService();
+
+    $tool = new MiniMaxSpeechTool($config, $http, $log, minimaxTestAssetStore(), null, null, $archive);
+    $result = $tool->execute([
+        'text'     => 'hello world',
+        'voice_id' => 'English_PassionateWarrior',
+        'filename' => 'intro-greeting',
+    ], 7);
+
+    expect($result->success)->toBeTrue();
+    expect($store->capturedFilenames)->toHaveCount(1);
+    expect($store->capturedFilenames[0])->toBe('intro-greeting.mp3');
+});
+
+it('speech tool slugifies the text when no filename is supplied', function () {
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
@@ -521,7 +640,139 @@ it('speech tool sends a MediaIngestRequest with a deterministic .mp3 filename', 
 
     expect($result->success)->toBeTrue();
     expect($store->capturedFilenames)->toHaveCount(1);
-    expect($store->capturedFilenames[0])->toMatch(MINIMAX_FILENAME_REGEX);
+    expect($store->capturedFilenames[0])->toMatch(MINIMAX_SLUG_REGEX);
     expect(pathinfo($store->capturedFilenames[0], PATHINFO_EXTENSION))->toBe('mp3');
     expect(pathinfo($store->capturedFilenames[0], PATHINFO_FILENAME))->toStartWith('minimax-speech-');
+});
+
+/**
+ * Direct unit tests for {@see MiniMaxTool::resolveFilename()}.
+ *
+ * The helper is `public static` precisely so the sanitisation and
+ * slugification branches can be covered without spinning up a full
+ * MediaArchive pipeline — see the `image/...` tests above for the
+ * end-to-end path.
+ */
+it('resolveFilename returns a sanitised LLM-supplied name verbatim with the canonical extension', function () {
+    expect(MiniMaxTool::resolveFilename('my-illustration', 'irrelevant prompt', 'minimax-image', 'png'))
+        ->toBe('my-illustration.png');
+});
+
+it('resolveFilename strips path components from a malicious-looking LLM filename', function () {
+    expect(MiniMaxTool::resolveFilename('../../etc/passwd.png', 'a prompt', 'minimax-image', 'png'))
+        ->toBe('etcpasswd.png');
+});
+
+it('resolveFilename overrides a wrong extension with the canonical one', function () {
+    expect(MiniMaxTool::resolveFilename('song.txt', 'prompt', 'minimax-music', 'mp3'))
+        ->toBe('song.mp3');
+});
+
+it('resolveFilename keeps a matching extension on the LLM-supplied name', function () {
+    expect(MiniMaxTool::resolveFilename('track.mp3', 'prompt', 'minimax-music', 'mp3'))
+        ->toBe('track.mp3');
+});
+
+it('resolveFilename adds the canonical extension when the LLM omits one', function () {
+    expect(MiniMaxTool::resolveFilename('track', 'prompt', 'minimax-music', 'mp3'))
+        ->toBe('track.mp3');
+});
+
+it('resolveFilename slugifies an ASCII prompt into a speaking stem', function () {
+    expect(MiniMaxTool::resolveFilename(null, 'a red fox', 'minimax-image', 'png'))
+        ->toBe('minimax-image-a-red-fox.png');
+});
+
+it('resolveFilename slugifies a unicode prompt via transliteration', function () {
+    $name = MiniMaxTool::resolveFilename(null, 'Sonnenuntergang am Strand', 'minimax-image', 'png');
+    // The extension is always canonical; the stem should be ASCII-safe,
+    // lowercase, hyphen-separated, and start with the kind prefix.
+    expect($name)->toEndWith('.png');
+    expect($name)->toStartWith('minimax-image-');
+    expect($name)->toMatch('/^minimax-image-[a-z0-9-]+\.png$/');
+});
+
+it('resolveFilename falls back to the prefix when the prompt yields no ASCII characters', function () {
+    // Emoji survive neither the Transliterator nor iconv //TRANSLIT, so
+    // the slug branch yields empty and we fall back to the prefix.
+    expect(MiniMaxTool::resolveFilename(null, '🌅🌊', 'minimax-image', 'png'))
+        ->toBe('minimax-image.png');
+});
+
+it('resolveFilename falls back to the prefix when the prompt is empty', function () {
+    expect(MiniMaxTool::resolveFilename(null, '', 'minimax-image', 'png'))
+        ->toBe('minimax-image.png');
+    expect(MiniMaxTool::resolveFilename(null, '   ', 'minimax-music', 'mp3'))
+        ->toBe('minimax-music.mp3');
+});
+
+it('resolveFilename falls through to the slug branch when the LLM name sanitises to empty', function () {
+    expect(MiniMaxTool::resolveFilename('////', 'a red fox', 'minimax-image', 'png'))
+        ->toBe('minimax-image-a-red-fox.png');
+});
+
+it('resolveFilename caps an LLM-supplied stem at 240 characters', function () {
+    $long = str_repeat('a', 500);
+    $name = MiniMaxTool::resolveFilename($long, 'prompt', 'minimax-image', 'png');
+    expect(strlen(pathinfo($name, PATHINFO_FILENAME)))->toBe(240);
+    expect($name)->toEndWith('.png');
+});
+
+it('resolveFilename caps the slugified prompt stem at 60 characters (on a word boundary)', function () {
+    $prompt = str_repeat('word ', 30); // ~150 chars
+    $name = MiniMaxTool::resolveFilename(null, $prompt, 'minimax-image', 'png');
+    $stem = pathinfo($name, PATHINFO_FILENAME);
+    expect(strlen($stem))->toBeLessThanOrEqual(60);
+    // The kind prefix must survive the cut — never chop into the dash
+    // that separates `minimax-image` from the slug.
+    expect($stem)->toStartWith('minimax-image-');
+    expect($stem)->toMatch('/^minimax-image-[a-z0-9-]+$/');
+});
+
+it('resolveFilename produces identical names for the same prompt — no random suffix', function () {
+    $first  = MiniMaxTool::resolveFilename(null, 'same prompt', 'minimax-image', 'png');
+    $second = MiniMaxTool::resolveFilename(null, 'same prompt', 'minimax-image', 'png');
+    expect($first)->toBe($second);
+});
+
+it('resolveFilename replaces disallowed characters with hyphens', function () {
+    expect(MiniMaxTool::resolveFilename('foo bar!?baz', 'prompt', 'minimax-image', 'png'))
+        ->toBe('foo-bar-baz.png');
+});
+
+it('resolveFilename normalises an uppercase extension to lowercase', function () {
+    expect(MiniMaxTool::resolveFilename('Track.MP3', 'prompt', 'minimax-music', 'mp3'))
+        ->toBe('Track.mp3');
+});
+
+it('resolveFilename falls through to the slug branch when the LLM name is whitespace only', function () {
+    expect(MiniMaxTool::resolveFilename('   ', 'a red fox', 'minimax-image', 'png'))
+        ->toBe('minimax-image-a-red-fox.png');
+});
+
+it('resolveFilename falls through when the LLM name contains only disallowed characters', function () {
+    expect(MiniMaxTool::resolveFilename('!@#$%^', 'a red fox', 'minimax-image', 'png'))
+        ->toBe('minimax-image-a-red-fox.png');
+});
+
+it('resolveFilename hard-cuts a slug stem with no dashes after the prefix', function () {
+    // 70 alpha chars, no dashes → the word-boundary cut can't fire, so
+    // the hard-cut branch is exercised. The 60-char cap still applies
+    // to the full stem (prefix + slug).
+    $prompt = str_repeat('a', 70);
+    $name = MiniMaxTool::resolveFilename(null, $prompt, 'minimax-image', 'png');
+    $stem = pathinfo($name, PATHINFO_FILENAME);
+    expect(strlen($stem))->toBe(60);
+    // 14 (prefix + dash) + 46 a's = 60.
+    expect($stem)->toBe('minimax-image-' . str_repeat('a', 46));
+});
+
+it('resolveFilename slugifies a prompt made entirely of special characters to the prefix', function () {
+    expect(MiniMaxTool::resolveFilename(null, '!@#$%^&*()', 'minimax-music', 'mp3'))
+        ->toBe('minimax-music.mp3');
+});
+
+it('resolveFilename strips a trailing dot and appends the canonical extension', function () {
+    expect(MiniMaxTool::resolveFilename('track.', 'prompt', 'minimax-music', 'mp3'))
+        ->toBe('track.mp3');
 });

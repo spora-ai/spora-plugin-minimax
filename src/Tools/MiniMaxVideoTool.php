@@ -102,6 +102,13 @@ use Throwable;
     description: 'Video resolution (e.g. "1080p"). MiniMax picks a default if omitted; the public docs do not enumerate valid values.',
     required: false,
 )]
+#[ToolParameter(
+    name: 'filename',
+    type: 'string',
+    description: 'Optional human-readable filename without an extension (e.g. "forest-push-in"). The correct file extension is appended automatically. When omitted, a speaking name is generated from the prompt.',
+    required: false,
+    maximum: 120,
+)]
 final class MiniMaxVideoTool extends MiniMaxTool
 {
     use StoresBinaryAssets;
@@ -216,7 +223,12 @@ final class MiniMaxVideoTool extends MiniMaxTool
                 width: $width,
                 height: $height,
                 durationSeconds: (float) $duration,
-                filename: self::buildFilename('minimax-video', 'mp4'),
+                filename: self::resolveFilename(
+                    isset($arguments['filename']) ? (string) $arguments['filename'] : null,
+                    $prompt,
+                    'minimax-video',
+                    'mp4',
+                ),
             ));
         } catch (Throwable $e) {
             $this->support->logger()?->warning('MediaArchive ingest failed (video)', [
