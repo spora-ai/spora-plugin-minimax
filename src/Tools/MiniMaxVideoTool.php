@@ -30,6 +30,7 @@ use Throwable;
     description: 'Generate a short video clip (asynchronous; up to 10s). The download URL is valid for ~1 hour.',
     displayName: 'MiniMax Video',
     category: 'generation',
+    icon: 'video',
 )]
 #[ToolOperation(name: 'generate', description: 'Generate a short video clip from a text prompt', enabledByDefault: true, requiresApprovalByDefault: false)]
 #[ToolSetting(
