@@ -318,6 +318,11 @@ it('ingests the audio_url into the MediaArchive and prefers asset_url in the emb
             $resolver,
             $sniffer,
             new Spora\Services\MediaArchive\MetadataExtractor($logger, false),
+            new Spora\Services\MediaArchive\MediaConverterRegistry(
+                Mockery::mock(\Psr\Container\ContainerInterface::class)
+            ),
+            new Spora\Services\MediaArchive\MediaIngestDecoder(),
+            $logger,
         );
     })();
 
@@ -383,6 +388,11 @@ it('falls back to the CDN URL when the MediaArchive ingest throws', function () 
             $resolver,
             $sniffer,
             new Spora\Services\MediaArchive\MetadataExtractor($logger, false),
+            new Spora\Services\MediaArchive\MediaConverterRegistry(
+                Mockery::mock(\Psr\Container\ContainerInterface::class)
+            ),
+            new Spora\Services\MediaArchive\MediaIngestDecoder(),
+            $logger,
         );
     })();
 
