@@ -114,7 +114,7 @@ function minimaxTestArchiveService(?HttpClientInterface $http = null): MediaArch
     // (no static init in the discovery class), so the registry's
     // constructor never calls $container->get() — the mock is
     // never invoked, but PHPStan still needs a real implementation.
-    $container = M::mock(\Psr\Container\ContainerInterface::class);
+    $container = M::mock(Psr\Container\ContainerInterface::class);
 
     return new MediaArchiveService(
         minimaxTestAssetStore(),
@@ -394,7 +394,7 @@ function minimaxFilenameCaptureArchiveService(): array
     );
 
     $store = new MinimaxFilenameCapturingStore();
-    $container = M::mock(\Psr\Container\ContainerInterface::class);
+    $container = M::mock(Psr\Container\ContainerInterface::class);
     $archive = new MediaArchiveService(
         $store,
         $resolver,

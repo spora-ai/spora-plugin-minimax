@@ -79,7 +79,7 @@ it('register() binds each MiniMax tool with a setMediaArchive resolver', functio
         $sniffer,
         new Spora\Services\MediaArchive\MetadataExtractor($logger, false),
         new Spora\Services\MediaArchive\MediaConverterRegistry(
-            Mockery::mock(\Psr\Container\ContainerInterface::class)
+            Mockery::mock(Psr\Container\ContainerInterface::class),
         ),
         new Spora\Services\MediaArchive\MediaIngestDecoder(),
         $logger,
