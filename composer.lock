@@ -2487,16 +2487,16 @@
         },
         {
             "name": "spora-ai/spora-core",
-            "version": "v0.11.0",
+            "version": "v0.11.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/spora-ai/spora-core.git",
-                "reference": "b247da4e09bcf5e5dcf6b65289ce3c7134955770"
+                "reference": "a0ea98a0410d0c6b1ee7b24edbbc057be1a10850"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/spora-ai/spora-core/zipball/b247da4e09bcf5e5dcf6b65289ce3c7134955770",
-                "reference": "b247da4e09bcf5e5dcf6b65289ce3c7134955770",
+                "url": "https://api.github.com/repos/spora-ai/spora-core/zipball/a0ea98a0410d0c6b1ee7b24edbbc057be1a10850",
+                "reference": "a0ea98a0410d0c6b1ee7b24edbbc057be1a10850",
                 "shasum": ""
             },
             "require": {
@@ -2559,9 +2559,9 @@
             "description": "A portable, zero-configuration AI agent orchestration platform that runs on any shared host (cPanel/FTP) without system dependencies beyond PHP 8.4+.",
             "support": {
                 "issues": "https://github.com/spora-ai/spora-core/issues",
-                "source": "https://github.com/spora-ai/spora-core/tree/v0.11.0"
+                "source": "https://github.com/spora-ai/spora-core/tree/v0.11.1"
             },
-            "time": "2026-07-18T18:24:31+00:00"
+            "time": "2026-07-19T22:36:17+00:00"
         },
         {
             "name": "symfony/clock",
