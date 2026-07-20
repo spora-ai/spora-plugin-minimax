@@ -29,6 +29,7 @@ use Throwable;
     description: 'Synthesize speech from text.',
     displayName: 'MiniMax Speech',
     category: 'generation',
+    icon: 'play',
 )]
 #[ToolOperation(name: 'synthesize', description: 'Synthesize speech from text', enabledByDefault: true, requiresApprovalByDefault: false)]
 #[ToolSetting(

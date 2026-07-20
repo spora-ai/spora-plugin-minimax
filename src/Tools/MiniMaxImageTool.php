@@ -32,6 +32,7 @@ use Throwable;
     description: 'Generate an image from a text prompt.',
     displayName: 'MiniMax Image',
     category: 'generation',
+    icon: 'image',
 )]
 #[ToolOperation(name: 'generate', description: 'Generate an image from a text prompt', enabledByDefault: true, requiresApprovalByDefault: false)]
 #[ToolSetting(

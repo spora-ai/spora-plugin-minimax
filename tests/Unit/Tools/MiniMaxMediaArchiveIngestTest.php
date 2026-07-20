@@ -19,6 +19,8 @@ use Spora\Services\DataUrlAssetStore;
 use Spora\Services\LocalAssetStore;
 use Spora\Services\MediaArchive\MediaArchiveService;
 use Spora\Services\MediaArchive\MediaArchiveUrlResolver;
+use Spora\Services\MediaArchive\MediaConverterRegistry;
+use Spora\Services\MediaArchive\MediaIngestDecoder;
 use Spora\Services\MediaArchive\MetadataExtractor;
 use Spora\Services\MediaArchive\MimeSniffer;
 use Spora\Services\MediaArchive\RemoteMediaFetcher;
@@ -108,11 +110,20 @@ function minimaxTestArchiveService(?HttpClientInterface $http = null): MediaArch
     $fetcher = new RemoteMediaFetcher($http, $logger, 30, 100 * 1024 * 1024);
     $resolver = new MediaArchiveUrlResolver($fetcher, $sniffer, $logger, true, 100 * 1024 * 1024);
 
+    // MediaConverterDiscovery::all() returns an empty list by default
+    // (no static init in the discovery class), so the registry's
+    // constructor never calls $container->get() — the mock is
+    // never invoked, but PHPStan still needs a real implementation.
+    $container = M::mock(Psr\Container\ContainerInterface::class);
+
     return new MediaArchiveService(
         minimaxTestAssetStore(),
         $resolver,
         $sniffer,
         $meta,
+        new MediaConverterRegistry($container),
+        new MediaIngestDecoder(),
+        $logger,
     );
 }
 
@@ -383,11 +394,15 @@ function minimaxFilenameCaptureArchiveService(): array
     );
 
     $store = new MinimaxFilenameCapturingStore();
+    $container = M::mock(Psr\Container\ContainerInterface::class);
     $archive = new MediaArchiveService(
         $store,
         $resolver,
         $sniffer,
         new MetadataExtractor($logger, false),
+        new MediaConverterRegistry($container),
+        new MediaIngestDecoder(),
+        $logger,
     );
     return [$archive, $store];
 }
