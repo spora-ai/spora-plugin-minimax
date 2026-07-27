@@ -10,3 +10,11 @@ parameters:
         - vendor
     bootstrapFiles:
         - vendor/autoload.php
+
+    ignoreErrors:
+        # TODO(spora-core): Remove once `spora-ai/spora-core` releases the
+        # new `bool|array $required` signature on `#[ToolParameter]` (see
+        # https://github.com/spora-ai/spora-core/pull/165).
+        -
+            identifier: argument.type
+            path: src/Tools/MiniMaxMusicTool.php
