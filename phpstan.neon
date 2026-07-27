@@ -17,4 +17,4 @@ parameters:
         # https://github.com/spora-ai/spora-core/pull/165).
         -
             identifier: argument.type
-            path: src/Tools
+            path: src/Tools/MiniMaxMusicTool.php
