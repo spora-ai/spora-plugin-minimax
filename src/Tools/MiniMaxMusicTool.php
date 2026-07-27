@@ -73,15 +73,15 @@ use Throwable;
 #[ToolParameter(
     name: 'prompt',
     type: 'string',
-    description: 'Style / mood description (max 2000 characters). For `compose`: optional when `lyrics` is provided. For `write_lyrics`: topic or style. For `edit_lyrics`: rewrite instruction.',
-    required: false,
+    description: 'Style / mood description (max 2000 characters). For `compose`: optional when `lyrics` is provided. For `write_lyrics`: topic or style. For `edit_lyrics`: rewrite instruction (required).',
+    required: ['edit_lyrics'],
     maximum: 2000,
 )]
 #[ToolParameter(
     name: 'lyrics',
     type: 'string',
     description: 'Lyrics to sing or edit (1-3500 characters). Omit for instrumental music (compose). Required for `edit_lyrics`.',
-    required: false,
+    required: ['edit_lyrics'],
     maximum: 3500,
 )]
 #[ToolParameter(
