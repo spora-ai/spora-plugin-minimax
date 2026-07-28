@@ -33,35 +33,35 @@ use Throwable;
 )]
 #[ToolOperation(name: 'synthesize', description: 'Synthesize speech from text', enabledByDefault: true, requiresApprovalByDefault: false)]
 #[ToolSetting(
-    key: 'plugin.minimax.speech.api_key',
+    key: 'api_key',
     label: 'MiniMax API Key',
     type: 'password',
     description: 'API key for api.minimax.io (shared across all MiniMax tools).',
     required: true,
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.speech.base_url',
+    key: 'base_url',
     label: 'Base URL',
     type: 'text',
     description: 'MiniMax base URL. Default is the Global endpoint (https://api.minimax.io). For China-region, set to https://api.minimaxi.com.',
     default: 'https://api.minimax.io',
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.speech.model',
+    key: 'model',
     label: 'Model',
     type: 'text',
     description: 'TTS model id (default: speech-2.8-hd).',
     default: 'speech-2.8-hd',
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.speech.voice_id',
+    key: 'voice_id',
     label: 'Default voice',
     type: 'text',
     description: 'Default voice id from the MiniMax voice library (overridden by the `voice_id` parameter).',
     default: 'English_PassionateWarrior',
 )]
 #[ToolSetting(
-    key: 'plugin.minimax.speech.http_timeout_seconds',
+    key: 'http_timeout_seconds',
     label: 'HTTP timeout (s)',
     type: 'number',
     description: 'Per-request timeout for the MiniMax API. Default 60 seconds.',
@@ -168,8 +168,8 @@ final class MiniMaxSpeechTool extends MiniMaxTool
             return $voiceOverride;
         }
 
-        $configuredVoice = is_string($settings['plugin.minimax.speech.voice_id'] ?? null)
-            ? trim((string) $settings['plugin.minimax.speech.voice_id'])
+        $configuredVoice = is_string($settings['voice_id'] ?? null)
+            ? trim((string) $settings['voice_id'])
             : '';
         if ($configuredVoice !== '') {
             return $configuredVoice;
