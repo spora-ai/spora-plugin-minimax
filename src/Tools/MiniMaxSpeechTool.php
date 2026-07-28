@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Spora\Plugins\MiniMax\Tools;
 
+use InvalidArgumentException;
 use Spora\Plugins\Concerns\StoresBinaryAssets;
 use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Plugins\MiniMax\Support\MiniMaxTool;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
 use Spora\Services\AssetStore;
+use Spora\Services\LocalAssetStore;
 use Spora\Services\MediaArchive\MediaIngestRequest;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
@@ -107,6 +109,25 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     protected const TIMEOUT_SECONDS = 60;
     protected const TOOL_LABEL      = 'Speech synthesis';
     protected const AUDIO_MIME      = 'audio/mpeg';
+
+    /**
+     * Optional direct injection of {@see LocalAssetStore}. When wired by
+     * {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()} via
+     * `\DI\get(LocalAssetStore::class)`, the speech tool always stores the
+     * decoded MP3 bytes on disk and emits a `/api/v1/assets/<token>.mp3`
+     * URL — bypassing the global `asset_store.mode`. Without it the tool
+     * falls back to the configured {@see AssetStore} (preserves test
+     * behaviour and the historical AssetStore path).
+     */
+    private ?LocalAssetStore $localAssetStore = null;
+
+    /**
+     * Wired by PHP-DI from {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()}.
+     */
+    public function setLocalAssetStore(LocalAssetStore $localAssetStore): void
+    {
+        $this->localAssetStore = $localAssetStore;
+    }
 
     public function __construct(
         \Spora\Services\ToolConfigService $configService,
@@ -257,6 +278,24 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     /**
      * @return array{0: string, 1: string|null}|null  [url, mode] or null
      *          when the payload is neither a usable URL nor valid hex.
+     *
+     * When MiniMax returns a CDN URL the audio is short-lived anyway; we
+     * pass it through and the MediaArchive ingest below swaps it for a
+     * persistent `/api/v1/assets/<token>.mp3` reference (when the Media
+     * Archive plugin is enabled). When MiniMax returns a hex blob the
+     * speech tool routes through {@see LocalAssetStore} directly when
+     * injected, sidestepping the global `asset_store.mode`. The default
+     * `auto` threshold is 1 MiB — most MiniMax speech clips are
+     * 50–500 KB, so on a default install the bytes would be inlined as a
+     * `data:audio/mpeg;base64,…` URI. Long base64 strings bloat the chat
+     * bubble, get truncated by downstream sanitizers to a `[data-omitted]`
+     * placeholder, and the resulting `<audio src=…>` fails to play.
+     *
+     * Falls back to the configured {@see AssetStore} when no
+     * {@see LocalAssetStore} is injected (test environments, custom
+     * factory wiring). The fallback path is the historical behaviour and
+     * never runs in production because the plugin's `register()` always
+     * wires `setLocalAssetStore()`.
      */
     private function resolveSpeechPlayback(?string $audioUrl, ?string $hexAudio): ?array
     {
@@ -264,6 +303,14 @@ final class MiniMaxSpeechTool extends MiniMaxTool
             return [$audioUrl, null];
         }
         if (is_string($hexAudio) && $hexAudio !== '' && strlen($hexAudio) % 2 === 0) {
+            if ($this->localAssetStore !== null) {
+                $bytes = hex2bin($hexAudio);
+                if ($bytes === false || $bytes === '') {
+                    throw new InvalidArgumentException('Hex payload decoded to empty bytes.');
+                }
+                $ref = $this->localAssetStore->store($bytes, mime: self::AUDIO_MIME, filename: 'speech.mp3');
+                return [$ref->url, $ref->mode];
+            }
             return $this->embedHex($hexAudio, self::AUDIO_MIME, 'speech.mp3');
         }
         return null;

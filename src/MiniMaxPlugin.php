@@ -10,6 +10,7 @@ use Spora\Plugins\MiniMax\Tools\MiniMaxImageTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxMusicTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxVideoTool;
+use Spora\Services\LocalAssetStore;
 use Spora\Services\MediaArchive\MediaArchiveService;
 
 final class MiniMaxPlugin extends AbstractPlugin
@@ -66,14 +67,27 @@ final class MiniMaxPlugin extends AbstractPlugin
      *
      * See https://php-di.org/doc/php-definitions.html (`autowire()->method()`)
      * for the API used here.
+     *
+     * `setLocalAssetStore` is wired for the speech tool only — it forces
+     * TTS output to land on disk via `/api/v1/assets/<token>.mp3` instead
+     * of being inlined as a `data:audio/mpeg;base64,…` URI when the
+     * operator's `asset_store.mode` is `auto` (default 1 MiB threshold) or
+     * `data_url`. Speech clips are typically 50–500 KB, well under the
+     * threshold, and the resulting long base64 string gets truncated by
+     * the chat UI's content sanitizer, producing a broken
+     * `<audio src="[data-omitted]"></audio>`. See PR for the symptom and
+     * the rationale.
      */
     public function register(ContainerBuilder $builder): void
     {
-        $archiveService = \DI\get(MediaArchiveService::class);
+        $archiveService  = \DI\get(MediaArchiveService::class);
+        $localAssetStore = \DI\get(LocalAssetStore::class);
 
         $builder->addDefinitions([
             MiniMaxImageTool::class  => \DI\autowire()->method('setMediaArchive', $archiveService),
-            MiniMaxSpeechTool::class => \DI\autowire()->method('setMediaArchive', $archiveService),
+            MiniMaxSpeechTool::class => \DI\autowire()
+                ->method('setMediaArchive', $archiveService)
+                ->method('setLocalAssetStore', $localAssetStore),
             MiniMaxMusicTool::class  => \DI\autowire()->method('setMediaArchive', $archiveService),
             MiniMaxVideoTool::class  => \DI\autowire()->method('setMediaArchive', $archiveService),
         ]);
