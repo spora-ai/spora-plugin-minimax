@@ -303,17 +303,31 @@ final class MiniMaxSpeechTool extends MiniMaxTool
             return [$audioUrl, null];
         }
         if (is_string($hexAudio) && $hexAudio !== '' && strlen($hexAudio) % 2 === 0) {
-            if ($this->localAssetStore !== null) {
-                $bytes = hex2bin($hexAudio);
-                if ($bytes === false || $bytes === '') {
-                    throw new InvalidArgumentException('Hex payload decoded to empty bytes.');
-                }
-                $ref = $this->localAssetStore->store($bytes, mime: self::AUDIO_MIME, filename: 'speech.mp3');
-                return [$ref->url, $ref->mode];
-            }
-            return $this->embedHex($hexAudio, self::AUDIO_MIME, 'speech.mp3');
+            return $this->embedSpeechHex($hexAudio);
         }
         return null;
+    }
+
+    /**
+     * Routes a decoded hex MP3 blob to {@see LocalAssetStore} when wired
+     * (the production path), falling back to the configured
+     * {@see AssetStore} otherwise. Extracted from
+     * {@see resolveSpeechPlayback()} so the dispatch method stays inside
+     * the SonarQube `php:S1142` (≤3 returns) threshold.
+     *
+     * @return array{0: string, 1: string}
+     */
+    private function embedSpeechHex(string $hex): array
+    {
+        if ($this->localAssetStore !== null) {
+            $bytes = hex2bin($hex);
+            if ($bytes === false || $bytes === '') {
+                throw new InvalidArgumentException('Hex payload decoded to empty bytes.');
+            }
+            $ref = $this->localAssetStore->store($bytes, mime: self::AUDIO_MIME, filename: 'speech.mp3');
+            return [$ref->url, $ref->mode];
+        }
+        return $this->embedHex($hex, self::AUDIO_MIME, 'speech.mp3');
     }
 
     /**
