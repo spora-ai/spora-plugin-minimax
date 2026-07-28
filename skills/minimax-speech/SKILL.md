@@ -1,6 +1,6 @@
 ---
 name: minimax-speech
-description: "Synthesise speech from text via the MiniMax t2a_v2 API, or fetch the upstream voice library (`GET /v1/get_voice`) so the LLM can pick a language-matched `voice_id` before issuing a synthesis call. **Two operations**: `synthesize` (default; text → MP3) and `voices` (list available voice ids, filterable by `language` / `gender` / `voice_id` / `limit`). Use when the user asks to 'speak', 'say', 'read aloud', 'announce', 'narrate', 'voice-over', 'list voices', 'which voices do I have', or needs an MP3 for a prompt / intro / alert / instructional line. When the `text` is in a specific language, prefer to look up the matching voice via `voices` rather than guessing from a hard-coded snapshot."
+description: "Synthesise speech from text via the MiniMax t2a_v2 API, or list the upstream voice library so the LLM can pick a language-matched `voice_id` before issuing a synthesis call. **Two operations**: `synthesize` (default; text → MP3) and `voices` (list available voice ids, filterable by `voice_type` / `language` / `gender` / `voice_id` / `limit`; **none of those filter fields are required** — a no-arg call returns the full built-in library). **Workflow rule**: when synthesising non-default-language speech, **always call `voices` first** to discover a voice whose language matches `text`, then call `synthesize` with the chosen `voice_id` — never guess from the snapshot table at the bottom of this skill. Use when the user asks to 'speak', 'say', 'read aloud', 'announce', 'narrate', 'voice-over', 'list voices', 'which voices do I have', or needs an MP3 for a prompt / intro / alert / instructional line."
 license: MIT
 compatibility: spora>=0.7 spora-plugin-minimax>=1.0
 metadata:
@@ -20,12 +20,29 @@ allowed-tools: Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool
 
 `api_key` is required for both operations (both hit the MiniMax HTTP API). The synth path returns a playable MP3 served from `/api/v1/assets/<token>.mp3` — the LocalAssetStore path is wired in `MiniMaxPlugin::register()` specifically for this tool, so the chat bubble never carries a `data:` URI.
 
+## Workflow rule — discover first, then synthesise
+
+For any non-English (or non-default-language) text, **call `voices` before `synthesize`**. The MiniMax voice library changes over time; the snapshot table at the bottom of this skill ages. Use `voices` to find a `voice_id` whose `description` matches the target language, then pass that id to `synthesize`.
+
+```
+1. minimax_speech(action: "voices", language: "German", gender: "male")
+   → pick a voice_id whose description mentions German + male
+2. minimax_speech(text: "<text>", voice_id: "<chosen voice_id>")
+   → omit `action`; default is `synthesize`
+```
+
+For English text in the default voice, skip step 1 — the operator-configured `voice_id` setting (`English_PassionateWarrior`) is the default and works without a lookup.
+
+**Do not invent a `voice_id`** from the snapshot table when `voices` is reachable. MiniMax's `synthesize` returns an opaque `voice id not exist` (error 2054) for retired or mis-typed ids and there is no way to tell the difference. `voices` is the only safe discovery path.
+
 ## Operations at a glance
 
 | Op          | Endpoint                                                | Backed by |
 |-------------|----------------------------------------------------------|-----------|
 | `synthesize` | `POST /v1/t2a_v2`                                       | `MiniMaxHttpClient::postJson()` |
-| `voices`    | `GET /v1/get_voice` ([reference](https://platform.minimax.io/docs/api-reference/voice-management-get)) | `MiniMaxHttpClient::getJson()` |
+| `voices`    | `POST /v1/get_voice` ([reference](https://platform.minimax.io/docs/api-reference/voice-management-get)) — body `{"voice_type": "<bucket>"}` | `MiniMaxHttpClient::postJson()` |
+
+**Note**: `voices` is a `POST`, not a `GET`. MiniMax's `/v1/get_voice` endpoint accepts exactly one body field — `voice_type` — and returns up to three buckets (`system_voice[]`, `voice_cloning[]`, `voice_generation[]`). The `language` / `gender` / `voice_id` / `limit` filters you can pass to `minimax_speech(action: "voices")` are applied **client-side** over `voice_name` + flattened `description[]`, because MiniMax's upstream API does not expose server-side filters for those fields.
 
 ## Calling
 
@@ -43,36 +60,30 @@ minimax_speech(action: "synthesize", text: "<script>", voice_id: "English_Passio
 
 | Parameter   | Required when…                 | Default                       | Notes |
 |-------------|--------------------------------|-------------------------------|-------|
-| `action`    | always                         | `synthesize` (default)        | Excluded from the parameters table for multi-op clarity; the discriminator. The runtime schema validator enforces the enum. |
+| `action`    | always                         | `synthesize` (default)        | The discriminator. The runtime schema validator enforces the enum. |
 | `text`      | `action == "synthesize"`       | —                             | The text to speak (max 10000 chars). No SSML — MiniMax's API takes plain text. |
-| `voice_id`  | never                          | `English_PassionateWarrior` (operator setting) | Override per call. Must be a valid MiniMax voice id — see **Voice library** below. |
+| `voice_id`  | never                          | `English_PassionateWarrior` (operator setting) | Override per call. Must be a valid MiniMax voice id — see **Voice library** below and the `voices` operation. |
 | `speed`     | never                          | `1.0`                         | Multiplier in `[0.5, 2.0]`. Use `0.85–0.95` for deliberate narration; `1.1–1.3` for energetic / promotional reads. |
 | `filename`  | never                          | auto                          | Stem only — extension is auto-appended. Sanitised like the other tools. |
 
 ### `voices`
 
 ```
-minimax_speech(action: "voices", language: "Japanese", gender: "female")
-minimax_speech(action: "voices", voice_id: "English_Graceful_Lady")   # detail view for one voice
-minimax_speech(action: "voices", limit: 25)                            # cap the response
+minimax_speech(action: "voices")                                              # full built-in library
+minimax_speech(action: "voices", language: "German", gender: "male")          # client-side filter
+minimax_speech(action: "voices", voice_type: "all", limit: 25)                # across every bucket, capped
+minimax_speech(action: "voices", voice_id: "German_FriendlyMan")              # exact-match check
 ```
 
-| Parameter   | Required when…                | Default  | Notes |
-|-------------|-------------------------------|----------|-------|
-| `voice_id`  | never                         | —        | Fetch only this single voice id (detail view). When set, the other filters are ignored. |
-| `language`  | never                         | —        | Filter by language (e.g. `"English"`, `"Chinese"`, `"Japanese"`, `"Korean"`, `"Spanish"`). MiniMax accepts any string and returns whatever matches. |
-| `gender`    | never                         | —        | Enumerated: `"male"` or `"female"`. |
-| `limit`     | never                         | `50`     | Max voices to return. Hard-capped at **500** to keep the response bounded — MiniMax has hundreds of voices and the message bubble can't render that. |
+| Parameter   | Required when…          | Default  | Notes |
+|-------------|------------------------|----------|-------|
+| `voice_type`| never                  | `system` | Upstream bucket. Enum: `system` (built-in voices, the default), `voice_cloning` (user-cloned voices; only present after first synthesis), `voice_generation` (voices generated via the text-to-voice API), `all` (all three buckets merged). |
+| `voice_id`  | never                  | —        | Exact-match filter against `voice_id`. Other filters are ignored when this is set. |
+| `language`  | never                  | —        | Client-side case-insensitive substring match against `voice_name` + flattened `description[]`. Common needles: `"English"`, `"Chinese"`, `"Japanese"`, `"Korean"`, `"Spanish"`, `"French"`, `"German"`, `"Italian"`, `"Portuguese"`. |
+| `gender`    | never                  | —        | Client-side case-insensitive substring match against `description[]`. MiniMax tags gender inside the free-text description (e.g. `"...male executive voice..."`), not as a separate field. Common needles: `"male"`, `"female"`. |
+| `limit`     | never                  | `50`     | Client-side cap on the rendered bullet count. Hard-capped at **500** to keep the response bounded. |
 
-The tool returns a Markdown bullet list. Each bullet is:
-
-```
-- `<voice_id>` — language, gender, name
-```
-
-…with whichever fields MiniMax supplied (the upstream isn't always consistent across languages, and only `voice_id` is required to issue a follow-up `synthesize` call).
-
-`voice_id` works for both `synthesize` (per-call override) and `voices` (filter / detail) — its semantics flip based on `action`.
+**None of the `voices` parameters are required.** A bare call (`minimax_speech(action: "voices")`) returns the full built-in library so the LLM can iterate. The filter parameters exist purely to narrow that list client-side.
 
 ### Per-operation parameter requirements
 
@@ -84,15 +95,14 @@ The array-form `required: ['op_name']` on `#[ToolParameter]` makes a parameter r
 text           | required   | (skipped)
 speed          | optional   | (skipped)
 filename       | optional   | (skipped)
-voice_id       | optional   | optional   (semantics flip per op)
+voice_id       | optional   | optional   (override vs exact-match)
+voice_type     | (skipped)  | optional   (default: "system")
 language       | (skipped)  | optional
 gender         | (skipped)  | optional
 limit          | (skipped)  | optional
 ```
 
-> `voice_id` is the only parameter shared by both operations. The runtime schema marks it optional in both. Use `voices` first to **discover** a valid `voice_id` for the user's language, then `synthesize` with that id.
-
-> `text` is the only parameter that's truly required, and **only** for `synthesize`. Calling `synthesize` without `text` produces a clear validation error; calling `voices` without filters returns the full library.
+> `text` is the only parameter that's truly required, and **only** for `synthesize`. Calling `synthesize` without `text` produces a clear validation error; calling `voices` with no filters returns the full library.
 
 ## Resolution order for `voice_id` (synthesize)
 
@@ -125,6 +135,8 @@ Common, well-supported voices (snapshot — always verify against the current li
 | `Chinese (Mandarin)_Steady_Man`   | Chinese  | Neutral Mandarin male (audiobook-style). |
 | `Japanese_Graceful_Lady`          | Japanese | Calm Japanese female. |
 | `Japanese_Lively_Youth`           | Japanese | Bright Japanese male. |
+| `German_FriendlyMan`              | German   | Friendly, middle-aged male narrator. |
+| `Italian_Narrator`                | Italian  | Steady, mature male narrator. |
 | `Korean_…`                        | Korean   | Pick from the library. |
 | `Spanish_…`, `French_…`, etc.     | various  | Pick from the library. |
 
@@ -139,7 +151,7 @@ The list above is non-exhaustive and may be stale. **Prefer `voices` over the sn
 | Children's story / bedtime               | `English_Soft_Girl` or `English_ReservedYoungMan` | aggressive voices |
 | Corporate training / IVR                 | `English_Trustworth_Man` or `English_Steady_Man` | playful voices |
 | News / documentary / report              | `English_Steady_Man` or `English_Trustworth_Man` | `-Lively` / `-Passionate` voices |
-| Non-English text                         | Filter `voices` by `language` first, then pick the character that matches | Cross-language default |
+| Non-English text                         | `voices(language: "<lang>")` first, then pick a `voice_id` whose description matches the character you want | Cross-language default |
 
 ## Settings (operator-scoped)
 
@@ -157,6 +169,7 @@ The list above is non-exhaustive and may be stale. **Prefer `voices` over the sn
 - `speed` range: `[0.5, 2.0]`. Out-of-range values cause the tool to fail validation. Synthesize-only.
 - `filename` max length: **120 chars** (sanitised like the other tools). Synthesize-only.
 - `limit` (voices): `[1, 500]`, default `50`. The hard cap keeps the response sized for one chat bubble.
+- `voice_type` (voices): enum `system | voice_cloning | voice_generation | all`; out-of-enum values fall back to `system` (defence-in-depth).
 - Output MP3 (synthesize): 32 kHz mono, 128 kbps, ~50 KB–500 KB for typical utterances.
 
 ## Rendering
@@ -182,26 +195,28 @@ If the file is missing / 404s, the Audio Archive row is in the Media Archive det
 Echo `content` verbatim — the Markdown bullet list is meant for the LLM to grep:
 
 ```markdown
-Available MiniMax voices (3 matching language="en"):
+Available MiniMax voices (3 matching language contains "en"):
 
-- `English_PassionateWarrior` — en, male
-- `English_Graceful_Lady` — en, female
-- `English_Lively_Youth` — en, male
+- `English_PassionateWarrior` — Passionate Warrior — A confident, energetic male voice in standard English.
+- `English_Graceful_Lady` — Graceful Lady — A calm, mature female narrator in standard English.
+- `English_Lively_Youth` — Lively Youth — A bright, energetic male voice in standard English.
 
-To use one: `minimax_speech(text: "<text>", voice_id: "<voice_id>")` or omit `action` (default is `synthesize`).
+Pick one whose language matches `text`, then call `minimax_speech(text: "<text>", voice_id: "<voice_id>")` (omit `action` — `synthesize` is the default).
 ```
 
-The "To use one" line is the handoff to `synthesize`. Don't strip it.
+Each bullet has the `voice_id` (backtick-quoted, copy-paste ready), then the `voice_name`, then the first `description` line. The description is what carries the language / gender / character cues — read it carefully.
 
 For an empty result, the tool returns:
 
 ```markdown
-No voices matched the supplied filters.
+No voices matched.
 
-Use a broader filter (or drop it entirely) and call `minimax_speech(action: "voices")` again.
+MiniMax returned 47 voice(s) for voice_type="system"; none matched the supplied filters.
+
+Drop the filter (or broaden it) and call `minimax_speech(action: "voices")` again.
 ```
 
-That's a `success: true` result — narrow the filter, don't treat it as an error. Structured `ToolResult.data.count` and `ToolResult.data.voices` carry the same payload as JSON for callers that prefer that over parsing markdown.
+That's a `success: true` result — narrow the filter, don't treat it as an error. Structured `ToolResult.data` carries `count`, `voices[]`, `voice_type`, `total` (full library size), and `after_filter` (matched count before `limit` cap) for callers that prefer that over parsing markdown.
 
 ## Failure modes
 
@@ -210,12 +225,15 @@ That's a `success: true` result — narrow the filter, don't treat it as an erro
 - `MiniMax returned audio in an unsupported format.` (synthesize) — defensive guard, normally unreachable. Retry.
 - `Text exceeds the 10000-character MiniMax limit.` (synthesize) — split the text into ≤ 10000-char chunks and call once per chunk; concatenate the audio (do not call multiple times in parallel — MiniMax serialises audio differently per generation, so merge by prompt rather than expecting cross-segment continuity).
 - `Speed must be between 0.5 and 2.0.` (synthesize) — out-of-range `speed`. Re-call with a value in range.
+- `voice_type must be one of: system, voice_cloning, voice_generation, all.` (voices) — defence-in-depth; the runtime schema validator catches this earlier.
 - `gender must be "male" or "female".` (voices) — defence-in-depth; the runtime schema validator catches this earlier.
 - `limit must be between 1 and N.` (voices) — clamped at 500; reduce the limit.
+- `MiniMax API error (2054): voice id not exist.` (synthesize) — the `voice_id` you passed is retired or mis-typed. **Call `voices`** to find a current id; do not retry the same id.
 
 ## Don'ts
 
 - **Don't invent a `voice_id`** that doesn't exist — MiniMax responds with an opaque 4xx error and you can't tell from the message whether you mistyped or the voice was retired. **Call `voices`** first.
+- **Don't skip `voices` for non-English text.** The default `English_PassionateWarrior` will render Italian / German with English pronunciation. Use `voices(language: "<lang>")` to pick a native voice.
 - **Don't fabricate audio.** If `synthesize` fails, say so. Don't pretend a generation succeeded.
 - **Don't call `voices` in parallel with `synthesize`.** They're sequential — discover first, then synthesise.
 - **Don't pass `text` longer than 10000 chars in one call.** The tool truncates / rejects; either trim or chunk.

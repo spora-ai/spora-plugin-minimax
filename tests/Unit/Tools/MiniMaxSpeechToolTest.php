@@ -190,25 +190,52 @@ it('returns a clear failure on odd-length hex payload', function () {
 /**
  * `voices` operation
  * ------------------
- * The `voices` op hits `GET /v1/get_voice` (see
+ * The `voices` op hits `POST /v1/get_voice` (see
  * https://platform.minimax.io/docs/api-reference/voice-management-get)
- * with the optional filters (`voice_id`, `language`, `gender`, `limit`)
- * the LLM passed, and returns a Markdown bullet list of voice ids
- * the LLM can pick from before issuing the next `synthesize` call.
+ * with a body of `{"voice_type": "system"}` — the *only* field the
+ * MiniMax upstream accepts. The response carries one or more of
+ * `system_voice[]`, `voice_cloning[]`, and `voice_generation[]`. The
+ * LLM's `voice_id` / `language` / `gender` filters are applied
+ * client-side over `voice_name` + flattened `description[]` because
+ * MiniMax does not expose server-side filters for those fields.
  */
-it('voices operation returns a Markdown bullet list of MiniMax voice ids', function () {
+it('voices operation POSTs to /v1/get_voice with the documented envelope', function () {
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
     $http->expects('request')
-        ->with('GET', 'https://api.minimax.io/v1/get_voice', M::any())
+        ->with(
+            'POST',
+            'https://api.minimax.io/v1/get_voice',
+            M::on(static function (array $opts): bool {
+                // The MiniMax envelope accepts exactly one body field
+                // — `voice_type` — and defaults it to "system" when the
+                // LLM omits it. Asserting the body shape here proves
+                // the worker builds the upstream request correctly.
+                $body = $opts['json'] ?? null;
+                return is_array($body)
+                    && $body === ['voice_type' => 'system'];
+            }),
+        )
         ->andReturn(minimaxMockResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-            'voice_list' => [
-                ['voice_id' => 'English_PassionateWarrior', 'language' => 'en', 'gender' => 'male'],
-                ['voice_id' => 'English_Graceful_Lady',      'language' => 'en', 'gender' => 'female'],
-                ['voice_id' => 'Chinese_Mandarin_Warm_Girl', 'language' => 'zh', 'gender' => 'female'],
+            'base_resp'   => ['status_code' => 0, 'status_msg' => 'success'],
+            'system_voice' => [
+                [
+                    'voice_id'    => 'English_PassionateWarrior',
+                    'voice_name'  => 'Passionate Warrior',
+                    'description' => ['A confident, energetic male voice in standard English.'],
+                ],
+                [
+                    'voice_id'    => 'English_Graceful_Lady',
+                    'voice_name'  => 'Graceful Lady',
+                    'description' => ['A calm, mature female narrator in standard English.'],
+                ],
+                [
+                    'voice_id'    => 'Italian_Narrator',
+                    'voice_name'  => 'Italian Narrator',
+                    'description' => ['A steady, mature male narrator in standard Italian.'],
+                ],
             ],
         ])));
 
@@ -218,42 +245,212 @@ it('voices operation returns a Markdown bullet list of MiniMax voice ids', funct
     $result = $tool->execute(['action' => 'voices'], 1);
 
     expect($result->success)->toBeTrue()
-        ->and($result->content)->toContain('English_PassionateWarrior')
-        ->and($result->content)->toContain('English_Graceful_Lady')
-        ->and($result->content)->toContain('Chinese_Mandarin_Warm_Girl')
-        // Output is a Markdown bullet list — backtick-quoted voice_id
-        // so the LLM can grep + copy verbatim.
+        // Markdown bullet list with backtick-quoted voice_ids so the
+        // LLM can copy them verbatim into a follow-up synthesize call.
         ->and($result->content)->toContain('`English_PassionateWarrior`')
-        // The "use one" hint steers the LLM to the next call shape.
-        ->and($result->content)->toContain('minimax_speech(')
+        ->and($result->content)->toContain('`English_Graceful_Lady`')
+        ->and($result->content)->toContain('`Italian_Narrator`')
+        // The description cue (language + gender + character) must
+        // ride along so the LLM can pick the right voice from the
+        // chat transcript alone.
+        ->and($result->content)->toContain('Passionate Warrior')
+        ->and($result->content)->toContain('Italian')
+        ->and($result->content)->toContain('female narrator')
+        // Hint steers the next call: pass `text` + the chosen voice_id
+        // and omit `action` (default is synthesize).
+        ->and($result->content)->toContain('minimax_speech(text:')
         // Structured payload is JSON-serialisable through ToolResult.data.
-        ->and($result->data['count'])->toBe(3);
+        ->and($result->data['count'])->toBe(3)
+        ->and($result->data['voice_type'])->toBe('system')
+        ->and($result->data['total'])->toBe(3);
 });
 
-it('voices operation forwards voice_id filter as a query param', function () {
+it('voices operation forwards voice_type: "all" to upstream and merges buckets', function () {
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
-    // Symfony HttpClient's request() signature is (method, url, options).
-    // We can't easily assert against `options` with a query-string hash
-    // (Symfony builds the URL inline), so we assert the URL got the
-    // query string appended. The grep on the URL keeps the test robust
-    // against future URL encoding tweaks.
-    // Symfony HTTP client receives query params under options['query'].
-    // The MiniMax client passes them through verbatim from
-    // MiniMaxHttpClient::getJson(), so asserting here proves the
-    // doFetchVoices worker built the filter correctly.
     $http->expects('request')
         ->with(
-            'GET',
+            'POST',
             'https://api.minimax.io/v1/get_voice',
-            M::on(static fn(array $opts): bool => ($opts['query']['voice_id'] ?? null) === 'English_Graceful_Lady'),
+            M::on(static fn(array $opts): bool => ($opts['json']['voice_type'] ?? null) === 'all'),
         )
         ->andReturn(minimaxMockResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-            'voice_list' => [
-                ['voice_id' => 'English_Graceful_Lady', 'language' => 'en', 'gender' => 'female'],
+            'base_resp'        => ['status_code' => 0, 'status_msg' => 'success'],
+            'system_voice'     => [
+                ['voice_id' => 'English_PassionateWarrior', 'voice_name' => 'Passionate Warrior', 'description' => ['male, English.']],
+            ],
+            'voice_cloning'    => [
+                ['voice_id' => 'cloned-abc', 'voice_name' => 'Cloned', 'description' => ['My cloned voice.']],
+            ],
+            'voice_generation' => [
+                ['voice_id' => 'ttv-2025', 'voice_name' => 'Generated', 'description' => ['Voice generated from text prompt.']],
+            ],
+        ])));
+
+    $log = new MiniMaxLogWriter();
+
+    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $result = $tool->execute(['action' => 'voices', 'voice_type' => 'all'], 1);
+
+    expect($result->success)->toBeTrue()
+        ->and($result->content)->toContain('`English_PassionateWarrior`')
+        ->and($result->content)->toContain('`cloned-abc`')
+        ->and($result->content)->toContain('`ttv-2025`')
+        ->and($result->data['count'])->toBe(3)
+        ->and($result->data['voice_type'])->toBe('all');
+
+    // _source tags so callers can disambiguate duplicates across
+    // buckets when voice_type is "all".
+    $sources = array_column($result->data['voices'], '_source');
+    expect($sources)->toContain('system_voice')
+        ->and($sources)->toContain('voice_cloning')
+        ->and($sources)->toContain('voice_generation');
+});
+
+it('voices operation filters by language client-side (substring match over description)', function () {
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    // Upstream should NOT receive a `language` query param — MiniMax's
+    // body accepts only `voice_type`. The worker POSTs the full
+    // library; the client filters the result.
+    $http->expects('request')
+        ->with(
+            'POST',
+            'https://api.minimax.io/v1/get_voice',
+            M::on(static function (array $opts): bool {
+                $body = $opts['json'] ?? [];
+                return ($body['voice_type'] ?? null) === 'system'
+                    && !isset($body['language'])
+                    && !isset($body['gender']);
+            }),
+        )
+        ->andReturn(minimaxMockResponse(200, json_encode([
+            'base_resp'    => ['status_code' => 0, 'status_msg' => 'success'],
+            'system_voice' => [
+                ['voice_id' => 'English_PassionateWarrior', 'voice_name' => 'Passionate Warrior', 'description' => ['A confident male voice in standard English.']],
+                ['voice_id' => 'German_FriendlyMan',        'voice_name' => 'Friendly Man',        'description' => ['A friendly middle-aged male voice in standard German.']],
+                ['voice_id' => 'Italian_Narrator',          'voice_name' => 'Italian Narrator',    'description' => ['A steady male narrator in standard Italian.']],
+                ['voice_id' => 'Japanese_Lively_Youth',     'voice_name' => 'Lively Youth',        'description' => ['A bright young male voice in standard Japanese.']],
+            ],
+        ])));
+
+    $log = new MiniMaxLogWriter();
+
+    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $result = $tool->execute(['action' => 'voices', 'language' => 'German'], 1);
+
+    expect($result->success)->toBeTrue()
+        ->and($result->content)->toContain('`German_FriendlyMan`')
+        ->and($result->content)->not->toContain('`English_PassionateWarrior`')
+        ->and($result->content)->not->toContain('`Italian_Narrator`')
+        ->and($result->content)->not->toContain('`Japanese_Lively_Youth`')
+        ->and($result->data['count'])->toBe(1)
+        ->and($result->data['total'])->toBe(4)
+        ->and($result->data['after_filter'])->toBe(1);
+});
+
+it('voices operation filters by gender client-side (substring match over description)', function () {
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->expects('request')
+        ->with('POST', 'https://api.minimax.io/v1/get_voice', M::any())
+        ->andReturn(minimaxMockResponse(200, json_encode([
+            'base_resp'    => ['status_code' => 0, 'status_msg' => 'success'],
+            'system_voice' => [
+                ['voice_id' => 'English_PassionateWarrior', 'voice_name' => 'PW', 'description' => ['male, English.']],
+                ['voice_id' => 'English_Graceful_Lady',      'voice_name' => 'GL', 'description' => ['female, English.']],
+                ['voice_id' => 'English_Soft_Girl',          'voice_name' => 'SG', 'description' => ['young female, English.']],
+            ],
+        ])));
+
+    $log = new MiniMaxLogWriter();
+
+    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $result = $tool->execute(['action' => 'voices', 'gender' => 'female'], 1);
+
+    expect($result->success)->toBeTrue()
+        ->and($result->content)->toContain('`English_Graceful_Lady`')
+        ->and($result->content)->toContain('`English_Soft_Girl`')
+        ->and($result->content)->not->toContain('`English_PassionateWarrior`')
+        ->and($result->data['count'])->toBe(2);
+});
+
+it('voices operation applies limit as a client-side cap', function () {
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $upstream = [];
+    for ($i = 1; $i <= 10; $i++) {
+        $upstream[] = [
+            'voice_id'    => sprintf('English_Voice_%02d', $i),
+            'voice_name'  => sprintf('Voice %02d', $i),
+            'description' => ['English.'],
+        ];
+    }
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->expects('request')
+        ->with('POST', 'https://api.minimax.io/v1/get_voice', M::any())
+        ->andReturn(minimaxMockResponse(200, json_encode([
+            'base_resp'    => ['status_code' => 0, 'status_msg' => 'success'],
+            'system_voice' => $upstream,
+        ])));
+
+    $log = new MiniMaxLogWriter();
+
+    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $result = $tool->execute(['action' => 'voices', 'limit' => 3], 1);
+
+    expect($result->success)->toBeTrue()
+        ->and($result->data['count'])->toBe(3)
+        ->and($result->data['total'])->toBe(10)
+        // Rendered bullet count matches the cap.
+        ->and(substr_count($result->content, "\n- "))->toBe(3);
+});
+
+it('voices operation with no filters returns the full library', function () {
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->expects('request')
+        ->with('POST', 'https://api.minimax.io/v1/get_voice', M::any())
+        ->andReturn(minimaxMockResponse(200, json_encode([
+            'base_resp'    => ['status_code' => 0, 'status_msg' => 'success'],
+            'system_voice' => [
+                ['voice_id' => 'A', 'voice_name' => 'A', 'description' => ['English.']],
+                ['voice_id' => 'B', 'voice_name' => 'B', 'description' => ['German.']],
+            ],
+        ])));
+
+    $log = new MiniMaxLogWriter();
+
+    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $result = $tool->execute(['action' => 'voices'], 1);
+
+    // The whole point of "no filters" being allowed: the LLM can call
+    // voices() with no args to get the entire library, then iterate.
+    expect($result->success)->toBeTrue()
+        ->and($result->data['count'])->toBe(2);
+});
+
+it('voices operation with filters that match nothing returns a "narrow your filter" hint', function () {
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->expects('request')
+        ->with('POST', 'https://api.minimax.io/v1/get_voice', M::any())
+        ->andReturn(minimaxMockResponse(200, json_encode([
+            'base_resp'    => ['status_code' => 0, 'status_msg' => 'success'],
+            'system_voice' => [
+                ['voice_id' => 'A', 'voice_name' => 'A', 'description' => ['English.']],
             ],
         ])));
 
@@ -262,46 +459,40 @@ it('voices operation forwards voice_id filter as a query param', function () {
     $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
     $result = $tool->execute([
         'action'   => 'voices',
-        'voice_id' => 'English_Graceful_Lady',
+        'language' => 'Klingon',
     ], 1);
 
     expect($result->success)->toBeTrue()
-        ->and($result->content)->toContain('English_Graceful_Lady');
+        ->and($result->content)->toContain('No voices matched')
+        ->and($result->content)->toContain('Drop the filter')
+        ->and($result->data['count'])->toBe(0)
+        ->and($result->data['total'])->toBe(1);
 });
 
-it('voices operation forwards language + gender as upstream filters', function () {
+it('voices operation accepts voice_id exact match against a single upstream entry', function () {
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
     $http->expects('request')
-        ->with(
-            'GET',
-            'https://api.minimax.io/v1/get_voice',
-            M::on(
-                static fn(array $opts): bool =>
-                ($opts['query']['language'] ?? null) === 'Japanese'
-                && ($opts['query']['gender'] ?? null) === 'female',
-            ),
-        )
+        ->with('POST', 'https://api.minimax.io/v1/get_voice', M::any())
         ->andReturn(minimaxMockResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-            'voice_list' => [],
+            'base_resp'    => ['status_code' => 0, 'status_msg' => 'success'],
+            'system_voice' => [
+                ['voice_id' => 'English_PassionateWarrior', 'voice_name' => 'PW', 'description' => ['English, male.']],
+                ['voice_id' => 'Italian_Narrator',          'voice_name' => 'IN', 'description' => ['Italian, male.']],
+            ],
         ])));
 
     $log = new MiniMaxLogWriter();
 
     $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
-    $result = $tool->execute([
-        'action'   => 'voices',
-        'language' => 'Japanese',
-        'gender'   => 'female',
-    ], 1);
+    $result = $tool->execute(['action' => 'voices', 'voice_id' => 'Italian_Narrator'], 1);
 
-    // Empty list is a success — the LLM should narrow the filter,
-    // not see an error.
     expect($result->success)->toBeTrue()
-        ->and($result->content)->toContain('No voices matched');
+        ->and($result->content)->toContain('`Italian_Narrator`')
+        ->and($result->content)->not->toContain('`English_PassionateWarrior`')
+        ->and($result->data['count'])->toBe(1);
 });
 
 it('omitting action falls back to synthesize (backward compat)', function () {
