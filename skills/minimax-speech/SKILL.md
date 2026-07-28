@@ -1,6 +1,6 @@
 ---
 name: minimax-speech
-description: "Synthesise speech from text via the MiniMax t2a_v2 API, or list the upstream voice library so the LLM can pick a language-matched `voice_id` before issuing a synthesis call. **Two operations**: `synthesize` (default; text → MP3) and `voices` (list available voice ids; **no filter is required** — a no-arg call returns the full built-in library). MiniMax's system library covers **22 languages and 332 voices** (English, Korean, Portuguese, Spanish, Chinese Mandarin, Japanese, German, Italian, French, Russian, Hindi, Arabic, Turkish, Vietnamese, and 9 more — see body for the full matrix). **Workflow rule**: when synthesising non-default-language speech, **always call `voices` first** to discover a voice whose language matches `text`, then call `synthesize` with the chosen `voice_id`. Use when the user asks to 'speak', 'say', 'read aloud', 'announce', 'narrate', 'voice-over', 'list voices', 'which voices do I have', or needs an MP3 for a prompt / intro / alert / instructional line."
+description: "Synthesise speech from text via the MiniMax t2a_v2 API, or list the upstream voice library so the LLM can pick a language-matched `voice_id` before issuing a synthesis call. **Two operations**: `synthesize` (default; text → MP3) and `voices` (list available voice ids; **no filter is required** — a no-arg call returns the full built-in library). **Workflow rule**: when synthesising non-default-language speech, call `voices` first to discover which language-matched voices exist on *this* MiniMax account, then call `synthesize` with the chosen `voice_id`. If `voices(language: \"<X>\")` returns no native voices, fall back to an English multilingual voice (MiniMax's English voices render many other languages with reasonable pronunciation — the docs cover this fallback explicitly). Use when the user asks to 'speak', 'say', 'read aloud', 'announce', 'narrate', 'voice-over', 'list voices', 'which voices do I have', or needs an MP3 for a prompt / intro / alert / instructional line."
 license: MIT
 compatibility: spora>=0.7 spora-plugin-minimax>=1.0
 metadata:
@@ -22,18 +22,36 @@ allowed-tools: Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool
 
 ## Workflow rule — discover first, then synthesise
 
-For any non-English (or non-default-language) text, **call `voices` before `synthesize`**. The MiniMax voice library changes over time; the snapshot table at the bottom of this skill ages. Use `voices` to find a `voice_id` whose `description` matches the target language, then pass that id to `synthesize`.
+For any non-default-language text, **call `voices` before `synthesize`** to find a `voice_id` whose `description` matches the target language. The MiniMax voice library changes over time; the snapshot table at the bottom of this skill ages. Pass the discovered id to `synthesize`.
 
 ```
-1. minimax_speech(action: "voices", language: "German", gender: "male")
-   → pick a voice_id whose description mentions German + male
+1. minimax_speech(action: "voices", language: "<target>")
+   → read the returned bullets; pick a voice_id whose description
+     names the target language
 2. minimax_speech(text: "<text>", voice_id: "<chosen voice_id>")
    → omit `action`; default is `synthesize`
 ```
 
 For English text in the default voice, skip step 1 — the operator-configured `voice_id` setting (`English_PassionateWarrior`) is the default and works without a lookup.
 
-**Do not invent a `voice_id`** from the snapshot table when `voices` is reachable. MiniMax's `synthesize` returns an opaque `voice id not exist` (error 2054) for retired or mis-typed ids and there is no way to tell the difference. `voices` is the only safe discovery path.
+### When `voices(language: "<X>")` returns no native voices
+
+Some MiniMax accounts only ship a subset of the catalogue for English + Chinese (Mandarin), with no German / Italian / Korean / etc. voices reachable. If `voices(language: "<X>")` returns the empty-result hint (`"No voices matched."`), **don't give up — fall back to a multilingual-capable English voice**:
+
+```
+1. minimax_speech(action: "voices", language: "<X>")
+   → if "No voices matched." then ↓
+2. minimax_speech(action: "voices")
+   → returns the full library the account has access to
+   → typically English (and sometimes Chinese Mandarin)
+3. minimax_speech(text: "<text>", voice_id: "<English voice_id>")
+   → MiniMax's English voices render many languages with reasonable
+     pronunciation. The cadence is English-accented but the words
+     come out intelligible — fine for narration, less so for
+     production voice-over.
+```
+
+Tell the user explicitly: *"No native <language> voice on this MiniMax account; using English voice <id> as a fallback — pronunciation will be English-accented."* Don't pretend the synthesis is native when it isn't.
 
 ## Operations at a glance
 
@@ -118,44 +136,23 @@ Pick a voice that matches the language of `text` — MiniMax's multilingual voic
 
 `voice_id` is a free-form string the MiniMax API accepts. The authoritative reference list lives at **[MiniMax's voice library docs](https://platform.minimax.io/docs/api-reference/voice-management)** — it changes over time, so do **not** memorise it; do call `voices` when you need a specific voice that's not in the table below.
 
-### Supported languages (22 total, 332 system voices)
+### What's actually available on this MiniMax account
 
-MiniMax's system voice library currently spans 22 languages. Use this matrix to know what `voices(language: "<needle>")` will return before calling; it answers "is there a voice for X?" without burning a round-trip.
+The full MiniMax catalogue spans many languages, but **what your account has access to is decided by your MiniMax plan and region, not by this skill**. Some accounts ship only English (and sometimes Chinese Mandarin); others include Korean, Portuguese, Spanish, etc. **The only safe source of truth is the live `voices` call**, not a catalogue copy-pasted into the skill.
 
-| Language | Count | Sample ids (call `voices` for the full list) |
-|---|---:|---|
-| English | 45 | `English_PassionateWarrior`, `English_Graceful_Lady`, `English_Steady_Man` |
-| Portuguese | 73 | `Portuguese_Narrator`, `Portuguese_WiseLady`, `Portuguese_Comedian` |
-| Korean | 49 | `Korean_CalmLady`, `Korean_BraveYouth`, `Korean_WiseTeacher` |
-| Spanish | 44 | `Spanish_Narrator`, `Spanish_PassionateWarrior`, `Spanish_WiseScholar` |
-| Chinese (Mandarin) | 34 | `Chinese (Mandarin)_News_Anchor`, `Chinese (Mandarin)_Warm_Girl` |
-| Japanese | 15 | `Japanese_Graceful_Lady`, `Japanese_Lively_Youth` |
-| Indonesian | 9 | `Indonesian_SweetGirl`, `Indonesian_ConfidentWoman` |
-| Russian | 8 | `Russian_ReliableMan`, `Russian_BrightHeroine` |
-| French | 6 | `French_MaleNarrator`, `French_CasualMan`, `French_FemaleAnchor` |
-| Cantonese | 6 | `Cantonese_GentleLady`, `Cantonese_ProfessionalHost (F)` |
-| Italian | 4 | `Italian_Narrator`, `Italian_BraveHeroine`, `Italian_WanderingSorcerer`, `Italian_DiligentLeader` |
-| Thai | 4 | `Thai_male_1_sample8`, `Thai_female_2_sample2` |
-| Polish | 4 | `Polish_male_1_sample4`, `Polish_female_2_sample3` |
-| Romanian | 4 | `Romanian_male_1_sample2`, `Romanian_female_1_sample4` |
-| German | 3 | `German_FriendlyMan`, `German_SweetLady`, `German_PlayfulMan` |
-| Greek | 3 | `greek_male_1a_v1`, `Greek_female_2_sample3` |
-| Czech | 3 | `czech_male_1_v1`, `czech_female_5_v7` |
-| Finnish | 3 | `finnish_male_3_v1`, `finnish_female_4_v1` |
-| Hindi | 3 | `hindi_male_1_v2`, `hindi_female_2_v1` |
-| Dutch | 2 | `Dutch_kindhearted_girl`, `Dutch_bossy_leader` |
-| Arabic | 2 | `Arabic_CalmWoman`, `Arabic_FriendlyGuy` |
-| Turkish | 2 | `Turkish_CalmWoman`, `Turkish_Trustworthyman` |
-| Ukrainian | 2 | `Ukrainian_CalmWoman`, `Ukrainian_WiseScholar` |
-| Vietnamese | 1 | `Vietnamese_kindhearted_girl` |
+```
+minimax_speech(action: "voices")        # everything this account has
+minimax_speech(action: "voices", voice_type: "all")
+                                        # also includes voice-cloning + voice-generation buckets
+minimax_speech(action: "voices", language: "<X>")
+                                        # filter; empty result = no native voice for X on this account
+```
 
-Counts reflect MiniMax's published [System Voice ID List](https://platform.minimax.io/docs/faq/system-voice-id) at the time of writing — the upstream library changes. `voice_cloning` and `voice_generation` buckets add more voices on top of the system library (visible via `voices(voice_type: "all")`), but only after a clone or generation call.
-
-If the language you need isn't in the matrix above, MiniMax's broader TTS model still renders it with auto-detected accent — call `voices(language: "<that language>")` and the tool will either return matching voices or a "narrow the filter" hint with `total: <upstream count>`. With no filter, the tool returns the entire system library (332 entries, capped at your `limit`).
+The structured payload includes `voice_type`, `total` (size of the unfiltered library), `after_filter` (count after applying language / gender / voice_id filters), and `count` (final rendered bullets). Use these to confirm "this account has 12 voices in English and 0 in German" rather than guessing.
 
 ### Voice snapshot — well-supported starting points
 
-Common, well-supported voices (snapshot — always verify against the current library or call `voices(action: "voices", language: "<lang>")`):
+These are voices MiniMax publishes across its catalogue. **They may or may not be reachable on this account** — the snapshot is a hint, not a guarantee. Always cross-check with `voices(language: "<lang>")`.
 
 | Voice id                          | Language | Character |
 |-----------------------------------|----------|-----------|
@@ -171,40 +168,12 @@ Common, well-supported voices (snapshot — always verify against the current li
 | `Chinese (Mandarin)_Gentle_Man`   | Chinese (Mandarin) | Calm Mandarin male. |
 | `Chinese (Mandarin)_Steady_Man`   | Chinese (Mandarin) | Neutral Mandarin male (audiobook-style). |
 | `Chinese (Mandarin)_News_Anchor`  | Chinese (Mandarin) | Professional middle-aged female news anchor. |
-| `Cantonese_GentleLady`            | Cantonese | Calm Cantonese female. |
-| `Cantonese_PlayfulMan`            | Cantonese | Bright Cantonese male. |
 | `Japanese_Graceful_Lady`          | Japanese | Calm Japanese female. |
 | `Japanese_Lively_Youth`           | Japanese | Bright Japanese male. |
-| `Japanese_DecisivePrincess`       | Japanese | Strong, decisive female character. |
-| `Korean_CalmLady`                 | Korean   | Calm Korean female narrator. |
-| `Korean_BraveYouth`               | Korean   | Confident young Korean male. |
-| `Korean_WiseTeacher`              | Korean   | Authoritative older Korean male. |
-| `German_FriendlyMan`              | German   | Friendly, middle-aged male narrator. |
-| `German_SweetLady`                | German   | Warm, gentle German female. |
-| `German_PlayfulMan`               | German   | Bright, energetic German male. |
-| `Italian_Narrator`                | Italian  | Steady, mature male narrator. |
-| `Italian_BraveHeroine`            | Italian  | Strong, decisive Italian female. |
-| `Italian_WanderingSorcerer`       | Italian  | Mysterious, atmospheric Italian male. |
-| `Italian_DiligentLeader`          | Italian  | Authoritative Italian male. |
-| `French_MaleNarrator`             | French   | Steady French male narrator. |
-| `French_FemaleAnchor`             | French   | Professional French female presenter. |
-| `French_CasualMan`                | French   | Friendly, conversational French male. |
-| `Spanish_Narrator`                | Spanish  | Steady Spanish male narrator. |
-| `Spanish_WiseScholar`             | Spanish  | Authoritative older Spanish male. |
-| `Spanish_PassionateWarrior`       | Spanish  | Energetic Spanish male. |
-| `Portuguese_Narrator`             | Portuguese | Steady Portuguese male narrator. |
-| `Portuguese_WiseLady`             | Portuguese | Wise Portuguese female. |
-| `Russian_ReliableMan`             | Russian  | Steady Russian male narrator. |
-| `Russian_BrightHeroine`           | Russian  | Confident Russian female. |
-| `Indonesian_SweetGirl`            | Indonesian | Warm Indonesian female. |
-| `Hindi_male_1_v2`                 | Hindi    | Trustworthy Hindi male advisor. |
-| `hindi_female_2_v1`               | Hindi    | Calm, tranquil Hindi female. |
-| `Arabic_CalmWoman`                | Arabic   | Calm Arabic female narrator. |
-| `Arabic_FriendlyGuy`              | Arabic   | Warm Arabic male. |
-| `Thai_male_1_sample8`             | Thai     | Calm Thai male narrator. |
-| `Vietnamese_kindhearted_girl`     | Vietnamese | Warm Vietnamese female. |
+| `German_FriendlyMan`              | German   | Friendly, middle-aged male narrator. (If `voices(language: "German")` returns empty, this voice is not on this account — fall back to English per the workflow above.) |
+| `Italian_Narrator`                | Italian  | Steady, mature male narrator. (Same caveat as `German_FriendlyMan`.) |
 
-The snapshot is non-exhaustive and may be stale. **Prefer `voices` over the snapshot** when the user asks for a specific voice not in this table — call `voices(language: "<needle>")` and pick from the descriptions.
+The snapshot is non-exhaustive and may be stale, and **its entries can fail with `voice id not exist (2054)` if MiniMax retires a voice or the account doesn't include it**. Always verify with `voices(language: "<needle>")` before trusting an id from this table.
 
 **Choosing a voice** — match to content (these rules of thumb still hold even when the LLM looks up via `voices` instead of guessing):
 
@@ -296,10 +265,11 @@ That's a `success: true` result — narrow the filter, don't treat it as an erro
 
 ## Don'ts
 
-- **Don't invent a `voice_id`** that doesn't exist — MiniMax responds with an opaque 4xx error and you can't tell from the message whether you mistyped or the voice was retired. **Call `voices`** first.
-- **Don't skip `voices` for non-English text.** The default `English_PassionateWarrior` will render Italian / German with English pronunciation. Use `voices(language: "<lang>")` to pick a native voice.
+- **Don't invent a `voice_id`** that doesn't exist — MiniMax responds with an opaque 4xx error and you can't tell from the message whether you mistyped or the voice was retired or your account doesn't include it. **Call `voices`** first.
+- **Don't skip `voices` for non-default-language text.** If `voices(language: "<X>")` returns no native voices, fall back to an English voice and **tell the user** — don't pretend the synthesis is native when it's English-accented.
+- **Don't pretend an unsupported language is supported.** If the account has no native voice for the target language and English fallback isn't acceptable for the use case, surface that to the user — don't silently substitute.
 - **Don't fabricate audio.** If `synthesize` fails, say so. Don't pretend a generation succeeded.
 - **Don't call `voices` in parallel with `synthesize`.** They're sequential — discover first, then synthesise.
 - **Don't pass `text` longer than 10000 chars in one call.** The tool truncates / rejects; either trim or chunk.
 - **Don't loop back to the speech tool** for "verification" — one call per utterance is the rule; extra calls cost quota and may drift prosody.
-- **Don't read the cached voice snapshot in this skill as authoritative** — it ages. Use `voices` for anything you can't recognise.
+- **Don't read the cached voice snapshot in this skill as authoritative** — both the language catalogue and the named voices vary by account. Use `voices` for anything you can't recognise.
