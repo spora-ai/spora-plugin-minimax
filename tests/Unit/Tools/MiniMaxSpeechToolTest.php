@@ -519,3 +519,43 @@ it('omitting action falls back to synthesize (backward compat)', function () {
     expect($result->success)->toBeTrue()
         ->and($result->content)->toContain('https://cdn.example.com/speech.mp3');
 });
+
+/**
+ * Regression guard for the doc/schema mismatch bug class.
+ *
+ * The orchestrator enforces `#[ToolParameter(required: ...)]` on the
+ * wire schema before the tool's `execute()` runs. The unit tests bypass
+ * the orchestrator, so they pass even when a parameter is marked
+ * `required: true` but the docs / implementation say it's optional. To
+ * catch that class of regression we read the ToolParameter attributes
+ * directly via Reflection and assert the schema accepts a minimal
+ * synthesize call (`{text: ...}` only — no speed / filename / voice_id).
+ *
+ * If anyone flips `required: ['synthesize']` back on for `speed` or
+ * `filename`, this test fails loudly.
+ */
+it('synthesize parameter schema accepts a bare `{text}` call (no speed, filename, or voice_id)', function () {
+    $tool = new MiniMaxSpeechTool(
+        M::mock(ToolConfigService::class),
+        M::mock(HttpClientInterface::class),
+        new MiniMaxLogWriter(),
+        M::mock(AssetStore::class),
+    );
+
+    $parameters = (new ReflectionClass($tool))->getAttributes(Spora\Tools\Attributes\ToolParameter::class);
+
+    $requiredSynthesize = [];
+    foreach ($parameters as $attribute) {
+        $param = $attribute->newInstance();
+        if ($param->required === true || (is_array($param->required) && in_array('synthesize', $param->required, true))) {
+            $requiredSynthesize[] = $param->name;
+        }
+    }
+
+    expect($requiredSynthesize)->toBe(
+        ['text'],
+        'Only `text` should be required for synthesize. speed, filename, voice_id, '
+        . 'voice_type, language, gender, and limit must all be optional so the LLM can '
+        . 'follow the SKILL.md table that documents them as "never" required with defaults.',
+    );
+});

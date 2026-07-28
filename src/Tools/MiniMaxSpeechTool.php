@@ -84,7 +84,7 @@ use Throwable;
 #[ToolParameter(
     name: 'text',
     type: 'string',
-    description: 'The text to synthesize (max 10000 characters). Required only when `action == "synthesize"`.',
+    description: 'The text to synthesize (max 10000 characters). Required only when `action == "synthesize"` — `voices` skips it.',
     required: ['synthesize'],
     maximum: 10000,
 )]
@@ -97,8 +97,8 @@ use Throwable;
 #[ToolParameter(
     name: 'speed',
     type: 'number',
-    description: 'Speech speed multiplier (0.5 - 2.0). Required only when `action == "synthesize"`.',
-    required: ['synthesize'],
+    description: 'Speech speed multiplier (0.5 - 2.0). Optional — defaults to 1.0 when omitted (or when `action == "voices"`). Use 0.85–0.95 for deliberate narration; 1.1–1.3 for energetic / promotional reads.',
+    required: false,
     minimum: 0.5,
     maximum: 2.0,
     default: 1.0,
@@ -106,8 +106,8 @@ use Throwable;
 #[ToolParameter(
     name: 'filename',
     type: 'string',
-    description: 'Optional human-readable filename without an extension (e.g. "intro-greeting"). The correct file extension is appended automatically. When omitted, a speaking name is generated from the text. Required only when `action == "synthesize"`.',
-    required: ['synthesize'],
+    description: 'Optional human-readable filename without an extension (e.g. "intro-greeting"). The correct file extension is appended automatically. When omitted, a speaking name is generated from the text. Ignored by `voices`.',
+    required: false,
     maximum: 120,
 )]
 #[ToolParameter(
