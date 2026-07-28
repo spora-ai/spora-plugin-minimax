@@ -1,6 +1,6 @@
 ---
 name: minimax-speech
-description: "Synthesise speech from text via the MiniMax t2a_v2 API, or list the upstream voice library so the LLM can pick a language-matched `voice_id` before issuing a synthesis call. **Two operations**: `synthesize` (default; text → MP3) and `voices` (list available voice ids, filterable by `voice_type` / `language` / `gender` / `voice_id` / `limit`; **none of those filter fields are required** — a no-arg call returns the full built-in library). **Workflow rule**: when synthesising non-default-language speech, **always call `voices` first** to discover a voice whose language matches `text`, then call `synthesize` with the chosen `voice_id` — never guess from the snapshot table at the bottom of this skill. Use when the user asks to 'speak', 'say', 'read aloud', 'announce', 'narrate', 'voice-over', 'list voices', 'which voices do I have', or needs an MP3 for a prompt / intro / alert / instructional line."
+description: "Synthesise speech from text via the MiniMax t2a_v2 API, or list the upstream voice library so the LLM can pick a language-matched `voice_id` before issuing a synthesis call. **Two operations**: `synthesize` (default; text → MP3) and `voices` (list available voice ids; **no filter is required** — a no-arg call returns the full built-in library). MiniMax's system library covers **22 languages and 332 voices** (English, Korean, Portuguese, Spanish, Chinese Mandarin, Japanese, German, Italian, French, Russian, Hindi, Arabic, Turkish, Vietnamese, and 9 more — see body for the full matrix). **Workflow rule**: when synthesising non-default-language speech, **always call `voices` first** to discover a voice whose language matches `text`, then call `synthesize` with the chosen `voice_id`. Use when the user asks to 'speak', 'say', 'read aloud', 'announce', 'narrate', 'voice-over', 'list voices', 'which voices do I have', or needs an MP3 for a prompt / intro / alert / instructional line."
 license: MIT
 compatibility: spora>=0.7 spora-plugin-minimax>=1.0
 metadata:
@@ -118,6 +118,43 @@ Pick a voice that matches the language of `text` — MiniMax's multilingual voic
 
 `voice_id` is a free-form string the MiniMax API accepts. The authoritative reference list lives at **[MiniMax's voice library docs](https://platform.minimax.io/docs/api-reference/voice-management)** — it changes over time, so do **not** memorise it; do call `voices` when you need a specific voice that's not in the table below.
 
+### Supported languages (22 total, 332 system voices)
+
+MiniMax's system voice library currently spans 22 languages. Use this matrix to know what `voices(language: "<needle>")` will return before calling; it answers "is there a voice for X?" without burning a round-trip.
+
+| Language | Count | Sample ids (call `voices` for the full list) |
+|---|---:|---|
+| English | 45 | `English_PassionateWarrior`, `English_Graceful_Lady`, `English_Steady_Man` |
+| Portuguese | 73 | `Portuguese_Narrator`, `Portuguese_WiseLady`, `Portuguese_Comedian` |
+| Korean | 49 | `Korean_CalmLady`, `Korean_BraveYouth`, `Korean_WiseTeacher` |
+| Spanish | 44 | `Spanish_Narrator`, `Spanish_PassionateWarrior`, `Spanish_WiseScholar` |
+| Chinese (Mandarin) | 34 | `Chinese (Mandarin)_News_Anchor`, `Chinese (Mandarin)_Warm_Girl` |
+| Japanese | 15 | `Japanese_Graceful_Lady`, `Japanese_Lively_Youth` |
+| Indonesian | 9 | `Indonesian_SweetGirl`, `Indonesian_ConfidentWoman` |
+| Russian | 8 | `Russian_ReliableMan`, `Russian_BrightHeroine` |
+| French | 6 | `French_MaleNarrator`, `French_CasualMan`, `French_FemaleAnchor` |
+| Cantonese | 6 | `Cantonese_GentleLady`, `Cantonese_ProfessionalHost (F)` |
+| Italian | 4 | `Italian_Narrator`, `Italian_BraveHeroine`, `Italian_WanderingSorcerer`, `Italian_DiligentLeader` |
+| Thai | 4 | `Thai_male_1_sample8`, `Thai_female_2_sample2` |
+| Polish | 4 | `Polish_male_1_sample4`, `Polish_female_2_sample3` |
+| Romanian | 4 | `Romanian_male_1_sample2`, `Romanian_female_1_sample4` |
+| German | 3 | `German_FriendlyMan`, `German_SweetLady`, `German_PlayfulMan` |
+| Greek | 3 | `greek_male_1a_v1`, `Greek_female_2_sample3` |
+| Czech | 3 | `czech_male_1_v1`, `czech_female_5_v7` |
+| Finnish | 3 | `finnish_male_3_v1`, `finnish_female_4_v1` |
+| Hindi | 3 | `hindi_male_1_v2`, `hindi_female_2_v1` |
+| Dutch | 2 | `Dutch_kindhearted_girl`, `Dutch_bossy_leader` |
+| Arabic | 2 | `Arabic_CalmWoman`, `Arabic_FriendlyGuy` |
+| Turkish | 2 | `Turkish_CalmWoman`, `Turkish_Trustworthyman` |
+| Ukrainian | 2 | `Ukrainian_CalmWoman`, `Ukrainian_WiseScholar` |
+| Vietnamese | 1 | `Vietnamese_kindhearted_girl` |
+
+Counts reflect MiniMax's published [System Voice ID List](https://platform.minimax.io/docs/faq/system-voice-id) at the time of writing — the upstream library changes. `voice_cloning` and `voice_generation` buckets add more voices on top of the system library (visible via `voices(voice_type: "all")`), but only after a clone or generation call.
+
+If the language you need isn't in the matrix above, MiniMax's broader TTS model still renders it with auto-detected accent — call `voices(language: "<that language>")` and the tool will either return matching voices or a "narrow the filter" hint with `total: <upstream count>`. With no filter, the tool returns the entire system library (332 entries, capped at your `limit`).
+
+### Voice snapshot — well-supported starting points
+
 Common, well-supported voices (snapshot — always verify against the current library or call `voices(action: "voices", language: "<lang>")`):
 
 | Voice id                          | Language | Character |
@@ -130,17 +167,44 @@ Common, well-supported voices (snapshot — always verify against the current li
 | `English_Trustworth_Man`          | English  | Authoritative male (corporate / corporate-training). |
 | `English_Lively_Youth`            | English  | Young, energetic male. |
 | `English_ReservedYoungMan`        | English  | Young male, measured tone. |
-| `Chinese (Mandarin)_Warm_Girl`    | Chinese  | Warm Mandarin female. |
-| `Chinese (Mandarin)_Gentle_Man`   | Chinese  | Calm Mandarin male. |
-| `Chinese (Mandarin)_Steady_Man`   | Chinese  | Neutral Mandarin male (audiobook-style). |
+| `Chinese (Mandarin)_Warm_Girl`    | Chinese (Mandarin) | Warm Mandarin female. |
+| `Chinese (Mandarin)_Gentle_Man`   | Chinese (Mandarin) | Calm Mandarin male. |
+| `Chinese (Mandarin)_Steady_Man`   | Chinese (Mandarin) | Neutral Mandarin male (audiobook-style). |
+| `Chinese (Mandarin)_News_Anchor`  | Chinese (Mandarin) | Professional middle-aged female news anchor. |
+| `Cantonese_GentleLady`            | Cantonese | Calm Cantonese female. |
+| `Cantonese_PlayfulMan`            | Cantonese | Bright Cantonese male. |
 | `Japanese_Graceful_Lady`          | Japanese | Calm Japanese female. |
 | `Japanese_Lively_Youth`           | Japanese | Bright Japanese male. |
+| `Japanese_DecisivePrincess`       | Japanese | Strong, decisive female character. |
+| `Korean_CalmLady`                 | Korean   | Calm Korean female narrator. |
+| `Korean_BraveYouth`               | Korean   | Confident young Korean male. |
+| `Korean_WiseTeacher`              | Korean   | Authoritative older Korean male. |
 | `German_FriendlyMan`              | German   | Friendly, middle-aged male narrator. |
+| `German_SweetLady`                | German   | Warm, gentle German female. |
+| `German_PlayfulMan`               | German   | Bright, energetic German male. |
 | `Italian_Narrator`                | Italian  | Steady, mature male narrator. |
-| `Korean_…`                        | Korean   | Pick from the library. |
-| `Spanish_…`, `French_…`, etc.     | various  | Pick from the library. |
+| `Italian_BraveHeroine`            | Italian  | Strong, decisive Italian female. |
+| `Italian_WanderingSorcerer`       | Italian  | Mysterious, atmospheric Italian male. |
+| `Italian_DiligentLeader`          | Italian  | Authoritative Italian male. |
+| `French_MaleNarrator`             | French   | Steady French male narrator. |
+| `French_FemaleAnchor`             | French   | Professional French female presenter. |
+| `French_CasualMan`                | French   | Friendly, conversational French male. |
+| `Spanish_Narrator`                | Spanish  | Steady Spanish male narrator. |
+| `Spanish_WiseScholar`             | Spanish  | Authoritative older Spanish male. |
+| `Spanish_PassionateWarrior`       | Spanish  | Energetic Spanish male. |
+| `Portuguese_Narrator`             | Portuguese | Steady Portuguese male narrator. |
+| `Portuguese_WiseLady`             | Portuguese | Wise Portuguese female. |
+| `Russian_ReliableMan`             | Russian  | Steady Russian male narrator. |
+| `Russian_BrightHeroine`           | Russian  | Confident Russian female. |
+| `Indonesian_SweetGirl`            | Indonesian | Warm Indonesian female. |
+| `Hindi_male_1_v2`                 | Hindi    | Trustworthy Hindi male advisor. |
+| `hindi_female_2_v1`               | Hindi    | Calm, tranquil Hindi female. |
+| `Arabic_CalmWoman`                | Arabic   | Calm Arabic female narrator. |
+| `Arabic_FriendlyGuy`              | Arabic   | Warm Arabic male. |
+| `Thai_male_1_sample8`             | Thai     | Calm Thai male narrator. |
+| `Vietnamese_kindhearted_girl`     | Vietnamese | Warm Vietnamese female. |
 
-The list above is non-exhaustive and may be stale. **Prefer `voices` over the snapshot** when the user asks for a specific voice not in this table.
+The snapshot is non-exhaustive and may be stale. **Prefer `voices` over the snapshot** when the user asks for a specific voice not in this table — call `voices(language: "<needle>")` and pick from the descriptions.
 
 **Choosing a voice** — match to content (these rules of thumb still hold even when the LLM looks up via `voices` instead of guessing):
 
