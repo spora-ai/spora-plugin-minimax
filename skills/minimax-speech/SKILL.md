@@ -22,17 +22,19 @@ allowed-tools: Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool
 
 ## Workflow rule — discover first, then synthesise
 
-For any non-default-language text, **call `voices` before `synthesize`** to find a `voice_id` whose `description` matches the target language. The MiniMax voice library changes over time; the snapshot table at the bottom of this skill ages. Pass the discovered id to `synthesize`.
+**Quick path (skip the lookup):** if the user is happy with the operator's default voice (`English_PassionateWarrior`) and the text is English, call `synthesize` directly — no `voices` lookup needed. The operator setting is the default.
+
+**Default path (always discover first):** for any non-default voice (a non-English `voice_id`, a non-default English character, or a custom clone), call `voices` first to discover the right `voice_id`, then pass it to `synthesize`:
 
 ```
 1. minimax_speech(action: "voices", language: "<target>")
    → read the returned bullets; pick a voice_id whose description
-     names the target language
+     names the target language or character
 2. minimax_speech(text: "<text>", voice_id: "<chosen voice_id>")
    → omit `action`; default is `synthesize`
 ```
 
-For English text in the default voice, skip step 1 — the operator-configured `voice_id` setting (`English_PassionateWarrior`) is the default and works without a lookup.
+The MiniMax voice library changes over time, the snapshot at the bottom of this skill ages, and the account may not include every voice MiniMax publishes — `voices` is the only source of truth for "is this id available *here*".
 
 ### When `voices(language: "<X>")` returns no native voices
 
@@ -172,6 +174,9 @@ These are voices MiniMax publishes across its catalogue. **They may or may not b
 | `Japanese_Lively_Youth`           | Japanese | Bright Japanese male. |
 | `German_FriendlyMan`              | German   | Friendly, middle-aged male narrator. (If `voices(language: "German")` returns empty, this voice is not on this account — fall back to English per the workflow above.) |
 | `Italian_Narrator`                | Italian  | Steady, mature male narrator. (Same caveat as `German_FriendlyMan`.) |
+| `Italian_BraveHeroine`            | Italian  | **Character/fantasy voice** — strong, decisive female. Better for dramatic readings than narration. |
+| `Italian_WanderingSorcerer`       | Italian  | **Character/fantasy voice** — mysterious, atmospheric male. |
+| `Italian_DiligentLeader`          | Italian  | **Character/authority voice** — authoritative Italian male. |
 
 The snapshot is non-exhaustive and may be stale, and **its entries can fail with `voice id not exist (2054)` if MiniMax retires a voice or the account doesn't include it**. Always verify with `voices(language: "<needle>")` before trusting an id from this table.
 
@@ -239,17 +244,29 @@ Pick one whose language matches `text`, then call `minimax_speech(text: "<text>"
 
 Each bullet has the `voice_id` (backtick-quoted, copy-paste ready), then the `voice_name`, then the first `description` line. The description is what carries the language / gender / character cues — read it carefully.
 
-For an empty result, the tool returns:
+For an empty result, the tool returns one of two distinct messages:
 
+**Empty bucket** (e.g. `voice_type: "voice_cloning"` before any clone exists):
 ```markdown
-No voices matched.
+No voices available.
 
-MiniMax returned 47 voice(s) for voice_type="system"; none matched the supplied filters.
+voice_type="voice_cloning" returned an empty bucket.
 
-Drop the filter (or broaden it) and call `minimax_speech(action: "voices")` again.
+voice_cloning is a user-populated bucket — it stays empty until you have cloned a voice and used it in at least one synthesize call. Switch `voice_type` to `system` for MiniMax's built-in library.
 ```
 
-That's a `success: true` result — narrow the filter, don't treat it as an error. Structured `ToolResult.data` carries `count`, `voices[]`, `voice_type`, `total` (full library size), and `after_filter` (matched count before `limit` cap) for callers that prefer that over parsing markdown.
+**Filter excluded everything** (the bucket had voices, the filter was too tight):
+```markdown
+No voices matched your filter.
+
+MiniMax returned 47 voice(s) for voice_type="system"; none matched language contains "german".
+
+Drop the filter (or broaden it) and call `minimax_speech(action: "voices")` again. Filters are case-insensitive substring matches against `voice_name` + `description[]` — try a shorter needle (e.g. "ger" instead of "german").
+```
+
+The leading line differs between the two cases (`"No voices available."` vs `"No voices matched your filter."`) so the LLM can tell whether the issue is "this bucket is empty on your account" or "your filter is too tight" without parsing the body. Both are `success: true` — they're hints, not errors.
+
+Structured `ToolResult.data` carries `count`, `voices[]`, `voice_type`, `total` (full library size), and `after_filter` (matched count before `limit` cap) for callers that prefer that over parsing markdown.
 
 ## Failure modes
 

@@ -463,10 +463,80 @@ it('voices operation with filters that match nothing returns a "narrow your filt
     ], 1);
 
     expect($result->success)->toBeTrue()
-        ->and($result->content)->toContain('No voices matched')
+        // Filter-excluded case: bucket has voices, the filter rejected them all.
+        // Leading line is distinct from the empty-bucket case so the LLM
+        // can tell the difference.
+        ->and($result->content)->toContain('No voices matched your filter.')
         ->and($result->content)->toContain('Drop the filter')
+        ->and($result->content)->toContain('language contains "Klingon"')
         ->and($result->data['count'])->toBe(0)
         ->and($result->data['total'])->toBe(1);
+});
+
+it('voices operation with an empty upstream bucket renders the "No voices available" message, not the filter hint', function () {
+    // Distinguishes two cases the previous wording conflated:
+    //   - filter excluded everything (covered above)
+    //   - bucket is empty on this account (this test)
+    // Different fix paths for each, so the leading line must differ.
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->expects('request')
+        ->with('POST', 'https://api.minimax.io/v1/get_voice', M::any())
+        ->andReturn(minimaxMockResponse(200, json_encode([
+            'base_resp'        => ['status_code' => 0, 'status_msg' => 'success'],
+            'system_voice'     => [],
+            'voice_cloning'    => [],   // user hasn't cloned anything yet
+            'voice_generation' => [],
+        ])));
+
+    $log = new MiniMaxLogWriter();
+
+    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $result = $tool->execute(['action' => 'voices'], 1);
+
+    expect($result->success)->toBeTrue()
+        // "No voices available" — not the misleading "No voices matched" the
+        // previous wording rendered for this case.
+        ->and($result->content)->toContain('No voices available.')
+        ->and($result->content)->not->toContain('No voices matched your filter')
+        ->and($result->content)->toContain('voice_type="system"')
+        ->and($result->content)->toContain('Confirm the `api_key` setting')
+        ->and($result->data['count'])->toBe(0)
+        ->and($result->data['total'])->toBe(0);
+});
+
+it('voices operation with an empty voice_cloning bucket explains the bucket semantics', function () {
+    // voice_cloning and voice_generation are user-populated. An empty
+    // response there is the default state, not a filter mismatch — the
+    // message must point the operator at voice_type="system" instead.
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->expects('request')
+        ->with('POST', 'https://api.minimax.io/v1/get_voice', M::any())
+        ->andReturn(minimaxMockResponse(200, json_encode([
+            'base_resp'        => ['status_code' => 0, 'status_msg' => 'success'],
+            'system_voice'     => [
+                ['voice_id' => 'English_PassionateWarrior', 'voice_name' => 'PW', 'description' => ['English.']],
+            ],
+            'voice_cloning'    => [],   // empty
+            'voice_generation' => [],
+        ])));
+
+    $log = new MiniMaxLogWriter();
+
+    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $result = $tool->execute(['action' => 'voices', 'voice_type' => 'voice_cloning'], 1);
+
+    expect($result->success)->toBeTrue()
+        ->and($result->content)->toContain('No voices available.')
+        ->and($result->content)->toContain('voice_type="voice_cloning"')
+        ->and($result->content)->toContain('user-populated bucket')
+        ->and($result->content)->toContain('Switch `voice_type` to `system`')
+        ->and($result->data['total'])->toBe(0);
 });
 
 it('voices operation accepts voice_id exact match against a single upstream entry', function () {

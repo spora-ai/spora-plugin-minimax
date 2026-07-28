@@ -607,12 +607,12 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         $client = $ctx->client;
 
         $voiceType = $this->resolveVoiceType($arguments);
-        $timeout   = $this->resolveTimeout('http_timeout_seconds', $ctx->settings, self::TIMEOUT_SECONDS_VOICES);
+        $timeout = $this->resolveTimeout('http_timeout_seconds', $ctx->settings, self::TIMEOUT_SECONDS_VOICES);
         $response  = $client->postJson('/v1/get_voice', ['voice_type' => $voiceType], timeoutSeconds: $timeout);
 
         $this->support->logSuccess($ctx, $response);
 
-        $allVoices = $this->extractVoices($response);
+        $allVoices = $this->extractVoices($response, $voiceType);
         $filtered  = $this->applyClientFilters($allVoices, $arguments);
         $limit     = $this->resolveLimit($arguments);
         $capped = array_slice($filtered, 0, $limit);
@@ -645,18 +645,37 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     }
 
     /**
-     * Pull the voice list out of the MiniMax response across every shape
-     * the upstream has shipped. Each entry is tagged with `_source`
-     * (which bucket it came from: `system_voice`, `voice_cloning`,
-     * `voice_generation`) so the LLM can disambiguate when
-     * `voice_type: "all"` returns duplicates across buckets.
+     * Pull the voice list out of the MiniMax response, narrowed to the
+     * buckets the caller's `voice_type` requested. Each entry is
+     * tagged with `_source` (which bucket it came from:
+     * `system_voice`, `voice_cloning`, `voice_generation`) so the LLM
+     * can disambiguate when `voice_type: "all"` returns duplicates
+     * across buckets.
+     *
+     * Bucket resolution:
+     *   - `voice_type == "all"`      → pull all three buckets
+     *   - `voice_type == "system"`   → pull only `system_voice`
+     *   - `voice_type == "voice_cloning"`    → pull only `voice_cloning`
+     *   - `voice_type == "voice_generation"` → pull only `voice_generation`
+     *
+     * The previous behaviour (always pull all three) silently leaked
+     * voices from non-requested buckets into the response, which made
+     * `voices(voice_type: "voice_cloning")` return system voices too —
+     * a caller who filtered by bucket to check their cloned voices
+     * would see the full system library instead.
      *
      * @return list<array<string, mixed>>
      */
-    private function extractVoices(array $response): array
+    private function extractVoices(array $response, string $voiceType = 'all'): array
     {
+        $sources = match ($voiceType) {
+            'system'           => ['system_voice'],
+            'voice_cloning'    => ['voice_cloning'],
+            'voice_generation' => ['voice_generation'],
+            default            => ['system_voice', 'voice_cloning', 'voice_generation'], // 'all'
+        };
+
         $out = [];
-        $sources = ['system_voice', 'voice_cloning', 'voice_generation'];
         foreach ($sources as $source) {
             $bucket = $response[$source] ?? null;
             if (is_array($bucket) && array_is_list($bucket)) {
@@ -680,7 +699,13 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         // Fallback: older MiniMax snapshots occasionally returned
         // `voice_list` or `voices` at the top level. Keep the parser
         // tolerant for a release — if MiniMax publishes an unannounced
-        // shape we still render something usable.
+        // shape we still render something usable. Only consulted when
+        // the requested bucket(s) returned no voices AND the response
+        // looks like an older shape (no `system_voice` key at all).
+        $hasNewShape = array_any($sources, static fn(string $k): bool => array_key_exists($k, $response));
+        if ($hasNewShape) {
+            return [];
+        }
         foreach (['voice_list', 'voices'] as $key) {
             $fallback = $response[$key] ?? null;
             if (is_array($fallback) && array_is_list($fallback)) {
@@ -811,26 +836,58 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     }
 
     /**
-     * Build the "no voices matched" message. Includes the filter summary
-     * so the LLM knows what to broaden, and a count of the upstream
-     * library so it understands whether to retry with a narrower or a
-     * wider filter.
+     * Build the "no voices to render" message. Distinguishes three
+     * cases that callers were conflating:
+     *
+     *   1. The upstream bucket is empty on this account (no cloned
+     *      voices yet, voice_generation bucket has nothing, etc.).
+     *      Different fix path: switch buckets or call without filters.
+     *   2. The bucket has voices but the caller's filter excluded all
+     *      of them. Different fix path: broaden or drop the filter.
+     *   3. The bucket has voices, no filter was supplied, but the
+     *      `limit` cap trimmed everything to zero. Won't happen with
+     *      the current `limit >= 1` validator but defensive.
+     *
+     * The leading line of each message is distinct so the LLM (and a
+     * human reading the chat transcript) can tell which case they
+     * hit without parsing the body text.
      *
      * @param array<string, mixed> $arguments
      * @param list<array<string, mixed>> $allVoices
      */
     private function renderEmptyVoices(array $arguments, array $allVoices): string
     {
-        $filters    = $this->summariseFilters($arguments);
-        $totalLabel = count($allVoices) === 0
-            ? 'MiniMax returned an empty library.'
-            : 'MiniMax returned ' . count($allVoices) . ' voice(s) for voice_type="' . $this->resolveVoiceType($arguments) . '"; none matched the supplied filters.';
+        $voiceType = $this->resolveVoiceType($arguments);
+        $filters   = $this->summariseFilters($arguments);
 
-        $hint = $filters === ''
-            ? 'Call `minimax_speech(action: "voices")` again — `voice_type: "system"` returns the built-in library.'
-            : 'Drop the filter (or broaden it) and call `minimax_speech(action: "voices")` again.';
+        // Case 1: bucket empty on this account. The voice_type
+        // matters here because voice_cloning and voice_generation are
+        // user-populated buckets — empty is the default state until
+        // the operator has cloned a voice or generated one. system
+        // being empty is much rarer (and would indicate a much
+        // stranger MiniMax account state).
+        if (count($allVoices) === 0) {
+            $bucketNote = $voiceType === 'voice_cloning'
+                ? 'voice_cloning is a user-populated bucket — it stays empty until you have cloned a voice and used it in at least one synthesize call. Switch `voice_type` to `system` for MiniMax\'s built-in library.'
+                : ($voiceType === 'voice_generation'
+                    ? 'voice_generation is a user-populated bucket — it stays empty until you have generated a voice via MiniMax\'s text-to-voice API. Switch `voice_type` to `system` for MiniMax\'s built-in library.'
+                    : ($voiceType === 'all'
+                        ? 'No voices on this MiniMax account at all (system + voice_cloning + voice_generation all empty). Confirm the `api_key` setting points at an account with voice access.'
+                        : 'MiniMax returned no `system_voice` entries for this account. Confirm the `api_key` setting points at a paid MiniMax plan that includes system voices.'));
 
-        return "No voices matched.\n\n{$totalLabel}\n\n{$hint}";
+            return "No voices available.\n\n"
+                . "voice_type=\"{$voiceType}\" returned an empty bucket.\n\n"
+                . $bucketNote;
+        }
+
+        // Case 2: bucket had voices, filter excluded all of them.
+        $filterNote = $filters === ''
+            ? 'No filter was supplied, so the bucket content is unexpected here — check the `voice_type` value.'
+            : "Drop the filter (or broaden it) and call `minimax_speech(action: \"voices\")` again. Filters are case-insensitive substring matches against `voice_name` + `description[]` — try a shorter needle (e.g. \"ger\" instead of \"german\").";
+
+        return "No voices matched your filter.\n\n"
+            . "MiniMax returned " . count($allVoices) . " voice(s) for voice_type=\"{$voiceType}\"; none matched {$filters}.\n\n"
+            . $filterNote;
     }
 
     /**
