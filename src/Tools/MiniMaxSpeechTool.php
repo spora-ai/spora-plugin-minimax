@@ -22,18 +22,28 @@ use Spora\Tools\ValueObjects\ToolResult;
 use Throwable;
 
 /**
- * Synthesizes speech from text via MiniMax's t2a_v2 (text-to-audio) API.
- * Returns the upstream audio URL (24h expiry) if a CDN URL is available;
- * otherwise embeds the audio bytes inline.
+ * Synthesizes speech from text via MiniMax's t2a_v2 (text-to-audio) API
+ * and exposes the upstream voice library so the Agent can pick a
+ * language-matched voice id per call. The tool is a multi-operation
+ * discriminator:
+ *
+ *   - `synthesize` (default) — text → MP3; returns the upstream audio URL
+ *     (24h expiry) if a CDN URL is available, otherwise embeds the audio
+ *     bytes inline.
+ *   - `voices`              — fetch the MiniMax voice library
+ *     (`GET /v1/get_voice`, optional `voice_id` / `language` / `gender` /
+ *     `limit` filters) so the LLM can pick a `voice_id` that matches
+ *     `text`'s language instead of guessing from a hard-coded snapshot.
  */
 #[Tool(
     name: 'speech',
-    description: 'Synthesize speech from text.',
+    description: 'Synthesize speech from text via MiniMax t2a_v2, or fetch the upstream voice library (GET /v1/get_voice) so the LLM can pick a language-matched voice id. Two operations: synthesize (default), voices.',
     displayName: 'MiniMax Speech',
     category: 'generation',
     icon: 'play',
 )]
 #[ToolOperation(name: 'synthesize', description: 'Synthesize speech from text', enabledByDefault: true, requiresApprovalByDefault: false)]
+#[ToolOperation(name: 'voices', description: 'Fetch the MiniMax voice library (filterable by voice_id / language / gender) so a language-matched voice id can be selected before synthesize', enabledByDefault: true, requiresApprovalByDefault: false)]
 #[ToolSetting(
     key: 'api_key',
     label: 'MiniMax API Key',
@@ -72,21 +82,21 @@ use Throwable;
 #[ToolParameter(
     name: 'text',
     type: 'string',
-    description: 'The text to synthesize (max 10000 characters).',
-    required: true,
+    description: 'The text to synthesize (max 10000 characters). Used by the `synthesize` operation only.',
+    required: ['synthesize'],
     maximum: 10000,
 )]
 #[ToolParameter(
     name: 'voice_id',
     type: 'string',
-    description: 'Override the default voice id for this call.',
+    description: 'For `synthesize`: override the default voice id for this call. For `voices`: fetch details for this single voice id only.',
     required: false,
 )]
 #[ToolParameter(
     name: 'speed',
     type: 'number',
-    description: 'Speech speed multiplier (0.5 - 2.0).',
-    required: false,
+    description: 'Speech speed multiplier (0.5 - 2.0). Used by `synthesize` only.',
+    required: ['synthesize'],
     minimum: 0.5,
     maximum: 2.0,
     default: 1.0,
@@ -94,9 +104,31 @@ use Throwable;
 #[ToolParameter(
     name: 'filename',
     type: 'string',
-    description: 'Optional human-readable filename without an extension (e.g. "intro-greeting"). The correct file extension is appended automatically. When omitted, a speaking name is generated from the text.',
-    required: false,
+    description: 'Optional human-readable filename without an extension (e.g. "intro-greeting"). The correct file extension is appended automatically. When omitted, a speaking name is generated from the text. Used by `synthesize` only.',
+    required: ['synthesize'],
     maximum: 120,
+)]
+#[ToolParameter(
+    name: 'language',
+    type: 'string',
+    description: 'For `voices` only: filter by language (e.g. "English", "Chinese", "Japanese", or any string the upstream matches against). Ignored by `synthesize`.',
+    required: ['voices'],
+)]
+#[ToolParameter(
+    name: 'gender',
+    type: 'string',
+    description: 'For `voices` only: filter by gender ("male" or "female"). Ignored by `synthesize`.',
+    required: ['voices'],
+    enum: ['male', 'female'],
+)]
+#[ToolParameter(
+    name: 'limit',
+    type: 'number',
+    description: 'For `voices` only: max voices to return (default 50, hard-capped at 500 to keep the response bounded). Ignored by `synthesize`.',
+    required: ['voices'],
+    minimum: 1,
+    maximum: 500,
+    default: 50,
 )]
 final class MiniMaxSpeechTool extends MiniMaxTool
 {
@@ -106,9 +138,12 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     protected const DEFAULT_MODEL   = 'speech-2.8-hd';
     protected const DEFAULT_VOICE   = 'English_PassionateWarrior';
     protected const QUALIFIED_NAME  = 'minimax:speech';
-    protected const TIMEOUT_SECONDS = 60;
-    protected const TOOL_LABEL      = 'Speech synthesis';
-    protected const AUDIO_MIME      = 'audio/mpeg';
+    protected const TIMEOUT_SECONDS        = 60;
+    protected const TIMEOUT_SECONDS_VOICES = 30;
+    protected const TOOL_LABEL             = 'Speech synthesis';
+    protected const TOOL_LABEL_VOICES      = 'Voice library fetch';
+    protected const MAX_VOICE_LIMIT        = 500;
+    protected const AUDIO_MIME             = 'audio/mpeg';
 
     /**
      * Optional direct injection of {@see LocalAssetStore}. When wired by
@@ -150,10 +185,42 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         }
     }
 
+    /**
+     * Multi-operation dispatcher. Mirrors MiniMaxMusicTool::execute().
+     *
+     * Backward compat: pre-multi-op callers never passed `action` and
+     * landed on the synthesizer. The default match arm (`synthesize`)
+     * keeps that path alive for existing agent definitions, and any
+     * unrecognised `action` value also lands on synthesize rather than
+     * failing — the runtime schema validator (per the docs skill page)
+     * enforces the enum at a higher layer.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
+    {
+        $operation = (string) ($arguments['action'] ?? 'synthesize');
+        return match ($operation) {
+            'voices' => $this->listVoices($arguments, $agentId, $userId),
+            default  => $this->synthesize($arguments, $agentId, $userId),
+        };
+    }
+
+    /**
+     * Per-operation action description. The orchestrator renders this
+     * in the chat bubble when the Agent calls the tool with explicit
+     * approval — keep the descriptions short and action-shaped.
+     *
+     * @param array<string, mixed> $arguments
+     */
     public function describeAction(array $arguments): string
     {
+        $operation = (string) ($arguments['action'] ?? 'synthesize');
         $text = mb_substr(trim((string) ($arguments['text'] ?? '')), 0, 80);
-        return "Synthesize speech for: '{$text}'";
+        return match ($operation) {
+            'voices' => 'Fetch the MiniMax voice library',
+            default  => "Synthesize speech for: '{$text}'",
+        };
     }
 
     /** @param array<string, mixed> $arguments */
@@ -406,5 +473,215 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         }
 
         return $stats === [] ? '' : ' (' . implode(', ', $stats) . ')';
+    }
+
+    /**
+     * Run the `synthesize` operation through the standard
+     * validate → prepare → run pipeline. The single-op `synthesize`
+     * path is the historical default; preserved verbatim so existing
+     * calls (and the unit tests) keep working without an `action`
+     * discriminator.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    public function synthesize(array $arguments, int $agentId, ?int $userId): ToolResult
+    {
+        return $this->runWithValidation(
+            $arguments,
+            $agentId,
+            $userId,
+            self::TIMEOUT_SECONDS,
+            self::TOOL_LABEL,
+            fn(MiniMaxToolContext $c) => $this->doWork($c, $arguments),
+            fn(array $a) => $this->validateArguments($a),
+        );
+    }
+
+    /**
+     * Run the `voices` operation: hit MiniMax's voice management API
+     * and return the up-to-date list of voice ids (plus lightweight
+     * metadata) so the LLM can pick a language-matched voice before
+     * issuing the next `synthesize` call.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    public function listVoices(array $arguments, int $agentId, ?int $userId): ToolResult
+    {
+        return $this->runWithValidation(
+            $arguments,
+            $agentId,
+            $userId,
+            self::TIMEOUT_SECONDS_VOICES,
+            self::TOOL_LABEL_VOICES,
+            fn(MiniMaxToolContext $c) => $this->doFetchVoices($c, $arguments),
+            fn(array $a) => $this->validateVoicesArguments($a),
+        );
+    }
+
+    /**
+     * Per-operation validator for `voices`. Tightens the input by
+     * casting `limit` into a clamped int; surfaces a clear error if
+     * `gender` is set to anything other than the enum declared on the
+     * `#[ToolParameter]` (the runtime schema validator catches this
+     * earlier in normal operation; defence-in-depth).
+     *
+     * @param array<string, mixed> $arguments
+     */
+    protected function validateVoicesArguments(array $arguments): ?ToolResult
+    {
+        $errors = [];
+        $gender = trim((string) ($arguments['gender'] ?? ''));
+        if ($gender !== '' && !in_array($gender, ['male', 'female'], true)) {
+            $errors[] = 'gender must be "male" or "female".';
+        }
+        $limit = $arguments['limit'] ?? null;
+        if ($limit !== null) {
+            if (!is_numeric($limit)) {
+                $errors[] = 'limit must be a number.';
+            } else {
+                $intLimit = (int) $limit;
+                if ($intLimit < 1 || $intLimit > self::MAX_VOICE_LIMIT) {
+                    $errors[] = sprintf(
+                        'limit must be between 1 and %d (clamped at the hard cap).',
+                        self::MAX_VOICE_LIMIT,
+                    );
+                }
+            }
+        }
+        return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
+    }
+
+    /**
+     * Voice library fetch worker. Calls `GET /v1/get_voice` (see
+     * https://platform.minimax.io/docs/api-reference/voice-management-get)
+     * with the optional filters the LLM passed, parses the response
+     * defensively across the response shapes MiniMax has shipped
+     * (`voice_list`, `voices`, top-level array under `data`), and
+     * returns a Markdown bullet list — terse, easy to grep from the
+     * chat transcript — capped to the requested `limit`.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    protected function doFetchVoices(MiniMaxToolContext $ctx, array $arguments): ToolResult
+    {
+        /** @var MiniMaxHttpClient $client */
+        $client = $ctx->client;
+
+        $query = [];
+        $voiceId = trim((string) ($arguments['voice_id'] ?? ''));
+        if ($voiceId !== '') {
+            $query['voice_id'] = $voiceId;
+        }
+        $language = trim((string) ($arguments['language'] ?? ''));
+        if ($language !== '') {
+            $query['language'] = $language;
+        }
+        $gender = trim((string) ($arguments['gender'] ?? ''));
+        if ($gender !== '') {
+            $query['gender'] = $gender;
+        }
+        $limitRaw = $arguments['limit'] ?? null;
+        if ($limitRaw !== null) {
+            $intLimit = max(1, min(self::MAX_VOICE_LIMIT, (int) $limitRaw));
+            $query['limit'] = $intLimit;
+        }
+
+        $timeout = $this->resolveTimeout('http_timeout_seconds', $ctx->settings, self::TIMEOUT_SECONDS_VOICES);
+        $response = $client->getJson('/v1/get_voice', $query, timeoutSeconds: $timeout);
+
+        $this->support->logSuccess($ctx, $response);
+
+        $voices = $this->extractVoices($response);
+        if ($voices === []) {
+            return new ToolResult(
+                true,
+                "No voices matched the supplied filters.\n\nUse a broader filter (or drop it entirely) and call `minimax_speech(action: \"voices\")` again.",
+            );
+        }
+
+        // Apply the limit after-the-fact too — defensive in case the
+        // upstream ignored the `limit` query param (older versions).
+        if (isset($query['limit'])) {
+            $voices = array_slice($voices, 0, $query['limit']);
+        }
+
+        $lines = [];
+        foreach ($voices as $v) {
+            $lines[] = '- ' . $this->formatVoiceLine($v);
+        }
+
+        $count   = count($voices);
+        $heading = "Available MiniMax voices ({$count} matching" . (isset($query['language']) ? ' language="' . $query['language'] . '"' : '') . ')';
+        $content = $heading . "\n\n"
+            . implode("\n", $lines) . "\n\n"
+            . "To use one: `minimax_speech(text: \"<text>\", voice_id: \"<voice_id>\")` or omit `action` (default is `synthesize`).";
+
+        return new ToolResult(true, rtrim($content), [
+            'count'   => $count,
+            'voices'  => array_map(static fn(array $v): array => [
+                'voice_id' => (string) ($v['voice_id'] ?? ''),
+                'language' => $v['language'] ?? null,
+                'gender'   => $v['gender'] ?? null,
+                'name'     => $v['name'] ?? null,
+            ], $voices),
+        ]);
+    }
+
+    /**
+     * Pull the voice list out of the MiniMax response across the three
+     * shapes we've seen in upstream snapshots. Returns a list of
+     * associative arrays; each entry is whatever the upstream
+     * supplied (no schema normalisation — the LLM is the consumer).
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function extractVoices(array $response): array
+    {
+        foreach (['voice_list', 'voices'] as $key) {
+            if (is_array($response[$key] ?? null)) {
+                return array_values($response[$key]);
+            }
+        }
+        $data = $response['data'] ?? null;
+        if (is_array($data)) {
+            if (array_is_list($data)) {
+                return $data;
+            }
+            foreach (['voice_list', 'voices'] as $key) {
+                if (is_array($data[$key] ?? null)) {
+                    return array_values($data[$key]);
+                }
+            }
+            // `base_resp` indicates the top-level shape was non-list.
+            // Treat any list under `data.voice_id` as a fallback.
+            if (isset($data['voice_id'])) {
+                return [$data];
+            }
+        }
+        return [];
+    }
+
+    /**
+     * Format a single voice entry as a one-line Markdown bullet.
+     * Tolerates missing fields — the upstream isn't always consistent
+     * across languages, and `voice_id` is the only field the
+     * `synthesize` call actually needs.
+     *
+     * @param array<string, mixed> $v
+     */
+    private function formatVoiceLine(array $v): string
+    {
+        $id   = (string) ($v['voice_id'] ?? '');
+        $bits = [$id !== '' ? "`{$id}`" : '(missing voice_id)'];
+        $meta = [];
+        foreach (['language', 'gender', 'name'] as $f) {
+            if (isset($v[$f]) && $v[$f] !== '') {
+                $meta[] = (string) $v[$f];
+            }
+        }
+        if ($meta !== []) {
+            $bits[] = '— ' . implode(', ', $meta);
+        }
+        return implode(' ', $bits);
     }
 }
