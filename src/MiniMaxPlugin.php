@@ -42,6 +42,24 @@ final class MiniMaxPlugin extends AbstractPlugin
     }
 
     /**
+     * Plugin-shipped Skills live as siblings under `<plugin>/skills/<slug>/SKILL.md`.
+     * Each of the four tools gets one Skill (`minimax-image`, `minimax-speech`,
+     * `minimax-music`, `minimax-video`) so the Agent can pull per-tool usage
+     * notes on demand instead of relying on the LLM's memory of the full
+     * MiniMax surface area.
+     *
+     * `is_dir` guard keeps the override side-effect-free when the directory
+     * is absent (e.g. checkout without the `skills/` subtree).
+     *
+     * @return string[]
+     */
+    public function skillPaths(): array
+    {
+        $path = \dirname(__DIR__) . '/skills';
+        return is_dir($path) ? [$path] : [];
+    }
+
+    /**
      * Force PHP-DI to invoke each tool's `setMediaArchive(MediaArchiveService)`
      * setter after autowiring the constructor, with the resolver looked up
      * explicitly.
