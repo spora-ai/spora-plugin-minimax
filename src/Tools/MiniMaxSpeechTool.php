@@ -369,11 +369,20 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         }
 
         try {
-            if ($audioUrl !== '') {
-                $request = new MediaIngestRequest(...$base, url: $audioUrl);
-            } else {
-                $request = new MediaIngestRequest(...$base, hex: $hexAudio);
-            }
+            // Pass `url` and `hex` as named args so MiniMax returning one
+            // payload shape doesn't accidentally populate both. Symmetric
+            // with MiniMaxMusicTool::ingestIntoMediaArchive() — see #28
+            // for the speech-specific regression that prompted the move:
+            // the prior `if ($audioUrl !== '') { url: … } else { hex: … }`
+            // guard let `$audioUrl === null` slip through to the URL
+            // branch (`null !== ''` is true), leaving `hex` unset and
+            // tripping MediaIngestRequest's "exactly one non-empty source"
+            // invariant.
+            $request = new MediaIngestRequest(
+                ...$base,
+                url: $audioUrl,
+                hex: $audioUrl === null ? $hexAudio : null,
+            );
             return $this->mediaArchive()->ingest($request);
         } catch (Throwable $e) {
             $this->support->logger()?->warning('MediaArchive ingest failed (speech)', [

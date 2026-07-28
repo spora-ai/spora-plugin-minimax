@@ -633,6 +633,61 @@ it('speech tool honours the LLM-supplied filename and appends the canonical exte
     expect($store->capturedFilenames[0])->toBe('intro-greeting.mp3');
 });
 
+it('speech tool ingests a hex audio payload via the MediaArchive', function () {
+    // Mirror of the music+hex test with the speech payload shape (single
+    // `audio` field, no `audio_url`). Pre-fix the speech tool guarded
+    // `if ($audioUrl !== '')` to branch between url and hex — but
+    // `$audioUrl === null` slipped through the guard, leaving `hex`
+    // unset and tripping MediaIngestRequest's "exactly one non-empty
+    // source" invariant. The fix uses named args symmetric to
+    // MiniMaxMusicTool::ingestIntoMediaArchive() — see the speech
+    // tool source for the inline rationale.
+    //
+    // Why the capture archive here (vs the simple one used by
+    // `music+hex`): the speech tool's `data['asset_url']` is
+    // indistinguishable between the broken and fixed paths with the
+    // simple fixture — both fall back to embedHex() on
+    // `minimaxTestAssetStore()` (an AutoAssetStore; 24 bytes is
+    // under its 1 MiB threshold so the result is a
+    // `data:audio/mpeg;base64,…` URL either way), and the speech tool
+    // discards the archive's data: output via its
+    // `!str_starts_with($asset_url, 'data:')` guard. The bug is
+    // observable only as "ingest() never reached AssetStore::store()"
+    // — captured by `MinimaxFilenameCapturingStore::capturedFilenames`.
+    //
+    // Placed adjacent to the existing capture-service speech tests so
+    // any Eloquent bootstrapping happens after every other test in
+    // this file has run (matches the existing convention used by the
+    // image/music/video filename-shape tests).
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    $log = new MiniMaxLogWriter();
+    [$archive, $store] = minimaxFilenameCaptureArchiveService();
+
+    // 24 bytes of MP3 silence (all zeros) → "00"×24.
+    $hexAudio = str_repeat('00', 24);
+    $http->allows('request')->andReturn(minimaxArchiveResponse(200, json_encode([
+        'base_resp'  => ['status_code' => 0, 'status_msg' => 'success'],
+        'data'       => ['audio' => $hexAudio],
+        'extra_info' => ['audio_size' => 24],
+    ])));
+
+    $tool = new MiniMaxSpeechTool($config, $http, $log, minimaxTestAssetStore(), null, null, $archive);
+    $result = $tool->execute([
+        'text'     => 'hello world',
+        'voice_id' => 'English_PassionateWarrior',
+    ], 7);
+
+    expect($result->success)->toBeTrue()
+        // Pre-fix this list was empty: the archive ingest threw
+        // InvalidArgumentException on the empty `url: null` source,
+        // the throw was swallowed by the tool's catch, and
+        // AssetStore::store() was never reached.
+        ->and($store->capturedFilenames)->toHaveCount(1);
+});
+
 it('speech tool slugifies the text when no filename is supplied', function () {
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
