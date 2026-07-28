@@ -1,6 +1,6 @@
 ---
 name: minimax-music
-description: Generate music (instrumental or with lyrics) or write / edit song lyrics via the MiniMax multimodal plugin. **Three operations**: `compose` (instrumental or vocal song from a style prompt + optional lyrics), `write_lyrics` (full lyrics from a topic / style), `edit_lyrics` (rewrite existing lyrics per an instruction). Use when the user asks for a "song", "music", "soundtrack", "jingle", "background music", "lyrics", or wants lyrics written / re-written from a topic.
+description: "Generate music (instrumental or with lyrics) or write / edit song lyrics via the MiniMax multimodal plugin. **Three operations**: `compose` (instrumental or vocal song from a style prompt + optional lyrics), `write_lyrics` (full lyrics from a topic / style), `edit_lyrics` (rewrite existing lyrics per an instruction). Use when the user asks for a 'song', 'music', 'soundtrack', 'jingle', 'background music', 'lyrics', or wants lyrics written / re-written from a topic."
 license: MIT
 compatibility: spora>=0.7 spora-plugin-minimax>=1.0
 metadata:
