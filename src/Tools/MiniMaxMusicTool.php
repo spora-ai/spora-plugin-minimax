@@ -344,7 +344,6 @@ final class MiniMaxMusicTool extends MiniMaxTool
         [$url, $assetMode] = $resolved;
 
         $archiveAsset = $this->ingestIntoMediaArchive($ctx, $audioUrl, $hexAudio, $prompt, $arguments);
-        // Prefer the Media Archive's persistent URL when it produced one.
         if ($archiveAsset !== null
             && $archiveAsset->asset_url !== ''
             && !str_starts_with($archiveAsset->asset_url, 'data:')
@@ -352,13 +351,23 @@ final class MiniMaxMusicTool extends MiniMaxTool
             $url = $archiveAsset->asset_url;
         }
 
+        // Hard invariant: this tool must NEVER emit a `data:` URL.
+        // `MiniMaxPlugin::register()` wires `LocalAssetStore` (and the
+        // MediaArchive swap produces `/api/v1/assets/...` too), so the
+        // only path that lands here with a `data:` URL is a
+        // misconfigured deployment or a custom factory that
+        // hand-rolled the tool. Fail loudly instead of papering over.
+        if (str_starts_with($url, 'data:')) {
+            throw new LogicException(
+                'MiniMaxMusicTool produced a data: URI; LocalAssetStore / MediaArchive wiring is missing from the DI container.',
+            );
+        }
+
         $promptSummary = $prompt !== '' ? "prompt: \"{$prompt}\"" : 'instrumental';
 
-        $renderInstruction = match (true) {
-            str_starts_with($url, '/api/v1/assets/') => "Echo the `<audio>` element above verbatim — its `src` is `/api/v1/assets/<token>.mp3` served by the Media Archive, not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.",
-            str_starts_with($url, 'data:')           => "Echo the `<audio>` element above verbatim — its `src` is an inline `data:audio/mpeg;base64,…` URI; chat UI content sanitizers truncate long base64 to `[data-omitted]` and the resulting `<audio>` tag fails to play. For the raw URL, read `ToolResult.data.asset_url`.",
-            default                                  => "Echo the `<audio>` element above verbatim — its `src` is the upstream MiniMax CDN URL (~24 h expiry); the Media Archive plugin isn't installed or this file was rejected, so the URL isn't rewritten to a long-lived `/api/v1/assets/...` path. Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.",
-        };
+        $renderInstruction = str_starts_with($url, '/api/v1/assets/')
+            ? "Echo the `<audio>` element above verbatim — its `src` is `/api/v1/assets/<token>.mp3` served by the Media Archive, not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`."
+            : "Echo the `<audio>` element above verbatim — its `src` is the upstream MiniMax CDN URL (~24 h expiry); the Media Archive plugin isn't installed or this file was rejected, so the URL isn't rewritten to a long-lived `/api/v1/assets/...` path. Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.";
 
         return new ToolResult(true, "Generated music ({$promptSummary}).\n\n"
             . MediaEmbed::audioFromUrl($url)

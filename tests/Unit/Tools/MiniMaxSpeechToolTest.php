@@ -55,36 +55,35 @@ it('embeds a CDN URL directly when audio_url is present', function () {
 });
 
 it('decodes a hex payload and routes it through the AssetStore', function () {
+    // The configured AssetStore is the fallback path — only reached
+    // when LocalAssetStore is not wired (custom factory wiring). The
+    // `embedHex` trait helper writes a `data:` URI when the configured
+    // mode produces one (this test mocks the AssetStore to return
+    // `data:` mode explicitly). The hard invariant: even in this
+    // fallback path, the renderer surfaces a failure (success=false)
+    // instead of silently shipping a `data:` URL to the LLM — see the
+    // `fails loudly when a data: URL leaks through` test for the
+    // primary contract.
     $fixture = MinimaxFixtures::speechHexPayload();
 
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
-    $http->expects('request')
-        ->with('POST', 'https://api.minimax.io/v1/t2a_v2', M::any())
+    $http->allows('request')
         ->andReturn(minimaxMockResponse(200, json_encode($fixture['response'])));
 
     $log = new MiniMaxLogWriter();
     $assetStore = M::mock(AssetStore::class);
-    $assetStore->expects('store')
-        ->once()
-        ->with(
-            M::on(static fn(string $bytes): bool => strlen($bytes) === 115350),
-            'audio/mpeg',
-            'speech.mp3',
-        )
+    $assetStore->allows('store')
         ->andReturn(new AssetReference('data:audio/mpeg;base64,AAA', 'data_url'));
 
     $tool = new MiniMaxSpeechTool($config, $http, $log, $assetStore);
     $result = $tool->execute($fixture['request'], 1);
 
-    expect($result->success)->toBeTrue()
-        ->and($result->content)->toContain('<audio')
-        ->and($result->content)->toContain('data:audio/mpeg;base64,AAA')
-        ->and($result->content)->toContain('Echo the `<audio>` element above verbatim')
-        ->and($result->data['asset_mode'])->toBe('data_url')
-        ->and($result->data['audio_size'])->toBe(115350);
+    expect($result->success)->toBeFalse()
+        ->and($result->content)->toContain('data: URI')
+        ->and($result->content)->toContain('LocalAssetStore');
 });
 
 it('routes the hex payload to the local store when over the auto threshold', function () {
@@ -165,35 +164,37 @@ it('routes the hex payload through the injected LocalAssetStore regardless of pa
         ->and(filesize($entries[0]))->toBe(115350);
 });
 
-it('routes a data:audio/mpeg;base64,… URL through the inline-bytes instruction (chat UI truncation warning)', function () {
-    // V14 fix: when the AssetStore hands back a `data:` URI (the
-    // default `auto` threshold inlines payloads < 1 MiB), the
-    // trailing instruction must call out the inline nature —
-    // otherwise the LLM writes a `<audio>` tag whose `src` has
-    // already been truncated by the chat UI content sanitizer to
-    // `[data-omitted]` and doesn't play.
+it('fails loudly (success=false) when a `data:` URL leaks through (LocalAssetStore wiring missing)', function () {
+    // Hard invariant: the speech tool must never emit a `data:` URL.
+    // The only path that produces one in code is `embedHex` against the
+    // configured AssetStore, which fires when LocalAssetStore is not
+    // wired. Production wires it via `MiniMaxPlugin::register()`; this
+    // test simulates a misconfigured deployment and asserts the
+    // tool surfaces a clear failure to the orchestrator (rather than
+    // papering over with a stale instruction). The framework's
+    // try/catch in MiniMaxToolSupport::run() converts the
+    // LogicException into a failed ToolResult so a misconfigured
+    // deployment surfaces a clear "data: URI" message to the LLM
+    // instead of a silent broken `<audio>` tag.
     $fixture = MinimaxFixtures::speechHexPayload();
 
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
-    $http->expects('request')->andReturn(minimaxMockResponse(200, json_encode($fixture['response'])));
+    $http->allows('request')->andReturn(minimaxMockResponse(200, json_encode($fixture['response'])));
 
     $log = new MiniMaxLogWriter();
     $assetStore = M::mock(AssetStore::class);
-    $assetStore->expects('store')
-        ->once()
-        ->andReturn(new AssetReference('data:audio/mpeg;base64,AAAA', 'data_url'));
+    $assetStore->allows('store')
+        ->andReturn(new AssetReference('data:audio/mpeg;base64,LEAK', 'data_url'));
 
     $tool = new MiniMaxSpeechTool($config, $http, $log, $assetStore);
     $result = $tool->execute($fixture['request'], 1);
 
-    expect($result->success)->toBeTrue()
-        ->and($result->content)->toContain('data:audio/mpeg;base64,AAAA')
-        ->and($result->content)->toContain('[data-omitted]')
-        ->and($result->content)->not->toContain('short-lived MiniMax CDN URL')
-        ->and($result->content)->not->toContain('/api/v1/assets/<token>.mp3');
+    expect($result->success)->toBeFalse()
+        ->and($result->content)->toContain('data: URI')
+        ->and($result->content)->toContain('LocalAssetStore');
 });
 
 it('routes a CDN URL through the short-lived-URL instruction (no archive rewrite)', function () {

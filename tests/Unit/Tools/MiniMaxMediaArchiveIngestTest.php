@@ -198,6 +198,17 @@ it('music tool ingests a hex audio payload via the MediaArchive', function () {
     ])));
 
     $tool = new MiniMaxMusicTool($config, $http, $log, minimaxTestAssetStore(), null, null, $archive);
+    // Production wires LocalAssetStore via `MiniMaxPlugin::register()` —
+    // mirror it here so the music tool doesn't LogicException on the
+    // AutoAssetStore's `data:` URL fallback.
+    $tmp = sys_get_temp_dir() . '/minimax-music-ingest-' . bin2hex(random_bytes(4));
+    $local = new LocalAssetStore(
+        new Spora\Core\Paths($tmp),
+        new Spora\Core\SecurityManager(str_repeat("\0", SODIUM_CRYPTO_SECRETBOX_KEYBYTES)),
+        50 * 1024 * 1024,
+    );
+    $tool->setLocalAssetStore($local);
+
     $result = $tool->execute([
         'action'        => 'compose',
         'prompt'        => 'lofi piano',

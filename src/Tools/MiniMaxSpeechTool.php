@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Spora\Plugins\MiniMax\Tools;
 
 use InvalidArgumentException;
+use LogicException;
 use Spora\Plugins\Concerns\StoresBinaryAssets;
 use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
@@ -345,7 +346,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         // hand-rolled the tool. Fail loudly instead of papering over.
         if (str_starts_with($url, 'data:')) {
             throw new LogicException(
-                'MiniMaxSpeechTool produced a data: URI; LocalAssetStore / MediaArchive wiring is missing from the DI container.'
+                'MiniMaxSpeechTool produced a data: URI; LocalAssetStore / MediaArchive wiring is missing from the DI container.',
             );
         }
 
