@@ -159,19 +159,12 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     protected const AUDIO_MIME             = 'audio/mpeg';
 
     /**
-     * Optional direct injection of {@see LocalAssetStore}. When wired by
-     * {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()} via
-     * `\DI\get(LocalAssetStore::class)`, the speech tool always stores the
-     * decoded MP3 bytes on disk and emits a `/api/v1/assets/<token>.mp3`
-     * URL — bypassing the global `asset_store.mode`. Without it the tool
-     * falls back to the configured {@see AssetStore} (preserves test
-     * behaviour and the historical AssetStore path).
+     * Wired by PHP-DI from {@see MiniMaxPlugin::register()}.
+     * Forces the hex payload to disk via `/api/v1/assets/<token>.mp3`
+     * so the chat UI doesn't truncate a long base64 to `[data-omitted]`.
      */
     private ?LocalAssetStore $localAssetStore = null;
 
-    /**
-     * Wired by PHP-DI from {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()}.
-     */
     public function setLocalAssetStore(LocalAssetStore $localAssetStore): void
     {
         $this->localAssetStore = $localAssetStore;
@@ -337,23 +330,19 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         [$url, $assetMode] = $resolved;
 
         $archiveAsset = $this->ingestIntoMediaArchive($ctx, $text, $audioUrl, $hexAudio, $sizeBytes, $arguments);
-        // `archived` distinguishes "rendered `<audio>` is served by
-        // the Media Archive" (a persistent `/api/v1/assets/<token>.mp3`
-        // URL) from "rendered `<audio>` is the upstream CDN URL or a
-        // `data:` URI fallback". The trailing-instruction text below
-        // must match — telling the LLM the URL is `/api/v1/assets/…`
-        // when it's actually `https://cdn.minimax.io/…` makes the next
-        // turn write a `<audio>` tag that 404s.
-        $archived = $archiveAsset !== null
+        // Prefer the Media Archive's persistent URL when it produced one.
+        if ($archiveAsset !== null
             && $archiveAsset->asset_url !== ''
-            && !str_starts_with($archiveAsset->asset_url, 'data:');
-        if ($archived) {
+            && !str_starts_with($archiveAsset->asset_url, 'data:')
+        ) {
             $url = $archiveAsset->asset_url;
         }
 
-        $renderInstruction = $archived
-            ? "Echo the `<audio>` element above verbatim — its `src` is `/api/v1/assets/<token>.mp3` served by the Media Archive, not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`."
-            : "Echo the `<audio>` element above verbatim — its `src` is a short-lived MiniMax CDN URL (~24 h), not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.";
+        $renderInstruction = match (true) {
+            str_starts_with($url, '/api/v1/assets/') => "Echo the `<audio>` element above verbatim — its `src` is `/api/v1/assets/<token>.mp3` served by the Media Archive, not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.",
+            str_starts_with($url, 'data:')           => "Echo the `<audio>` element above verbatim — its `src` is an inline `data:audio/mpeg;base64,…` URI; chat UI content sanitizers truncate long base64 to `[data-omitted]` and the resulting `<audio>` tag fails to play. For the raw URL, read `ToolResult.data.asset_url`.",
+            default                                  => "Echo the `<audio>` element above verbatim — its `src` is a short-lived MiniMax CDN URL (~24 h), not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.",
+        };
 
         $content = "Synthesized speech{$statsLine}.\n\n"
             . MediaEmbed::audioFromUrl($url) . "\n\n"
@@ -372,24 +361,6 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     /**
      * @return array{0: string, 1: string|null}|null  [url, mode] or null
      *          when the payload is neither a usable URL nor valid hex.
-     *
-     * When MiniMax returns a CDN URL the audio is short-lived anyway; we
-     * pass it through and the MediaArchive ingest below swaps it for a
-     * persistent `/api/v1/assets/<token>.mp3` reference (when the Media
-     * Archive plugin is enabled). When MiniMax returns a hex blob the
-     * speech tool routes through {@see LocalAssetStore} directly when
-     * injected, sidestepping the global `asset_store.mode`. The default
-     * `auto` threshold is 1 MiB — most MiniMax speech clips are
-     * 50–500 KB, so on a default install the bytes would be inlined as a
-     * `data:audio/mpeg;base64,…` URI. Long base64 strings bloat the chat
-     * bubble, get truncated by downstream sanitizers to a `[data-omitted]`
-     * placeholder, and the resulting `<audio src=…>` fails to play.
-     *
-     * Falls back to the configured {@see AssetStore} when no
-     * {@see LocalAssetStore} is injected (test environments, custom
-     * factory wiring). The fallback path is the historical behaviour and
-     * never runs in production because the plugin's `register()` always
-     * wires `setLocalAssetStore()`.
      */
     private function resolveSpeechPlayback(?string $audioUrl, ?string $hexAudio): ?array
     {
@@ -403,11 +374,8 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     }
 
     /**
-     * Routes a decoded hex MP3 blob to {@see LocalAssetStore} when wired
-     * (the production path), falling back to the configured
-     * {@see AssetStore} otherwise. Extracted from
-     * {@see resolveSpeechPlayback()} so the dispatch method stays inside
-     * the SonarQube `php:S1142` (≤3 returns) threshold.
+     * Prefers {@see LocalAssetStore} so the chat UI never sees a
+     * `data:` URI (the chat sanitizer truncates long base64).
      *
      * @return array{0: string, 1: string}
      */

@@ -165,6 +165,67 @@ it('routes the hex payload through the injected LocalAssetStore regardless of pa
         ->and(filesize($entries[0]))->toBe(115350);
 });
 
+it('routes a data:audio/mpeg;base64,… URL through the inline-bytes instruction (chat UI truncation warning)', function () {
+    // V14 fix: when the AssetStore hands back a `data:` URI (the
+    // default `auto` threshold inlines payloads < 1 MiB), the
+    // trailing instruction must call out the inline nature —
+    // otherwise the LLM writes a `<audio>` tag whose `src` has
+    // already been truncated by the chat UI content sanitizer to
+    // `[data-omitted]` and doesn't play.
+    $fixture = MinimaxFixtures::speechHexPayload();
+
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->expects('request')->andReturn(minimaxMockResponse(200, json_encode($fixture['response'])));
+
+    $log = new MiniMaxLogWriter();
+    $assetStore = M::mock(AssetStore::class);
+    $assetStore->expects('store')
+        ->once()
+        ->andReturn(new AssetReference('data:audio/mpeg;base64,AAAA', 'data_url'));
+
+    $tool = new MiniMaxSpeechTool($config, $http, $log, $assetStore);
+    $result = $tool->execute($fixture['request'], 1);
+
+    expect($result->success)->toBeTrue()
+        ->and($result->content)->toContain('data:audio/mpeg;base64,AAAA')
+        ->and($result->content)->toContain('[data-omitted]')
+        ->and($result->content)->not->toContain('short-lived MiniMax CDN URL')
+        ->and($result->content)->not->toContain('/api/v1/assets/<token>.mp3');
+});
+
+it('routes a CDN URL through the short-lived-URL instruction (no archive rewrite)', function () {
+    // Lock in the other branch of the V14 fix: when the resolved URL
+    // is the upstream MiniMax CDN URL (no MediaArchive swap, no
+    // LocalAssetStore path), the instruction must say "short-lived
+    // CDN URL" — not "/api/v1/assets/..." which would tell the next
+    // turn to write a tag that 404s an hour later.
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->expects('request')->andReturn(minimaxMockResponse(200, json_encode([
+        'data'       => ['audio_url' => 'https://cdn.minimax.io/speech/abc.mp3', 'status' => 2, 'ced' => ''],
+        'extra_info' => ['audio_length' => 1000, 'audio_size' => 12_345, 'usage_characters' => 50, 'audio_format' => 'mp3'],
+        'base_resp'  => ['status_code' => 0, 'status_msg' => 'success'],
+    ])));
+
+    $log = new MiniMaxLogWriter();
+    $assetStore = M::mock(AssetStore::class);
+    $assetStore->shouldNotReceive('store');
+
+    $tool = new MiniMaxSpeechTool($config, $http, $log, $assetStore);
+    $result = $tool->execute(['text' => 'Hello world'], 1);
+
+    expect($result->success)->toBeTrue()
+        ->and($result->content)->toContain('https://cdn.minimax.io/speech/abc.mp3')
+        ->and($result->content)->toContain('short-lived MiniMax CDN URL')
+        ->and($result->content)->not->toContain('/api/v1/assets/<token>.mp3')
+        ->and($result->content)->not->toContain('[data-omitted]');
+});
+
 it('returns a clear failure on odd-length hex payload', function () {
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
