@@ -298,9 +298,23 @@ final class MiniMaxMusicTool extends MiniMaxTool
         );
 
         $data     = is_array($response['data'] ?? null) ? $response['data'] : [];
-        $rawAudio = $data['audio'] ?? null;
-        $hexAudio = is_string($rawAudio) ? $rawAudio : null;
-        $audioUrl = is_string($data['audio_url'] ?? null) ? $data['audio_url'] : null;
+        $rawAudio = is_string($data['audio'] ?? null) ? $data['audio'] : null;
+
+        // MiniMax's music_generation endpoint returns the audio in a single
+        // field `data.audio` regardless of `output_format`:
+        //   - `output_format=url` (default) → `data.audio` is a CDN URL string.
+        //   - `output_format=hex`           → `data.audio` is a hex-encoded MP3 blob.
+        // There is NO separate `data.audio_url` field for music (unlike the
+        // speech API, which does have both). Dispatch on the URL prefix so a
+        // payload that happens to start with "https" still routes correctly
+        // regardless of which `output_format` the caller asked for.
+        if ($rawAudio !== null && (str_starts_with($rawAudio, 'http://') || str_starts_with($rawAudio, 'https://'))) {
+            $audioUrl = $rawAudio;
+            $hexAudio = null;
+        } else {
+            $audioUrl = null;
+            $hexAudio = $rawAudio;
+        }
 
         if ($hexAudio === null && $audioUrl === null) {
             $this->support->logFailure($ctx, $response, 'No audio in response');
