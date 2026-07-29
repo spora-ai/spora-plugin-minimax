@@ -36,6 +36,10 @@ use Throwable;
  *     are applied as client-side filters over `voice_name` + flattened
  *     `description[]` because MiniMax's upstream API does not expose
  *     server-side filters for those fields.
+ *
+ * The `voices` response-parsing / filtering / rendering helpers live in
+ * {@see MiniMaxSpeechVoiceLibrary}, kept out of this class so the tool
+ * stays under the SonarQube S1448 (≤20 methods) threshold.
  */
 #[Tool(
     name: 'speech',
@@ -152,8 +156,6 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     protected const TIMEOUT_SECONDS_VOICES = 30;
     protected const TOOL_LABEL             = 'Speech synthesis';
     protected const TOOL_LABEL_VOICES      = 'Voice library fetch';
-    protected const DEFAULT_VOICE_LIMIT    = 50;
-    protected const MAX_VOICE_LIMIT        = 500;
     protected const AUDIO_MIME             = 'audio/mpeg';
 
     /**
@@ -335,14 +337,28 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         [$url, $assetMode] = $resolved;
 
         $archiveAsset = $this->ingestIntoMediaArchive($ctx, $text, $audioUrl, $hexAudio, $sizeBytes, $arguments);
-        if ($archiveAsset !== null && $archiveAsset->asset_url !== '' && !str_starts_with($archiveAsset->asset_url, 'data:')) {
+        // `archived` distinguishes "rendered `<audio>` is served by
+        // the Media Archive" (a persistent `/api/v1/assets/<token>.mp3`
+        // URL) from "rendered `<audio>` is the upstream CDN URL or a
+        // `data:` URI fallback". The trailing-instruction text below
+        // must match — telling the LLM the URL is `/api/v1/assets/…`
+        // when it's actually `https://cdn.minimax.io/…` makes the next
+        // turn write a `<audio>` tag that 404s.
+        $archived = $archiveAsset !== null
+            && $archiveAsset->asset_url !== ''
+            && !str_starts_with($archiveAsset->asset_url, 'data:');
+        if ($archived) {
             $url = $archiveAsset->asset_url;
         }
+
+        $renderInstruction = $archived
+            ? "Echo the `<audio>` element above verbatim — its `src` is `/api/v1/assets/<token>.mp3` served by the Media Archive, not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`."
+            : "Echo the `<audio>` element above verbatim — its `src` is a short-lived MiniMax CDN URL (~24 h), not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.";
 
         $content = "Synthesized speech{$statsLine}.\n\n"
             . MediaEmbed::audioFromUrl($url) . "\n\n"
             . "Voice: {$voiceId}."
-            . "\n\nEcho the `<audio>` element above verbatim — its `src` is `/api/v1/assets/<token>.mp3` served by the Media Archive, not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.";
+            . "\n\n" . $renderInstruction;
 
         return new ToolResult(true, $content, [
             'audio_url'  => $audioUrl,
@@ -561,10 +577,10 @@ final class MiniMaxSpeechTool extends MiniMaxTool
                 $errors[] = 'limit must be a number.';
             } else {
                 $intLimit = (int) $limit;
-                if ($intLimit < 1 || $intLimit > self::MAX_VOICE_LIMIT) {
+                if ($intLimit < 1 || $intLimit > MiniMaxSpeechVoiceLibrary::MAX_VOICE_LIMIT) {
                     $errors[] = sprintf(
                         'limit must be between 1 and %d (clamped at the hard cap).',
-                        self::MAX_VOICE_LIMIT,
+                        MiniMaxSpeechVoiceLibrary::MAX_VOICE_LIMIT,
                     );
                 }
             }
@@ -587,7 +603,11 @@ final class MiniMaxSpeechTool extends MiniMaxTool
      *
      * Because MiniMax does not expose server-side filters, the LLM's
      * `voice_id` / `language` / `gender` are applied client-side:
-     *   - `voice_id`: exact match against `voice_id`.
+     *   - `voice_id`: exact match against `voice_id`. When non-empty
+     *     it short-circuits the other filters (matches the SKILL.md
+     *     promise "Other filters are ignored when this is set" —
+     *     `voices(voice_id: "X")` is how the Agent checks whether
+     *     `X` is available on this MiniMax account).
      *   - `language`: case-insensitive substring match against
      *     `voice_name` + flattened `description`.
      *   - `gender`:   case-insensitive substring match against
@@ -606,16 +626,16 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         /** @var MiniMaxHttpClient $client */
         $client = $ctx->client;
 
-        $voiceType = $this->resolveVoiceType($arguments);
+        $voiceType = MiniMaxSpeechVoiceLibrary::resolveVoiceType($arguments);
         $timeout = $this->resolveTimeout('http_timeout_seconds', $ctx->settings, self::TIMEOUT_SECONDS_VOICES);
         $response  = $client->postJson('/v1/get_voice', ['voice_type' => $voiceType], timeoutSeconds: $timeout);
 
         $this->support->logSuccess($ctx, $response);
 
-        $allVoices = $this->extractVoices($response, $voiceType);
-        $filtered  = $this->applyClientFilters($allVoices, $arguments);
-        $limit     = $this->resolveLimit($arguments);
-        $capped = array_slice($filtered, 0, $limit);
+        $allVoices = MiniMaxSpeechVoiceLibrary::extractVoices($response, $voiceType);
+        $filtered  = MiniMaxSpeechVoiceLibrary::applyClientFilters($allVoices, $arguments);
+        $limit     = MiniMaxSpeechVoiceLibrary::resolveLimit($arguments);
+        $capped    = array_slice($filtered, 0, $limit);
 
         if ($capped === []) {
             $emptyPayload = [
@@ -625,10 +645,14 @@ final class MiniMaxSpeechTool extends MiniMaxTool
                 'total'        => count($allVoices),
                 'after_filter' => count($filtered),
             ];
-            return new ToolResult(true, $this->renderEmptyVoices($arguments, $allVoices), $emptyPayload);
+            return new ToolResult(
+                true,
+                MiniMaxSpeechVoiceLibrary::renderEmpty($arguments, $allVoices, $filtered),
+                $emptyPayload,
+            );
         }
 
-        $content = $this->renderVoicesList($capped, $arguments);
+        $content = MiniMaxSpeechVoiceLibrary::renderVoicesList($capped, $arguments);
 
         return new ToolResult(true, $content, [
             'count'   => count($capped),
@@ -642,306 +666,5 @@ final class MiniMaxSpeechTool extends MiniMaxTool
             'total'        => count($allVoices),
             'after_filter' => count($filtered),
         ]);
-    }
-
-    /**
-     * Pull the voice list out of the MiniMax response, narrowed to the
-     * buckets the caller's `voice_type` requested. Each entry is
-     * tagged with `_source` (which bucket it came from:
-     * `system_voice`, `voice_cloning`, `voice_generation`) so the LLM
-     * can disambiguate when `voice_type: "all"` returns duplicates
-     * across buckets.
-     *
-     * Bucket resolution:
-     *   - `voice_type == "all"`      → pull all three buckets
-     *   - `voice_type == "system"`   → pull only `system_voice`
-     *   - `voice_type == "voice_cloning"`    → pull only `voice_cloning`
-     *   - `voice_type == "voice_generation"` → pull only `voice_generation`
-     *
-     * The previous behaviour (always pull all three) silently leaked
-     * voices from non-requested buckets into the response, which made
-     * `voices(voice_type: "voice_cloning")` return system voices too —
-     * a caller who filtered by bucket to check their cloned voices
-     * would see the full system library instead.
-     *
-     * @return list<array<string, mixed>>
-     */
-    private function extractVoices(array $response, string $voiceType = 'all'): array
-    {
-        $sources = match ($voiceType) {
-            'system'           => ['system_voice'],
-            'voice_cloning'    => ['voice_cloning'],
-            'voice_generation' => ['voice_generation'],
-            default            => ['system_voice', 'voice_cloning', 'voice_generation'], // 'all'
-        };
-
-        $out = [];
-        foreach ($sources as $source) {
-            $bucket = $response[$source] ?? null;
-            if (is_array($bucket) && array_is_list($bucket)) {
-                foreach ($bucket as $entry) {
-                    if (is_array($entry)) {
-                        $entry['_source'] = $source;
-                        $out[] = $entry;
-                    }
-                }
-                continue;
-            }
-            if (is_array($bucket)) {
-                $entry = $bucket;
-                $entry['_source'] = $source;
-                $out[] = $entry;
-            }
-        }
-        if ($out !== []) {
-            return $out;
-        }
-        // Fallback: older MiniMax snapshots occasionally returned
-        // `voice_list` or `voices` at the top level. Keep the parser
-        // tolerant for a release — if MiniMax publishes an unannounced
-        // shape we still render something usable. Only consulted when
-        // the requested bucket(s) returned no voices AND the response
-        // looks like an older shape (no `system_voice` key at all).
-        $hasNewShape = array_any($sources, static fn(string $k): bool => array_key_exists($k, $response));
-        if ($hasNewShape) {
-            return [];
-        }
-        foreach (['voice_list', 'voices'] as $key) {
-            $fallback = $response[$key] ?? null;
-            if (is_array($fallback) && array_is_list($fallback)) {
-                return $fallback;
-            }
-        }
-        return [];
-    }
-
-    /**
-     * Apply client-side filters over an already-flattened voice list.
-     * Each filter is independent — passing only `language` skips the
-     * `voice_id` exact-match, etc.
-     *
-     * @param  list<array<string, mixed>> $voices
-     * @param  array<string, mixed>       $arguments
-     * @return list<array<string, mixed>>
-     */
-    private function applyClientFilters(array $voices, array $arguments): array
-    {
-        $voiceIdFilter = mb_strtolower(trim((string) ($arguments['voice_id'] ?? '')));
-        $languageNeedle = mb_strtolower(trim((string) ($arguments['language'] ?? '')));
-        $genderNeedle   = mb_strtolower(trim((string) ($arguments['gender'] ?? '')));
-
-        if ($voiceIdFilter === '' && $languageNeedle === '' && $genderNeedle === '') {
-            return $voices;
-        }
-
-        $out = [];
-        foreach ($voices as $v) {
-            $voiceId  = (string) ($v['voice_id'] ?? '');
-            $haystack = $this->flattenVoiceText($v);
-
-            if ($voiceIdFilter !== '' && mb_strtolower($voiceId) !== $voiceIdFilter) {
-                continue;
-            }
-            if ($languageNeedle !== '' && mb_strpos($haystack, $languageNeedle) === false) {
-                continue;
-            }
-            if ($genderNeedle !== '' && mb_strpos($haystack, $genderNeedle) === false) {
-                continue;
-            }
-            $out[] = $v;
-        }
-        return $out;
-    }
-
-    /**
-     * Flatten a voice entry into a single lower-case string spanning
-     * `voice_name` and every `description[]` element. Used as the
-     * haystack for the `language` / `gender` substring filters and the
-     * "voice matched" reason in {@see renderEmptyVoices()}.
-     *
-     * @param array<string, mixed> $v
-     */
-    private function flattenVoiceText(array $v): string
-    {
-        $bits = [];
-        if (isset($v['voice_name']) && is_string($v['voice_name'])) {
-            $bits[] = $v['voice_name'];
-        }
-        if (isset($v['description']) && is_array($v['description'])) {
-            foreach ($v['description'] as $line) {
-                if (is_string($line)) {
-                    $bits[] = $line;
-                }
-            }
-        }
-        return mb_strtolower(implode(' ', $bits));
-    }
-
-    /**
-     * @param array<string, mixed> $arguments
-     */
-    private function resolveVoiceType(array $arguments): string
-    {
-        $raw = trim((string) ($arguments['voice_type'] ?? ''));
-        if ($raw === '') {
-            return 'system';
-        }
-        $allowed = ['system', 'voice_cloning', 'voice_generation', 'all'];
-        if (!in_array($raw, $allowed, true)) {
-            // Defence-in-depth; the runtime schema validator catches this
-            // earlier in normal operation.
-            return 'system';
-        }
-        return $raw;
-    }
-
-    /**
-     * @param  array<string, mixed> $arguments
-     */
-    private function resolveLimit(array $arguments): int
-    {
-        $raw = $arguments['limit'] ?? null;
-        if ($raw === null || !is_numeric($raw)) {
-            return self::DEFAULT_VOICE_LIMIT;
-        }
-        return max(1, min(self::MAX_VOICE_LIMIT, (int) $raw));
-    }
-
-    /**
-     * Render the heading + Markdown bullet list the LLM will see in the
-     * chat transcript. Each bullet quotes the `voice_id` in backticks
-     * and appends `voice_name` + the first description line so the
-     * language / gender cues land in the visible transcript.
-     *
-     * @param  list<array<string, mixed>> $voices
-     * @param  array<string, mixed>       $arguments
-     */
-    private function renderVoicesList(array $voices, array $arguments): string
-    {
-        $count   = count($voices);
-        $filters = $this->summariseFilters($arguments);
-        $heading = $filters === ''
-            ? "Available MiniMax voices ({$count}):"
-            : "Available MiniMax voices ({$count} matching {$filters}):";
-
-        $lines = [];
-        foreach ($voices as $v) {
-            $lines[] = '- ' . $this->formatVoiceLine($v);
-        }
-
-        return $heading . "\n\n"
-            . implode("\n", $lines) . "\n\n"
-            . "Pick one whose language matches `text`, then call `minimax_speech(text: \"<text>\", voice_id: \"<voice_id>\")` "
-            . "(omit `action` — `synthesize` is the default).";
-    }
-
-    /**
-     * Build the "no voices to render" message. Distinguishes three
-     * cases that callers were conflating:
-     *
-     *   1. The upstream bucket is empty on this account (no cloned
-     *      voices yet, voice_generation bucket has nothing, etc.).
-     *      Different fix path: switch buckets or call without filters.
-     *   2. The bucket has voices but the caller's filter excluded all
-     *      of them. Different fix path: broaden or drop the filter.
-     *   3. The bucket has voices, no filter was supplied, but the
-     *      `limit` cap trimmed everything to zero. Won't happen with
-     *      the current `limit >= 1` validator but defensive.
-     *
-     * The leading line of each message is distinct so the LLM (and a
-     * human reading the chat transcript) can tell which case they
-     * hit without parsing the body text.
-     *
-     * @param array<string, mixed> $arguments
-     * @param list<array<string, mixed>> $allVoices
-     */
-    private function renderEmptyVoices(array $arguments, array $allVoices): string
-    {
-        $voiceType = $this->resolveVoiceType($arguments);
-        $filters   = $this->summariseFilters($arguments);
-
-        // Case 1: bucket empty on this account. The voice_type
-        // matters here because voice_cloning and voice_generation are
-        // user-populated buckets — empty is the default state until
-        // the operator has cloned a voice or generated one. system
-        // being empty is much rarer (and would indicate a much
-        // stranger MiniMax account state).
-        if (count($allVoices) === 0) {
-            $bucketNote = $voiceType === 'voice_cloning'
-                ? 'voice_cloning is a user-populated bucket — it stays empty until you have cloned a voice and used it in at least one synthesize call. Switch `voice_type` to `system` for MiniMax\'s built-in library.'
-                : ($voiceType === 'voice_generation'
-                    ? 'voice_generation is a user-populated bucket — it stays empty until you have generated a voice via MiniMax\'s text-to-voice API. Switch `voice_type` to `system` for MiniMax\'s built-in library.'
-                    : ($voiceType === 'all'
-                        ? 'No voices on this MiniMax account at all (system + voice_cloning + voice_generation all empty). Confirm the `api_key` setting points at an account with voice access.'
-                        : 'MiniMax returned no `system_voice` entries for this account. Confirm the `api_key` setting points at a paid MiniMax plan that includes system voices.'));
-
-            return "No voices available.\n\n"
-                . "voice_type=\"{$voiceType}\" returned an empty bucket.\n\n"
-                . $bucketNote;
-        }
-
-        // Case 2: bucket had voices, filter excluded all of them.
-        $filterNote = $filters === ''
-            ? 'No filter was supplied, so the bucket content is unexpected here — check the `voice_type` value.'
-            : "Drop the filter (or broaden it) and call `minimax_speech(action: \"voices\")` again. Filters are case-insensitive substring matches against `voice_name` + `description[]` — try a shorter needle (e.g. \"ger\" instead of \"german\").";
-
-        return "No voices matched your filter.\n\n"
-            . "MiniMax returned " . count($allVoices) . " voice(s) for voice_type=\"{$voiceType}\"; none matched {$filters}.\n\n"
-            . $filterNote;
-    }
-
-    /**
-     * @param  array<string, mixed> $arguments
-     */
-    private function summariseFilters(array $arguments): string
-    {
-        $bits = [];
-        $voiceType = trim((string) ($arguments['voice_type'] ?? ''));
-        if ($voiceType !== '' && $voiceType !== 'system') {
-            $bits[] = 'voice_type="' . $voiceType . '"';
-        }
-        $language = trim((string) ($arguments['language'] ?? ''));
-        if ($language !== '') {
-            $bits[] = 'language contains "' . $language . '"';
-        }
-        $gender = trim((string) ($arguments['gender'] ?? ''));
-        if ($gender !== '') {
-            $bits[] = 'description contains "' . $gender . '"';
-        }
-        $voiceId = trim((string) ($arguments['voice_id'] ?? ''));
-        if ($voiceId !== '') {
-            $bits[] = 'voice_id="' . $voiceId . '"';
-        }
-        return implode(', ', $bits);
-    }
-
-    /**
-     * Format a single voice entry as a one-line Markdown bullet. The
-     * `voice_id` is always backtick-quoted (so the LLM can copy it
-     * verbatim). `voice_name` and the first description line follow in
-     * plain text — they're the language / gender cues the LLM needs.
-     *
-     * @param array<string, mixed> $v
-     */
-    private function formatVoiceLine(array $v): string
-    {
-        $id   = (string) ($v['voice_id'] ?? '');
-        $bits = [$id !== '' ? "`{$id}`" : '(missing voice_id)'];
-
-        $description = $v['description'] ?? null;
-        $firstLine   = is_array($description) ? (string) ($description[0] ?? '') : '';
-        $voiceName   = isset($v['voice_name']) && is_string($v['voice_name']) ? $v['voice_name'] : '';
-
-        $meta = [];
-        if ($voiceName !== '') {
-            $meta[] = $voiceName;
-        }
-        if ($firstLine !== '') {
-            $meta[] = $firstLine;
-        }
-        if ($meta !== []) {
-            $bits[] = '— ' . implode(' — ', $meta);
-        }
-        return implode(' ', $bits);
     }
 }

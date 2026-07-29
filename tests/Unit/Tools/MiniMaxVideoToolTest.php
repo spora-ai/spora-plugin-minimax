@@ -370,6 +370,11 @@ it('returns success=false with task_id and timed_out=true when poll_timeout elap
     // The V6 fix: a timed-out poll must surface the task_id so the
     // LLM can call resume on the next turn — the task is still
     // billable on MiniMax's side.
+    //
+    // The V13 fix: the failure data also carries the original prompt,
+    // duration_seconds, resolution, and filename so the resumed task
+    // re-archives with correct metadata rather than re-deriving
+    // empty-prompt defaults.
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn([
         'api_key'               => 'k',
@@ -397,14 +402,24 @@ it('returns success=false with task_id and timed_out=true when poll_timeout elap
         ])));
 
     $tool = new MiniMaxVideoTool($config, $http, $log);
-    $result = $tool->execute(['prompt' => 'a forest'], 1);
+    $result = $tool->execute([
+        'prompt'           => 'a forest',
+        'duration_seconds' => '10',
+        'resolution'       => '768P',
+        'filename'         => 'forest-push-in',
+    ], 1);
 
     expect($result->success)->toBeFalse()
         ->and($result->content)->toContain('task_id=task-slow')
         ->and($result->content)->toContain('still running on MiniMax')
         ->and($result->data['task_id'])->toBe('task-slow')
         ->and($result->data['status'])->toBe('still_running')
-        ->and($result->data['timed_out'])->toBeTrue();
+        ->and($result->data['timed_out'])->toBeTrue()
+        // V13: original metadata preserved through the failure envelope.
+        ->and($result->data['prompt'])->toBe('a forest')
+        ->and($result->data['duration_seconds'])->toBe(10)
+        ->and($result->data['resolution'])->toBe('768P')
+        ->and($result->data['filename'])->toBe('forest-push-in');
 });
 
 it('surfaces base_resp.status_msg when the upstream returns Fail', function () {

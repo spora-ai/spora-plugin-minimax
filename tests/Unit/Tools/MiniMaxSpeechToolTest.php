@@ -565,6 +565,44 @@ it('voices operation accepts voice_id exact match against a single upstream entr
         ->and($result->data['count'])->toBe(1);
 });
 
+it('voice_id short-circuits language / gender filters (other filters ignored when voice_id is set)', function () {
+    // Locks in the SKILL.md contract: voice_id is an exact match and
+    // takes precedence over language / gender. Without the short-circuit
+    // a stale `language` filter would hide an otherwise available voice
+    // (e.g. the Agent suspects a voice is renamed and passes a leftover
+    // language needle from a prior call).
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->expects('request')
+        ->with('POST', 'https://api.minimax.io/v1/get_voice', M::any())
+        ->andReturn(minimaxMockResponse(200, json_encode([
+            'base_resp'    => ['status_code' => 0, 'status_msg' => 'success'],
+            'system_voice' => [
+                ['voice_id' => 'Italian_Narrator',         'voice_name' => 'IN', 'description' => ['Italian, male.']],
+                ['voice_id' => 'English_PassionateWarrior', 'voice_name' => 'PW', 'description' => ['English, male.']],
+            ],
+        ])));
+
+    $log = new MiniMaxLogWriter();
+
+    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    // voice_id matches Italian_Narrator, but language="English" would
+    // (under AND semantics) exclude it. The contract is "other
+    // filters ignored when voice_id is set" — short-circuit applies.
+    $result = $tool->execute([
+        'action'   => 'voices',
+        'voice_id' => 'Italian_Narrator',
+        'language' => 'English',
+    ], 1);
+
+    expect($result->success)->toBeTrue()
+        ->and($result->content)->toContain('`Italian_Narrator`')
+        ->and($result->data['count'])->toBe(1)
+        ->and($result->data['after_filter'])->toBe(1);
+});
+
 it('omitting action falls back to synthesize (backward compat)', function () {
     // Pre-multi-op callers never passed `action`; the dispatcher must
     // default to `synthesize` so existing agent definitions keep
