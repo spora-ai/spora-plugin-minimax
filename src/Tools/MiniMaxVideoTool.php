@@ -748,7 +748,7 @@ final class MiniMaxVideoTool extends MiniMaxTool
         $content = "Generated video{$sizeLine} for prompt: \"{$prompt}\"\n\n"
             . MediaEmbed::videoFromUrl($embedUrl, $width, $height) . "\n\n"
             . "task_id: {$taskId}  file_id: {$fileId}{$durationNote}"
-            . "\n\nUse the same video embed above to show the video player in your reply.";
+            . "\n\nEcho the `<video>` element above verbatim — its `src` is `/api/v1/assets/<token>.mp4` served by the Media Archive, not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.";
 
         return new ToolResult(true, $content, [
             'task_id'      => $taskId,

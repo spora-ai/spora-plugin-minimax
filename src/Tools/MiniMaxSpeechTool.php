@@ -342,7 +342,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         $content = "Synthesized speech{$statsLine}.\n\n"
             . MediaEmbed::audioFromUrl($url) . "\n\n"
             . "Voice: {$voiceId}."
-            . "\n\nUse the same audio embed above to show the media player in your reply.";
+            . "\n\nEcho the `<audio>` element above verbatim — its `src` is `/api/v1/assets/<token>.mp3` served by the Media Archive, not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.";
 
         return new ToolResult(true, $content, [
             'audio_url'  => $audioUrl,

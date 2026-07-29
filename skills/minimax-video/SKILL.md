@@ -152,10 +152,10 @@ Generated video (1920x1080) for prompt: "…"
 
 task_id: …  file_id: …
 
-Use the same video embed above to show the video player in your reply.
+Echo the `<video>` element above verbatim — its `src` is `/api/v1/assets/<token>.mp4` served by the Media Archive, not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.
 ```
 
-The "Use the same video embed above…" sentence tells future turns to render the URL inline. Don't strip it.
+The "Echo the `<video>` element above verbatim…" sentence tells future turns to render the URL inline and spells out the verbatim-echo rule. Don't strip it.
 
 For the raw download URL, read `ToolResult.data.asset_url` — never re-extract from the markdown.
 

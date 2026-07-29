@@ -93,7 +93,7 @@ Generated music (prompt: "lofi piano").
 
 <audio controls preload="metadata" src="/api/v1/assets/<token>.mp3"></audio>
 
-Use the same audio embed above to show the media player in your reply.
+Echo the `<audio>` element above verbatim — its `src` is `/api/v1/assets/<token>.mp3` served by the Media Archive, not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.
 ```
 
 If `output_format=url`, the upstream CDN URL expires in 24 h. The Media Archive URL is stable. Always prefer surfacing the archive URL when it exists.
@@ -129,3 +129,4 @@ If the user wants the lyrics as a file, write them to a sidecar file or paste in
 - **Don't ask for "music" without clarifying instrumental vs vocal.** If the user is silent on lyrics, default to instrumental (omit `lyrics`).
 - **Don't retry on a successful call** — `compose` is rate-limited (60–180 s per call); one call per user request.
 - **Don't fabricate song titles or verses** — if `write_lyrics` returns empty, say so.
+- **Don't strip the "Echo the `<audio>` element above verbatim…" sentence** (compose only). It tells future turns (and other agents) to render the URL inline, not as a click-through link — and it spells out the verbatim-echo rule for callers that didn't load this skill.

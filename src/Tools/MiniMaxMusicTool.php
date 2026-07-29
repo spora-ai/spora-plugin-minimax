@@ -325,7 +325,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
 
         return new ToolResult(true, "Generated music ({$promptSummary}).\n\n"
             . MediaEmbed::audioFromUrl($url)
-            . "\n\nUse the same audio embed above to show the media player in your reply.", [
+            . "\n\nEcho the `<audio>` element above verbatim — its `src` is `/api/v1/assets/<token>.mp3` served by the Media Archive, not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.", [
                 'audio_url'  => $audioUrl,
                 'asset_url'  => $url,
                 'asset_mode' => $assetMode,

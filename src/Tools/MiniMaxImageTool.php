@@ -177,7 +177,7 @@ final class MiniMaxImageTool extends MiniMaxTool
                 array_keys($archiveUrls),
                 $archiveUrls,
             ))
-            . "\n\nUse the same Markdown image embed above to show the image in your reply.";
+            . "\n\nEcho the markdown image block above verbatim — its URL is `/api/v1/assets/<token>.<ext>` served by the Media Archive, not a relative filename (rewriting it breaks the image). Don't strip this sentence; it tells the chat UI to render the URL inline. For the raw URL, read `ToolResult.data.image_urls`.";
 
         return new ToolResult(true, $content, [
             'image_urls' => $archiveUrls,

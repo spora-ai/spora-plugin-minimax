@@ -223,7 +223,7 @@ Synthesized speech (7.1s, 115 KB, 122 chars).
 
 Voice: English_PassionateWarrior.
 
-Use the same audio embed above to show the media player in your reply.
+Echo the `<audio>` element above verbatim — its `src` is `/api/v1/assets/<token>.mp3` served by the Media Archive, not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.
 ```
 
 If the file is missing / 404s, the Audio Archive row is in the Media Archive detail page with a redownload button — point the user there.
@@ -286,6 +286,7 @@ Structured `ToolResult.data` carries `count`, `voices[]`, `voice_type`, `total` 
 - **Don't skip `voices` for non-default-language text.** If `voices(language: "<X>")` returns no native voices, fall back to an English voice and **tell the user** — don't pretend the synthesis is native when it's English-accented.
 - **Don't pretend an unsupported language is supported.** If the account has no native voice for the target language and English fallback isn't acceptable for the use case, surface that to the user — don't silently substitute.
 - **Don't fabricate audio.** If `synthesize` fails, say so. Don't pretend a generation succeeded.
+- **Don't strip the "Echo the `<audio>` element above verbatim…" sentence.** It tells future turns (and other agents) to render the URL inline, not as a click-through link — and it spells out the verbatim-echo rule for callers that didn't load this skill.
 - **Don't call `voices` in parallel with `synthesize`.** They're sequential — discover first, then synthesise.
 - **Don't pass `text` longer than 10000 chars in one call.** The tool truncates / rejects; either trim or chunk.
 - **Don't loop back to the speech tool** for "verification" — one call per utterance is the rule; extra calls cost quota and may drift prosody.

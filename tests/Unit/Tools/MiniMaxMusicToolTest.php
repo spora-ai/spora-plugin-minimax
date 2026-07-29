@@ -82,7 +82,7 @@ it('parses the music response and returns the audio URL for compose', function (
 
     expect($result->success)->toBeTrue()
         ->and($result->content)->toContain(MiniMaxMusicToolTestLiterals::CDN_URL_SONG)
-        ->and($result->content)->toContain('Use the same audio embed above')
+        ->and($result->content)->toContain('Echo the `<audio>` element above verbatim')
         ->and($result->data['audio_url'])->toBe(MiniMaxMusicToolTestLiterals::CDN_URL_SONG);
 });
 

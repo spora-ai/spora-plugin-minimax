@@ -72,7 +72,7 @@ Generated 1 image for prompt: "..."
 
 ![Generated image 1: ...](https://.../api/v1/assets/<token>.png)
 
-Use the same Markdown image embed above to show the image in your reply.
+Echo the markdown image block above verbatim — its URL is `/api/v1/assets/<token>.<ext>` served by the Media Archive, not a relative filename (rewriting it breaks the image). Don't strip this sentence; it tells the chat UI to render the URL inline. For the raw URL, read `ToolResult.data.image_urls`.
 ```
 
 When the Media Archive plugin is **absent**, the tool falls back to the upstream MiniMax CDN URL — still inline-rendering but the link expires in ~24 h. Mention the dependency if the operator asks why archived assets are missing.
@@ -84,4 +84,4 @@ If the user wants the raw URL (for download, scripting, etc.), read it from `Too
 - **Don't fabricate URLs.** If the tool didn't return an image, say so. Don't link a stock photo or "best guess" art.
 - **Don't retry on a successful call.** One generation per user request is the rule; extra calls cost quota.
 - **Don't ask the user to upload a reference image** — MiniMax's `image_generation` endpoint this tool targets is text-only. Reference-image / img2img is a different (unset) endpoint.
-- **Don't strip the "Use the same Markdown image embed above…" sentence.** It's the instruction that tells future turns (and other agents) to render the URL inline, not as a click-through link.
+- **Don't strip the "Echo the markdown image block above verbatim…" sentence.** It's the instruction that tells future turns (and other agents) to render the URL inline, not as a click-through link — and it spells out the verbatim-echo rule for callers that didn't load this skill.
