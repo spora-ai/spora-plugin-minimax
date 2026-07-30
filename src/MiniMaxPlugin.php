@@ -42,41 +42,52 @@ final class MiniMaxPlugin extends AbstractPlugin
     }
 
     /**
-     * Force PHP-DI to invoke each tool's `setMediaArchive(MediaArchiveService)`
-     * setter after autowiring the constructor, with the resolver looked up
-     * explicitly.
+     * Plugin-shipped Skills live as siblings under `<plugin>/skills/<slug>/SKILL.md`.
+     * Each of the four tools gets one Skill (`minimax-image`, `minimax-speech`,
+     * `minimax-music`, `minimax-video`) so the Agent can pull per-tool usage
+     * notes on demand instead of relying on the LLM's memory of the full
+     * MiniMax surface area.
      *
-     * Why this exists
-     * ---------------
-     * PHP-DI's resolver chain runs {@see \Invoker\ParameterResolver\DefaultValueResolver}
-     * BEFORE the container's type-hint resolver, so any nullable ctor
-     * parameter with a `= null` default is short-circuited to `null` — the
-     * container never even considers injecting it. The plugin's four tool
-     * ctors declare `?MediaArchiveService $mediaArchive = null` for legacy /
-     * test convenience, which means autowire alone leaves the trait's
-     * `$mediaArchive` field unset, `mediaArchive()` throws `LogicException`
-     * on every call, and the chat falls back to the upstream CDN URL with
-     * nothing ever written to `media_assets`.
+     * `is_dir` guard keeps the override side-effect-free when the directory
+     * is absent (e.g. checkout without the `skills/` subtree).
      *
-     * The same trick bites `autowire()->method('setMediaArchive')` if the
-     * setter's parameter is left implicit — `DefaultValueResolver` claims
-     * the slot before `TypeHintContainerResolver` runs, the parameter is
-     * marked `#UNDEFINED#`, and container compilation fails with
-     * `InvalidDefinition`. Binding the resolver explicitly via
-     * `\DI\get(MediaArchiveService::class)` short-circuits that path.
+     * @return string[]
+     */
+    public function skillPaths(): array
+    {
+        $path = \dirname(__DIR__) . '/skills';
+        return is_dir($path) ? [$path] : [];
+    }
+
+    /**
+     * Agent-template files for the MiniMax plugin.
      *
-     * See https://php-di.org/doc/php-definitions.html (`autowire()->method()`)
-     * for the API used here.
+     * @return string[]
+     */
+    public function agentTemplatePaths(): array
+    {
+        return [
+            __DIR__ . '/../agent-templates',
+        ];
+    }
+
+    /**
+     * PHP-DI quirk: nullable ctor params with `= null` defaults are
+     * short-circuited to `null` by `DefaultValueResolver` before the
+     * type-hint resolver runs, so the tools' `?MediaArchiveService
+     * $mediaArchive = null` ctor params never get autowired. The same
+     * trick bites `autowire()->method('setMediaArchive')` if the
+     * setter's parameter is left implicit (`InvalidDefinition`).
+     * Binding the resolver explicitly via `\DI\get(...)` short-circuits
+     * both paths.
      *
-     * `setLocalAssetStore` is wired for the speech tool only — it forces
-     * TTS output to land on disk via `/api/v1/assets/<token>.mp3` instead
-     * of being inlined as a `data:audio/mpeg;base64,…` URI when the
-     * operator's `asset_store.mode` is `auto` (default 1 MiB threshold) or
-     * `data_url`. Speech clips are typically 50–500 KB, well under the
-     * threshold, and the resulting long base64 string gets truncated by
-     * the chat UI's content sanitizer, producing a broken
-     * `<audio src="[data-omitted]"></audio>`. See PR for the symptom and
-     * the rationale.
+     * `setLocalAssetStore` is wired for the speech + music tools so
+     * their audio payloads always land at
+     * `/api/v1/assets/<token>.mp3` — never inlined as a
+     * `data:audio/mpeg;base64,…` URI (the chat UI sanitizer truncates
+     * long base64 to `[data-omitted]` and the base64 itself burns
+     * tokens). Image + video are URL-only upstream payloads, no
+     * LocalAssetStore needed.
      */
     public function register(ContainerBuilder $builder): void
     {
@@ -88,7 +99,9 @@ final class MiniMaxPlugin extends AbstractPlugin
             MiniMaxSpeechTool::class => \DI\autowire()
                 ->method('setMediaArchive', $archiveService)
                 ->method('setLocalAssetStore', $localAssetStore),
-            MiniMaxMusicTool::class  => \DI\autowire()->method('setMediaArchive', $archiveService),
+            MiniMaxMusicTool::class  => \DI\autowire()
+                ->method('setMediaArchive', $archiveService)
+                ->method('setLocalAssetStore', $localAssetStore),
             MiniMaxVideoTool::class  => \DI\autowire()->method('setMediaArchive', $archiveService),
         ]);
     }

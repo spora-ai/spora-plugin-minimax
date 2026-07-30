@@ -44,7 +44,10 @@ final class MiniMaxSettings
      *  - music.lyrics: 30 s — pure text endpoint.
      *  - video.submit: 120 s — MiniMax queues the task server-side; the
      *    submit response itself can take >30 s to return the task_id.
-     *  - video.poll: 600 s — total polling window (not per-request).
+     *  - video.poll: 900 s — total polling window (not per-request).
+     *    1080P clips on Hailuo-2.3 routinely hit 8–12 min on a busy
+     *    day, so the default needs headroom. Operators who want a
+     *    fast-fail can lower this in settings.
      *  - video.retrieve: 30 s — file-retrieval API call.
      */
     public const PROVIDER_DEFAULTS = [
@@ -56,7 +59,7 @@ final class MiniMaxSettings
         ],
         'video'  => [
             'submit_timeout_seconds'  => 120,
-            'poll_timeout_seconds'    => 600,
+            'poll_timeout_seconds'    => 900,
             'retrieve_timeout_seconds' => 30,
         ],
     ];

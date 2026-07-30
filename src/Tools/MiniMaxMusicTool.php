@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Spora\Plugins\MiniMax\Tools;
 
+use InvalidArgumentException;
 use LogicException;
 use Spora\Plugins\Concerns\StoresBinaryAssets;
 use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
@@ -11,6 +12,7 @@ use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Plugins\MiniMax\Support\MiniMaxTool;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
 use Spora\Services\AssetStore;
+use Spora\Services\LocalAssetStore;
 use Spora\Services\MediaArchive\MediaIngestRequest;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
@@ -111,6 +113,18 @@ final class MiniMaxMusicTool extends MiniMaxTool
     protected const TIMEOUT_SECONDS_COMPOSE = 180;
     protected const TIMEOUT_SECONDS_LYRICS  = 30;
     protected const AUDIO_MIME            = 'audio/mpeg';
+
+    /**
+     * Wired by PHP-DI from {@see MiniMaxPlugin::register()}.
+     * Forces the hex payload to disk via `/api/v1/assets/<token>.mp3`
+     * so the chat UI doesn't truncate a long base64 to `[data-omitted]`.
+     */
+    private ?LocalAssetStore $localAssetStore = null;
+
+    public function setLocalAssetStore(LocalAssetStore $localAssetStore): void
+    {
+        $this->localAssetStore = $localAssetStore;
+    }
 
     public function __construct(
         \Spora\Services\ToolConfigService $configService,
@@ -298,9 +312,23 @@ final class MiniMaxMusicTool extends MiniMaxTool
         );
 
         $data     = is_array($response['data'] ?? null) ? $response['data'] : [];
-        $rawAudio = $data['audio'] ?? null;
-        $hexAudio = is_string($rawAudio) ? $rawAudio : null;
-        $audioUrl = is_string($data['audio_url'] ?? null) ? $data['audio_url'] : null;
+        $rawAudio = is_string($data['audio'] ?? null) ? $data['audio'] : null;
+
+        // MiniMax's music_generation endpoint returns the audio in a single
+        // field `data.audio` regardless of `output_format`:
+        //   - `output_format=url` (default) → `data.audio` is a CDN URL string.
+        //   - `output_format=hex`           → `data.audio` is a hex-encoded MP3 blob.
+        // There is NO separate `data.audio_url` field for music (unlike the
+        // speech API, which does have both). Dispatch on the URL prefix so a
+        // payload that happens to start with "https" still routes correctly
+        // regardless of which `output_format` the caller asked for.
+        if ($rawAudio !== null && (str_starts_with($rawAudio, 'http://') || str_starts_with($rawAudio, 'https://'))) {
+            $audioUrl = $rawAudio;
+            $hexAudio = null;
+        } else {
+            $audioUrl = null;
+            $hexAudio = $rawAudio;
+        }
 
         if ($hexAudio === null && $audioUrl === null) {
             $this->support->logFailure($ctx, $response, 'No audio in response');
@@ -315,17 +343,35 @@ final class MiniMaxMusicTool extends MiniMaxTool
         }
         [$url, $assetMode] = $resolved;
 
-        // Ingest failures are swallowed so the tool still returns the playback URL.
         $archiveAsset = $this->ingestIntoMediaArchive($ctx, $audioUrl, $hexAudio, $prompt, $arguments);
-        if ($archiveAsset !== null && $archiveAsset->asset_url !== '' && !str_starts_with($archiveAsset->asset_url, 'data:')) {
+        if ($archiveAsset !== null
+            && $archiveAsset->asset_url !== ''
+            && !str_starts_with($archiveAsset->asset_url, 'data:')
+        ) {
             $url = $archiveAsset->asset_url;
+        }
+
+        // Hard invariant: this tool must NEVER emit a `data:` URL.
+        // `MiniMaxPlugin::register()` wires `LocalAssetStore` (and the
+        // MediaArchive swap produces `/api/v1/assets/...` too), so the
+        // only path that lands here with a `data:` URL is a
+        // misconfigured deployment or a custom factory that
+        // hand-rolled the tool. Fail loudly instead of papering over.
+        if (str_starts_with($url, 'data:')) {
+            throw new LogicException(
+                'MiniMaxMusicTool produced a data: URI; LocalAssetStore / MediaArchive wiring is missing from the DI container.',
+            );
         }
 
         $promptSummary = $prompt !== '' ? "prompt: \"{$prompt}\"" : 'instrumental';
 
+        $renderInstruction = str_starts_with($url, '/api/v1/assets/')
+            ? "Echo the `<audio>` element above verbatim — its `src` is `/api/v1/assets/<token>.mp3` served by the Media Archive, not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`."
+            : "Echo the `<audio>` element above verbatim — its `src` is the upstream MiniMax CDN URL (~24 h expiry); the Media Archive plugin isn't installed or this file was rejected, so the URL isn't rewritten to a long-lived `/api/v1/assets/...` path. Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.";
+
         return new ToolResult(true, "Generated music ({$promptSummary}).\n\n"
             . MediaEmbed::audioFromUrl($url)
-            . "\n\nUse the same audio embed above to show the media player in your reply.", [
+            . "\n\n" . $renderInstruction, [
                 'audio_url'  => $audioUrl,
                 'asset_url'  => $url,
                 'asset_mode' => $assetMode,
@@ -333,8 +379,8 @@ final class MiniMaxMusicTool extends MiniMaxTool
     }
 
     /**
-     * Returns `[url, mode]` for the playback URL, or null if the payload is
-     * neither a usable URL nor a valid hex blob.
+     * Returns `[url, mode]` for the playback URL, or null if the
+     * payload is neither a usable URL nor a valid hex blob.
      *
      * @return array{0: string, 1: string|null}|null
      */
@@ -344,9 +390,28 @@ final class MiniMaxMusicTool extends MiniMaxTool
             return [$audioUrl, null];
         }
         if ($hexAudio !== '' && $hexAudio !== null && strlen($hexAudio) % 2 === 0) {
-            return $this->embedHex($hexAudio, self::AUDIO_MIME, 'song.mp3');
+            return $this->embedComposeHex($hexAudio);
         }
         return null;
+    }
+
+    /**
+     * Prefers {@see LocalAssetStore} so the chat UI never sees a
+     * `data:` URI (the chat sanitizer truncates long base64).
+     *
+     * @return array{0: string, 1: string}
+     */
+    private function embedComposeHex(string $hex): array
+    {
+        if ($this->localAssetStore !== null) {
+            $bytes = hex2bin($hex);
+            if ($bytes === false || $bytes === '') {
+                throw new InvalidArgumentException('Hex payload decoded to empty bytes.');
+            }
+            $ref = $this->localAssetStore->store($bytes, mime: self::AUDIO_MIME, filename: 'song.mp3');
+            return [$ref->url, $ref->mode];
+        }
+        return $this->embedHex($hex, self::AUDIO_MIME, 'song.mp3');
     }
 
     /**

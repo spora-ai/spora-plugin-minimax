@@ -74,7 +74,7 @@ it('parses the music response and returns the audio URL for compose', function (
         }))
         ->andReturn(minimaxResponse(200, json_encode([
             'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-            'data'      => ['audio_url' => MiniMaxMusicToolTestLiterals::CDN_URL_SONG],
+            'data'      => ['audio' => MiniMaxMusicToolTestLiterals::CDN_URL_SONG],
         ])));
 
     $tool = new MiniMaxMusicTool($config, $http, $log, M::mock(Spora\Services\AssetStore::class));
@@ -82,8 +82,54 @@ it('parses the music response and returns the audio URL for compose', function (
 
     expect($result->success)->toBeTrue()
         ->and($result->content)->toContain(MiniMaxMusicToolTestLiterals::CDN_URL_SONG)
-        ->and($result->content)->toContain('Use the same audio embed above')
+        ->and($result->content)->toContain('Echo the `<audio>` element above verbatim')
         ->and($result->data['audio_url'])->toBe(MiniMaxMusicToolTestLiterals::CDN_URL_SONG);
+});
+
+it('routes a data.audio URL (MiniMax output_format=url shape) through the URL branch without hex-decoding', function () {
+    // Regression test for the field-name confusion that caused every
+    // production music_generation call to fail with
+    // "Music generation failed: Hex payload decoded to empty bytes."
+    //
+    // The MiniMax music_generation endpoint returns the audio in a single
+    // field `data.audio` regardless of `output_format`. When the caller
+    // asks for `output_format=url` (the default), `data.audio` is a CDN
+    // URL string — NOT hex. The previous code read `data.audio_url` (a
+    // field that doesn't exist on this endpoint) and then fell through
+    // to hex-decoding the URL string, which raised
+    // "hex2bin(): Input string must be hexadecimal string" and surfaced
+    // as "Hex payload decoded to empty bytes.".
+    //
+    // The AssetStore MUST NOT be touched on the URL path — that proves
+    // the URL branch (not the hex branch) was taken.
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $http = M::mock(HttpClientInterface::class);
+    $http->expects('request')
+        ->with('POST', 'https://api.minimax.io/v1/music_generation', M::any())
+        ->andReturn(minimaxResponse(200, json_encode([
+            'base_resp'  => ['status_code' => 0, 'status_msg' => 'success'],
+            'data'       => ['audio' => 'https://cdn.example/song.mp3', 'status' => 2],
+            'extra_info' => ['music_duration' => 80065, 'music_size' => 2566674],
+        ])));
+
+    $log = new MiniMaxLogWriter();
+
+    // `AssetStore::store` MUST NOT be called when the response is a URL.
+    // If the bug regresses, the tool will treat the URL as hex and call
+    // store() with the hex-decoded payload (32 bytes of garbage).
+    $assetStore = M::mock(Spora\Services\AssetStore::class);
+    $assetStore->shouldNotReceive('store');
+
+    $tool = new MiniMaxMusicTool($config, $http, $log, $assetStore);
+    $result = $tool->execute(['action' => 'compose', 'prompt' => MiniMaxMusicToolTestLiterals::PROMPT_SUNNY_DAY], 1);
+
+    expect($result->success)->toBeTrue()
+        ->and($result->content)->toContain('https://cdn.example/song.mp3')
+        ->and($result->content)->toContain('<audio')
+        ->and($result->content)->not->toContain('Hex payload decoded')
+        ->and($result->data['audio_url'])->toBe('https://cdn.example/song.mp3');
 });
 
 // --- write_lyrics ---
@@ -199,7 +245,7 @@ it('falls back to the first declared operation when action is absent', function 
         ->with('POST', 'https://api.minimax.io/v1/music_generation', M::any())
         ->andReturn(minimaxResponse(200, json_encode([
             'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-            'data'      => ['audio_url' => MiniMaxMusicToolTestLiterals::CDN_URL_SONG],
+            'data'      => ['audio' => MiniMaxMusicToolTestLiterals::CDN_URL_SONG],
         ])));
 
     $tool = new MiniMaxMusicTool($config, $http, $log, M::mock(Spora\Services\AssetStore::class));
@@ -230,7 +276,7 @@ it('ingests the audio_url into the MediaArchive and prefers asset_url in the emb
     $http = M::mock(HttpClientInterface::class);
     $http->expects('request')->andReturn(minimaxResponse(200, json_encode([
         'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-        'data'      => ['audio_url' => 'https://cdn.example/song.mp3'],
+        'data'      => ['audio' => 'https://cdn.example/song.mp3'],
     ])));
 
     $log = new MiniMaxLogWriter();

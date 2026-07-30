@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "4fb08612462c39701a7cf5dcff21f741",
+    "content-hash": "4e6f2e7112e6f8eac82ede808fb1e008",
     "packages": [
         {
             "name": "brick/math",
@@ -2487,16 +2487,16 @@
         },
         {
             "name": "spora-ai/spora-core",
-            "version": "v0.11.1",
+            "version": "0.12.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/spora-ai/spora-core.git",
-                "reference": "a0ea98a0410d0c6b1ee7b24edbbc057be1a10850"
+                "reference": "92511af68337c2aca77274201df9e6d54ea2fe7c"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/spora-ai/spora-core/zipball/a0ea98a0410d0c6b1ee7b24edbbc057be1a10850",
-                "reference": "a0ea98a0410d0c6b1ee7b24edbbc057be1a10850",
+                "url": "https://api.github.com/repos/spora-ai/spora-core/zipball/92511af68337c2aca77274201df9e6d54ea2fe7c",
+                "reference": "92511af68337c2aca77274201df9e6d54ea2fe7c",
                 "shasum": ""
             },
             "require": {
@@ -2541,10 +2541,12 @@
                 "mockery/mockery": "^1.6",
                 "pestphp/pest": "^4.0",
                 "phpstan/phpstan": "^2.1",
-                "phpstan/phpstan-mockery": "^2.0"
+                "phpstan/phpstan-mockery": "^2.0",
+                "zircote/swagger-php": "^6.4"
             },
             "bin": [
-                "bin/spora"
+                "bin/spora",
+                "bin/spora-build"
             ],
             "type": "library",
             "autoload": {
@@ -2559,9 +2561,9 @@
             "description": "A portable, zero-configuration AI agent orchestration platform that runs on any shared host (cPanel/FTP) without system dependencies beyond PHP 8.4+.",
             "support": {
                 "issues": "https://github.com/spora-ai/spora-core/issues",
-                "source": "https://github.com/spora-ai/spora-core/tree/v0.11.1"
+                "source": "https://github.com/spora-ai/spora-core/tree/v0.12.0"
             },
-            "time": "2026-07-19T22:36:17+00:00"
+            "time": "2026-07-29T15:58:44+00:00"
         },
         {
             "name": "symfony/clock",

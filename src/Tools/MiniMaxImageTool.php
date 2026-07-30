@@ -165,19 +165,34 @@ final class MiniMaxImageTool extends MiniMaxTool
 
         $this->support->logSuccess($ctx, $response);
 
-        $archiveUrls = [];
+        $archiveUrls   = [];
+        $anyArchived   = false;
+        $anyFallback   = false;
         foreach ($cleanUrls as $cdnUrl) {
-            $archiveUrls[] = $this->ingestImageUrl($ctx, $cdnUrl, $prompt, $arguments);
+            [$embedUrl, $archived] = $this->ingestImageUrl($ctx, $cdnUrl, $prompt, $arguments);
+            $archiveUrls[] = $embedUrl;
+            $anyArchived = $anyArchived || $archived;
+            $anyFallback = $anyFallback || !$archived;
         }
 
         $count   = count($archiveUrls);
+        // Mixed (some archived, some CDN) is unusual but possible
+        // when ingest succeeds intermittently — fall back to the
+        // more conservative "CDN URL" wording in that case so the
+        // LLM treats the URLs as short-lived.
+        $allArchived = $anyArchived && !$anyFallback;
+
+        $renderInstruction = $allArchived
+            ? "Echo the markdown image block above verbatim — its URL is `/api/v1/assets/<token>.<ext>` served by the Media Archive, not a relative filename (rewriting it breaks the image). Don't strip this sentence; it tells the chat UI to render the URL inline. For the raw URL, read `ToolResult.data.image_urls`."
+            : "Echo the markdown image block above verbatim — its URL is the upstream MiniMax CDN URL (valid ~24 h); the Media Archive plugin isn't installed or this image was rejected, so the URL isn't rewritten to a long-lived `/api/v1/assets/...` path. Don't strip this sentence; it tells the chat UI to render the URL inline. For the raw URL, read `ToolResult.data.image_urls`.";
+
         $content = "Generated {$count} image" . ($count === 1 ? '' : 's') . " for prompt: \"{$prompt}\"\n\n"
             . implode("\n\n", array_map(
                 static fn(int $i, string $u): string => MediaEmbed::image($u, "Generated image " . ($i + 1) . ": {$prompt}"),
                 array_keys($archiveUrls),
                 $archiveUrls,
             ))
-            . "\n\nUse the same Markdown image embed above to show the image in your reply.";
+            . "\n\n" . $renderInstruction;
 
         return new ToolResult(true, $content, [
             'image_urls' => $archiveUrls,
@@ -206,14 +221,22 @@ final class MiniMaxImageTool extends MiniMaxTool
     }
 
     /**
-     * Hand one CDN URL to the Media Archive. Returns the URL to embed in
-     * the chat — either the archive's opaque URL, or the original CDN URL
-     * if the archive is absent, fails, or hands us a `data:` URL (older
-     * core, or a non-default AssetStore in tests).
+     * Hand one CDN URL to the Media Archive. Returns the URL to embed
+     * in the chat along with whether the archive actually claimed it
+     * — either the archive's opaque URL and `true`, or the original
+     * CDN URL and `false` (when the archive is absent, fails, or
+     * hands us a `data:` URL — older core, or a non-default
+     * AssetStore in tests).
      *
-     * @param array<string, mixed> $arguments
+     * `@param-out` via the second tuple element lets the caller pick
+     * the trailing instruction honestly: when no image in the batch
+     * was archived, the instruction tells the LLM the URLs are the
+     * short-lived CDN URLs (not `/api/v1/assets/...`).
+     *
+     * @param  array<string, mixed> $arguments
+     * @return array{0: string, 1: bool}  [embedUrl, wasArchived]
      */
-    private function ingestImageUrl(MiniMaxToolContext $ctx, string $cdnUrl, string $prompt, array $arguments): string
+    private function ingestImageUrl(MiniMaxToolContext $ctx, string $cdnUrl, string $prompt, array $arguments): array
     {
         try {
             $asset = $this->mediaArchive()->ingest(new MediaIngestRequest(
@@ -231,7 +254,7 @@ final class MiniMaxImageTool extends MiniMaxTool
             ));
             $archiveUrl = is_string($asset->asset_url ?? null) ? $asset->asset_url : null;
             if ($archiveUrl !== null && $archiveUrl !== '' && !str_starts_with($archiveUrl, 'data:')) {
-                return $archiveUrl;
+                return [$archiveUrl, true];
             }
         } catch (Throwable $e) {
             $this->support->logger()?->warning('MediaArchive ingest failed (image)', [
@@ -239,6 +262,6 @@ final class MiniMaxImageTool extends MiniMaxTool
                 'url'       => $cdnUrl,
             ]);
         }
-        return $cdnUrl;
+        return [$cdnUrl, false];
     }
 }

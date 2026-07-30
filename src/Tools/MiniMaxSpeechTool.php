@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Spora\Plugins\MiniMax\Tools;
 
 use InvalidArgumentException;
+use LogicException;
 use Spora\Plugins\Concerns\StoresBinaryAssets;
 use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
 use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
@@ -22,18 +23,34 @@ use Spora\Tools\ValueObjects\ToolResult;
 use Throwable;
 
 /**
- * Synthesizes speech from text via MiniMax's t2a_v2 (text-to-audio) API.
- * Returns the upstream audio URL (24h expiry) if a CDN URL is available;
- * otherwise embeds the audio bytes inline.
+ * Synthesizes speech from text via MiniMax's t2a_v2 (text-to-audio) API
+ * and exposes the upstream voice library so the Agent can pick a
+ * language-matched voice id per call. The tool is a multi-operation
+ * discriminator:
+ *
+ *   - `synthesize` (default) — text → MP3; returns the upstream audio URL
+ *     (24h expiry) if a CDN URL is available, otherwise embeds the audio
+ *     bytes inline.
+ *   - `voices`              — fetch the MiniMax voice library
+ *     (`POST /v1/get_voice`, body `{"voice_type": "<bucket>"}`). Returns
+ *     every voice in the chosen bucket; `language` / `gender` / `voice_id`
+ *     are applied as client-side filters over `voice_name` + flattened
+ *     `description[]` because MiniMax's upstream API does not expose
+ *     server-side filters for those fields.
+ *
+ * The `voices` response-parsing / filtering / rendering helpers live in
+ * {@see MiniMaxSpeechVoiceLibrary}, kept out of this class so the tool
+ * stays under the SonarQube S1448 (≤20 methods) threshold.
  */
 #[Tool(
     name: 'speech',
-    description: 'Synthesize speech from text.',
+    description: 'Synthesize speech from text via MiniMax t2a_v2, or list the MiniMax voice library via POST /v1/get_voice so the LLM can pick a voice_id before synthesizing. Two operations: synthesize (default), voices.',
     displayName: 'MiniMax Speech',
     category: 'generation',
     icon: 'play',
 )]
 #[ToolOperation(name: 'synthesize', description: 'Synthesize speech from text', enabledByDefault: true, requiresApprovalByDefault: false)]
+#[ToolOperation(name: 'voices', description: 'List the MiniMax voice library (POST /v1/get_voice). Returns system / voice-cloning / voice-generation voices with `voice_name` + `description[]`. Use before `synthesize` to pick a language-matched voice_id.', enabledByDefault: true, requiresApprovalByDefault: false)]
 #[ToolSetting(
     key: 'api_key',
     label: 'MiniMax API Key',
@@ -72,20 +89,20 @@ use Throwable;
 #[ToolParameter(
     name: 'text',
     type: 'string',
-    description: 'The text to synthesize (max 10000 characters).',
-    required: true,
+    description: 'The text to synthesize (max 10000 characters). Required only when `action == "synthesize"` — `voices` skips it.',
+    required: ['synthesize'],
     maximum: 10000,
 )]
 #[ToolParameter(
     name: 'voice_id',
     type: 'string',
-    description: 'Override the default voice id for this call.',
+    description: 'For `synthesize`: override the default voice id for this call. For `voices`: return only voices whose `voice_id` matches this value (exact match).',
     required: false,
 )]
 #[ToolParameter(
     name: 'speed',
     type: 'number',
-    description: 'Speech speed multiplier (0.5 - 2.0).',
+    description: 'Speech speed multiplier (0.5 - 2.0). Optional — defaults to 1.0 when omitted (or when `action == "voices"`). Use 0.85–0.95 for deliberate narration; 1.1–1.3 for energetic / promotional reads.',
     required: false,
     minimum: 0.5,
     maximum: 2.0,
@@ -94,9 +111,39 @@ use Throwable;
 #[ToolParameter(
     name: 'filename',
     type: 'string',
-    description: 'Optional human-readable filename without an extension (e.g. "intro-greeting"). The correct file extension is appended automatically. When omitted, a speaking name is generated from the text.',
+    description: 'Optional human-readable filename without an extension (e.g. "intro-greeting"). The correct file extension is appended automatically. When omitted, a speaking name is generated from the text. Ignored by `voices`.',
     required: false,
     maximum: 120,
+)]
+#[ToolParameter(
+    name: 'voice_type',
+    type: 'string',
+    description: 'For `voices` only: which voice bucket to query upstream (MiniMax accepts only this single field on `POST /v1/get_voice`). `system` returns MiniMax\'s built-in voice library (default). `all` returns system + voice-cloning + voice-generation in one response. Ignored by `synthesize`.',
+    required: false,
+    enum: ['system', 'voice_cloning', 'voice_generation', 'all'],
+    default: 'system',
+)]
+#[ToolParameter(
+    name: 'language',
+    type: 'string',
+    description: 'For `voices` only: client-side substring filter applied to each voice\'s `voice_name` and flattened `description` (case-insensitive). MiniMax\'s upstream API does not filter by language — the caller must scan the returned list. Common values: "English", "Chinese", "Japanese", "Korean", "Spanish", "French", "German", "Italian", "Portuguese". Ignored by `synthesize`.',
+    required: false,
+)]
+#[ToolParameter(
+    name: 'gender',
+    type: 'string',
+    description: 'For `voices` only: client-side substring filter applied to each voice\'s flattened `description` (case-insensitive). MiniMax\'s upstream API does not tag gender explicitly — it lives inside the free-text description string. Common values: "male", "female". Ignored by `synthesize`.',
+    required: false,
+    enum: ['male', 'female'],
+)]
+#[ToolParameter(
+    name: 'limit',
+    type: 'number',
+    description: 'For `voices` only: client-side cap on how many voice bullets the response contains (default 50, hard-capped at 500). Ignored by `synthesize`.',
+    required: false,
+    minimum: 1,
+    maximum: 500,
+    default: 50,
 )]
 final class MiniMaxSpeechTool extends MiniMaxTool
 {
@@ -106,24 +153,19 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     protected const DEFAULT_MODEL   = 'speech-2.8-hd';
     protected const DEFAULT_VOICE   = 'English_PassionateWarrior';
     protected const QUALIFIED_NAME  = 'minimax:speech';
-    protected const TIMEOUT_SECONDS = 60;
-    protected const TOOL_LABEL      = 'Speech synthesis';
-    protected const AUDIO_MIME      = 'audio/mpeg';
+    protected const TIMEOUT_SECONDS        = 60;
+    protected const TIMEOUT_SECONDS_VOICES = 30;
+    protected const TOOL_LABEL             = 'Speech synthesis';
+    protected const TOOL_LABEL_VOICES      = 'Voice library fetch';
+    protected const AUDIO_MIME             = 'audio/mpeg';
 
     /**
-     * Optional direct injection of {@see LocalAssetStore}. When wired by
-     * {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()} via
-     * `\DI\get(LocalAssetStore::class)`, the speech tool always stores the
-     * decoded MP3 bytes on disk and emits a `/api/v1/assets/<token>.mp3`
-     * URL — bypassing the global `asset_store.mode`. Without it the tool
-     * falls back to the configured {@see AssetStore} (preserves test
-     * behaviour and the historical AssetStore path).
+     * Wired by PHP-DI from {@see MiniMaxPlugin::register()}.
+     * Forces the hex payload to disk via `/api/v1/assets/<token>.mp3`
+     * so the chat UI doesn't truncate a long base64 to `[data-omitted]`.
      */
     private ?LocalAssetStore $localAssetStore = null;
 
-    /**
-     * Wired by PHP-DI from {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()}.
-     */
     public function setLocalAssetStore(LocalAssetStore $localAssetStore): void
     {
         $this->localAssetStore = $localAssetStore;
@@ -150,10 +192,42 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         }
     }
 
+    /**
+     * Multi-operation dispatcher. Mirrors MiniMaxMusicTool::execute().
+     *
+     * Backward compat: pre-multi-op callers never passed `action` and
+     * landed on the synthesizer. The default match arm (`synthesize`)
+     * keeps that path alive for existing agent definitions, and any
+     * unrecognised `action` value also lands on synthesize rather than
+     * failing — the runtime schema validator (per the docs skill page)
+     * enforces the enum at a higher layer.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
+    {
+        $operation = (string) ($arguments['action'] ?? 'synthesize');
+        return match ($operation) {
+            'voices' => $this->listVoices($arguments, $agentId, $userId),
+            default  => $this->synthesize($arguments, $agentId, $userId),
+        };
+    }
+
+    /**
+     * Per-operation action description. The orchestrator renders this
+     * in the chat bubble when the Agent calls the tool with explicit
+     * approval — keep the descriptions short and action-shaped.
+     *
+     * @param array<string, mixed> $arguments
+     */
     public function describeAction(array $arguments): string
     {
+        $operation = (string) ($arguments['action'] ?? 'synthesize');
         $text = mb_substr(trim((string) ($arguments['text'] ?? '')), 0, 80);
-        return "Synthesize speech for: '{$text}'";
+        return match ($operation) {
+            'voices' => 'Fetch the MiniMax voice library',
+            default  => "Synthesize speech for: '{$text}'",
+        };
     }
 
     /** @param array<string, mixed> $arguments */
@@ -257,14 +331,33 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         [$url, $assetMode] = $resolved;
 
         $archiveAsset = $this->ingestIntoMediaArchive($ctx, $text, $audioUrl, $hexAudio, $sizeBytes, $arguments);
-        if ($archiveAsset !== null && $archiveAsset->asset_url !== '' && !str_starts_with($archiveAsset->asset_url, 'data:')) {
+        if ($archiveAsset !== null
+            && $archiveAsset->asset_url !== ''
+            && !str_starts_with($archiveAsset->asset_url, 'data:')
+        ) {
             $url = $archiveAsset->asset_url;
         }
+
+        // Hard invariant: this tool must NEVER emit a `data:` URL.
+        // `MiniMaxPlugin::register()` wires `LocalAssetStore` (and the
+        // MediaArchive swap produces `/api/v1/assets/...` too), so the
+        // only path that lands here with a `data:` URL is a
+        // misconfigured deployment or a custom factory that
+        // hand-rolled the tool. Fail loudly instead of papering over.
+        if (str_starts_with($url, 'data:')) {
+            throw new LogicException(
+                'MiniMaxSpeechTool produced a data: URI; LocalAssetStore / MediaArchive wiring is missing from the DI container.',
+            );
+        }
+
+        $renderInstruction = str_starts_with($url, '/api/v1/assets/')
+            ? "Echo the `<audio>` element above verbatim — its `src` is `/api/v1/assets/<token>.mp3` served by the Media Archive, not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`."
+            : "Echo the `<audio>` element above verbatim — its `src` is a short-lived MiniMax CDN URL (~24 h), not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.";
 
         $content = "Synthesized speech{$statsLine}.\n\n"
             . MediaEmbed::audioFromUrl($url) . "\n\n"
             . "Voice: {$voiceId}."
-            . "\n\nUse the same audio embed above to show the media player in your reply.";
+            . "\n\n" . $renderInstruction;
 
         return new ToolResult(true, $content, [
             'audio_url'  => $audioUrl,
@@ -278,24 +371,6 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     /**
      * @return array{0: string, 1: string|null}|null  [url, mode] or null
      *          when the payload is neither a usable URL nor valid hex.
-     *
-     * When MiniMax returns a CDN URL the audio is short-lived anyway; we
-     * pass it through and the MediaArchive ingest below swaps it for a
-     * persistent `/api/v1/assets/<token>.mp3` reference (when the Media
-     * Archive plugin is enabled). When MiniMax returns a hex blob the
-     * speech tool routes through {@see LocalAssetStore} directly when
-     * injected, sidestepping the global `asset_store.mode`. The default
-     * `auto` threshold is 1 MiB — most MiniMax speech clips are
-     * 50–500 KB, so on a default install the bytes would be inlined as a
-     * `data:audio/mpeg;base64,…` URI. Long base64 strings bloat the chat
-     * bubble, get truncated by downstream sanitizers to a `[data-omitted]`
-     * placeholder, and the resulting `<audio src=…>` fails to play.
-     *
-     * Falls back to the configured {@see AssetStore} when no
-     * {@see LocalAssetStore} is injected (test environments, custom
-     * factory wiring). The fallback path is the historical behaviour and
-     * never runs in production because the plugin's `register()` always
-     * wires `setLocalAssetStore()`.
      */
     private function resolveSpeechPlayback(?string $audioUrl, ?string $hexAudio): ?array
     {
@@ -309,11 +384,8 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     }
 
     /**
-     * Routes a decoded hex MP3 blob to {@see LocalAssetStore} when wired
-     * (the production path), falling back to the configured
-     * {@see AssetStore} otherwise. Extracted from
-     * {@see resolveSpeechPlayback()} so the dispatch method stays inside
-     * the SonarQube `php:S1142` (≤3 returns) threshold.
+     * Prefers {@see LocalAssetStore} so the chat UI never sees a
+     * `data:` URI (the chat sanitizer truncates long base64).
      *
      * @return array{0: string, 1: string}
      */
@@ -369,11 +441,20 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         }
 
         try {
-            if ($audioUrl !== '') {
-                $request = new MediaIngestRequest(...$base, url: $audioUrl);
-            } else {
-                $request = new MediaIngestRequest(...$base, hex: $hexAudio);
-            }
+            // Pass `url` and `hex` as named args so MiniMax returning one
+            // payload shape doesn't accidentally populate both. Symmetric
+            // with MiniMaxMusicTool::ingestIntoMediaArchive() — see #28
+            // for the speech-specific regression that prompted the move:
+            // the prior `if ($audioUrl !== '') { url: … } else { hex: … }`
+            // guard let `$audioUrl === null` slip through to the URL
+            // branch (`null !== ''` is true), leaving `hex` unset and
+            // tripping MediaIngestRequest's "exactly one non-empty source"
+            // invariant.
+            $request = new MediaIngestRequest(
+                ...$base,
+                url: $audioUrl,
+                hex: $audioUrl === null ? $hexAudio : null,
+            );
             return $this->mediaArchive()->ingest($request);
         } catch (Throwable $e) {
             $this->support->logger()?->warning('MediaArchive ingest failed (speech)', [
@@ -397,5 +478,171 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         }
 
         return $stats === [] ? '' : ' (' . implode(', ', $stats) . ')';
+    }
+
+    /**
+     * Run the `synthesize` operation through the standard
+     * validate → prepare → run pipeline. The single-op `synthesize`
+     * path is the historical default; preserved verbatim so existing
+     * calls (and the unit tests) keep working without an `action`
+     * discriminator.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    public function synthesize(array $arguments, int $agentId, ?int $userId): ToolResult
+    {
+        return $this->runWithValidation(
+            $arguments,
+            $agentId,
+            $userId,
+            self::TIMEOUT_SECONDS,
+            self::TOOL_LABEL,
+            fn(MiniMaxToolContext $c) => $this->doWork($c, $arguments),
+            fn(array $a) => $this->validateArguments($a),
+        );
+    }
+
+    /**
+     * Run the `voices` operation: hit MiniMax's voice management API
+     * and return the up-to-date list of voice ids (plus lightweight
+     * metadata) so the LLM can pick a language-matched voice before
+     * issuing the next `synthesize` call.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    public function listVoices(array $arguments, int $agentId, ?int $userId): ToolResult
+    {
+        return $this->runWithValidation(
+            $arguments,
+            $agentId,
+            $userId,
+            self::TIMEOUT_SECONDS_VOICES,
+            self::TOOL_LABEL_VOICES,
+            fn(MiniMaxToolContext $c) => $this->doFetchVoices($c, $arguments),
+            fn(array $a) => $this->validateVoicesArguments($a),
+        );
+    }
+
+    /**
+     * Per-operation validator for `voices`. Tightens the input only
+     * for fields the LLM explicitly set; empty / missing values fall
+     * through to the documented defaults (`voice_type: "system"`,
+     * `limit: 50`, no language / gender filter).
+     *
+     * The runtime schema validator on `gender` / `voice_type` runs
+     * earlier in normal operation; the checks below are
+     * defence-in-depth.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    protected function validateVoicesArguments(array $arguments): ?ToolResult
+    {
+        $errors = [];
+
+        $voiceType = trim((string) ($arguments['voice_type'] ?? ''));
+        if ($voiceType !== '' && !in_array($voiceType, ['system', 'voice_cloning', 'voice_generation', 'all'], true)) {
+            $errors[] = 'voice_type must be one of: system, voice_cloning, voice_generation, all.';
+        }
+
+        $gender = trim((string) ($arguments['gender'] ?? ''));
+        if ($gender !== '' && !in_array($gender, ['male', 'female'], true)) {
+            $errors[] = 'gender must be "male" or "female".';
+        }
+
+        $limit = $arguments['limit'] ?? null;
+        if ($limit !== null) {
+            if (!is_numeric($limit)) {
+                $errors[] = 'limit must be a number.';
+            } else {
+                $intLimit = (int) $limit;
+                if ($intLimit < 1 || $intLimit > MiniMaxSpeechVoiceLibrary::MAX_VOICE_LIMIT) {
+                    $errors[] = sprintf(
+                        'limit must be between 1 and %d (clamped at the hard cap).',
+                        MiniMaxSpeechVoiceLibrary::MAX_VOICE_LIMIT,
+                    );
+                }
+            }
+        }
+
+        return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
+    }
+
+    /**
+     * Voice library fetch worker.
+     *
+     * Upstream contract: `POST /v1/get_voice` (see
+     * https://platform.minimax.io/docs/api-reference/voice-management-get)
+     * takes exactly one field in the body — `voice_type` — and returns
+     * up to three voice buckets: `system_voice`, `voice_cloning`, and
+     * `voice_generation`. Each entry carries `voice_id`, `voice_name`
+     * (display name; not the API call id), and a free-text
+     * `description[]` array that MiniMax uses to convey language,
+     * gender, character, etc.
+     *
+     * Because MiniMax does not expose server-side filters, the LLM's
+     * `voice_id` / `language` / `gender` are applied client-side:
+     *   - `voice_id`: exact match against `voice_id`. When non-empty
+     *     it short-circuits the other filters (matches the SKILL.md
+     *     promise "Other filters are ignored when this is set" —
+     *     `voices(voice_id: "X")` is how the Agent checks whether
+     *     `X` is available on this MiniMax account).
+     *   - `language`: case-insensitive substring match against
+     *     `voice_name` + flattened `description`.
+     *   - `gender`:   case-insensitive substring match against
+     *     flattened `description`.
+     * `limit` is a client-side cap on the rendered bullet count.
+     *
+     * The result is a Markdown bullet list. Each bullet quotes the
+     * `voice_id` in backticks and, when present, appends the
+     * `voice_name` + description so the LLM can pick a language-matched
+     * voice from the chat transcript.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    protected function doFetchVoices(MiniMaxToolContext $ctx, array $arguments): ToolResult
+    {
+        /** @var MiniMaxHttpClient $client */
+        $client = $ctx->client;
+
+        $voiceType = MiniMaxSpeechVoiceLibrary::resolveVoiceType($arguments);
+        $timeout = $this->resolveTimeout('http_timeout_seconds', $ctx->settings, self::TIMEOUT_SECONDS_VOICES);
+        $response  = $client->postJson('/v1/get_voice', ['voice_type' => $voiceType], timeoutSeconds: $timeout);
+
+        $this->support->logSuccess($ctx, $response);
+
+        $allVoices = MiniMaxSpeechVoiceLibrary::extractVoices($response, $voiceType);
+        $filtered  = MiniMaxSpeechVoiceLibrary::applyClientFilters($allVoices, $arguments);
+        $limit     = MiniMaxSpeechVoiceLibrary::resolveLimit($arguments);
+        $capped    = array_slice($filtered, 0, $limit);
+
+        if ($capped === []) {
+            $emptyPayload = [
+                'count'        => 0,
+                'voices'       => [],
+                'voice_type'   => $voiceType,
+                'total'        => count($allVoices),
+                'after_filter' => count($filtered),
+            ];
+            return new ToolResult(
+                true,
+                MiniMaxSpeechVoiceLibrary::renderEmpty($arguments, $allVoices, $filtered),
+                $emptyPayload,
+            );
+        }
+
+        $content = MiniMaxSpeechVoiceLibrary::renderVoicesList($capped, $arguments);
+
+        return new ToolResult(true, $content, [
+            'count'   => count($capped),
+            'voices'  => array_map(static fn(array $v): array => [
+                'voice_id'     => (string) ($v['voice_id'] ?? ''),
+                'voice_name'   => $v['voice_name'] ?? null,
+                'description'  => $v['description'] ?? null,
+                '_source'      => (string) ($v['_source'] ?? ''),
+            ], $capped),
+            'voice_type'   => $voiceType,
+            'total'        => count($allVoices),
+            'after_filter' => count($filtered),
+        ]);
     }
 }
