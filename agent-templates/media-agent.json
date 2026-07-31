@@ -123,7 +123,16 @@
     {
       "tool_class": "Spora\\Tools\\SkillTool",
       "enabled": true,
-      "operations": []
+      "operations": [],
+      "settings": {
+        "allowed_skills": [
+          "time-arithmetic",
+          "minimax-image",
+          "minimax-music",
+          "minimax-speech",
+          "minimax-video"
+        ]
+      }
     },
     {
       "tool_class": "Spora\\Tools\\TimeTool",
@@ -147,6 +156,9 @@
   ],
   "metadata": {
     "category": "general",
+    "archetype": "creative",
+    "variant_key": "v0",
+    "palette_key": "violet",
     "icon": "puzzle"
   },
   "description": "Generates and renders media artifacts (images, speech, music, video) via the MiniMax plugin and renders any user-supplied media inline."
