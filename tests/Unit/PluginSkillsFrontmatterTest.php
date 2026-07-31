@@ -42,7 +42,7 @@ it('every plugin-shipped SKILL.md parses via the same YAML library the SkillScan
     $parsed = Yaml::parse($m[1]);
 
     expect($parsed)->toBeArray('YAML parse must yield an object (mapping).');
-    expect($parsed)->toHaveKeys(['name', 'description'], 'name + description are mandatory per skill.schema.json.');
+    expect($parsed)->toHaveKeys(['name', 'description'], 'name + description are mandatory per the agentskills.io spec.');
 
     expect($parsed['name'])->toBe($slug, 'name must equal the parent directory so SkillValidator\'s NAME_DIR_MISMATCH rule passes.');
     expect($parsed['description'])->toBeString();

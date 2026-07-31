@@ -1,4 +1,5 @@
 {
+    "$schema": "https://docs.spora-ai.com/schemas/plugin.schema.json",
     "slug": "minimax",
     "description": "Image, speech, music (with lyrics), and video generation via MiniMax's multimodal APIs. Text/chat is provided by Spora's built-in Anthropic-compatible driver pointed at MiniMax's base URL.",
     "class": "Spora\\Plugins\\MiniMax\\MiniMaxPlugin",
