@@ -28,12 +28,30 @@ use Throwable;
  */
 final class MiniMaxToolSupport
 {
+    private ?LoggerInterface $logger;
+
     public function __construct(
         private readonly ToolConfigService   $configService,
         private readonly HttpClientInterface $httpClient,
         private readonly MiniMaxLogWriter    $logWriter,
-        private readonly ?LoggerInterface    $logger = null,
-    ) {}
+        ?LoggerInterface                     $logger = null,
+    ) {
+        $this->logger = $logger;
+    }
+
+    /**
+     * Wire the PSR-3 logger that the tool's catch blocks log to on
+     * MediaArchive ingest failures. The setter is invoked by PHP-DI from
+     * {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()} so the
+     * container's `LoggerInterface` binding (the Monolog `spora` logger)
+     * reaches the support without going through an optional ctor
+     * parameter — which PHP-DI's reflection autowiring leaves at its
+     * default value (`null`).
+     */
+    public function setLogger(?LoggerInterface $logger): void
+    {
+        $this->logger = $logger;
+    }
 
     /**
      * Resolve settings for the given tool class, verify the API key is present, and

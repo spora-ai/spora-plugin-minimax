@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Spora\Plugins\MiniMax;
 
 use DI\ContainerBuilder;
+use Psr\Log\LoggerInterface;
 use Spora\Plugins\AbstractPlugin;
 use Spora\Plugins\MiniMax\Tools\MiniMaxImageTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxMusicTool;
@@ -76,10 +77,19 @@ final class MiniMaxPlugin extends AbstractPlugin
      * short-circuited to `null` by `DefaultValueResolver` before the
      * type-hint resolver runs, so the tools' `?MediaArchiveService
      * $mediaArchive = null` ctor params never get autowired. The same
-     * trick bites `autowire()->method('setMediaArchive')` if the
-     * setter's parameter is left implicit (`InvalidDefinition`).
-     * Binding the resolver explicitly via `\DI\get(...)` short-circuits
-     * both paths.
+     * trick bites the optional `?LoggerInterface $logger = null` param
+     * — without an explicit binding the catch-block `?->warning()`
+     * calls in every tool silently no-op and a failing MediaArchive
+     * ingest looks identical to a successful one in the logs.
+     *
+     * The fix is the same pattern that wires `setMediaArchive` /
+     * `setLocalAssetStore`: bind the container's `LoggerInterface`
+     * (the Monolog `spora` logger) through `\DI\get(...)` and inject
+     * it via the support's `setLogger()` setter. The setter is on
+     * {@see Support\MiniMaxToolSupport}, which
+     * the base tool class builds internally and which owns every
+     * `$this->support->logger()?->…` call site, so a single setter
+     * covers all four tools.
      *
      * `setLocalAssetStore` is wired for the speech + music tools so
      * their audio payloads always land at
@@ -93,16 +103,23 @@ final class MiniMaxPlugin extends AbstractPlugin
     {
         $archiveService  = \DI\get(MediaArchiveService::class);
         $localAssetStore = \DI\get(LocalAssetStore::class);
+        $logger          = \DI\get(LoggerInterface::class);
 
         $builder->addDefinitions([
-            MiniMaxImageTool::class  => \DI\autowire()->method('setMediaArchive', $archiveService),
+            MiniMaxImageTool::class  => \DI\autowire()
+                ->method('setMediaArchive', $archiveService)
+                ->method('setLogger', $logger),
             MiniMaxSpeechTool::class => \DI\autowire()
                 ->method('setMediaArchive', $archiveService)
-                ->method('setLocalAssetStore', $localAssetStore),
+                ->method('setLocalAssetStore', $localAssetStore)
+                ->method('setLogger', $logger),
             MiniMaxMusicTool::class  => \DI\autowire()
                 ->method('setMediaArchive', $archiveService)
-                ->method('setLocalAssetStore', $localAssetStore),
-            MiniMaxVideoTool::class  => \DI\autowire()->method('setMediaArchive', $archiveService),
+                ->method('setLocalAssetStore', $localAssetStore)
+                ->method('setLogger', $logger),
+            MiniMaxVideoTool::class  => \DI\autowire()
+                ->method('setMediaArchive', $archiveService)
+                ->method('setLogger', $logger),
         ]);
     }
 }

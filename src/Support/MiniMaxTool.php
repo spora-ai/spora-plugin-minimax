@@ -53,6 +53,19 @@ abstract class MiniMaxTool extends AbstractTool
         $this->support = $support ?? new MiniMaxToolSupport($configService, $httpClient, $logWriter, $logger);
     }
 
+    /**
+     * Pass-through to {@see MiniMaxToolSupport::setLogger()}. PHP-DI binds
+     * the container's `LoggerInterface` here from
+     * {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()} — the optional
+     * ctor param is short-circuited to `null` by reflection autowiring
+     * and never carries the production logger on its own. The setter is
+     * the wire.
+     */
+    public function setLogger(?LoggerInterface $logger): void
+    {
+        $this->support->setLogger($logger);
+    }
+
     public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
     {
         // Resolve the timeout from per-tool settings before runWithValidation
