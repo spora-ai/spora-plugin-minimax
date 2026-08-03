@@ -28,12 +28,26 @@ use Throwable;
  */
 final class MiniMaxToolSupport
 {
+    private ?LoggerInterface $logger;
+
     public function __construct(
         private readonly ToolConfigService   $configService,
         private readonly HttpClientInterface $httpClient,
         private readonly MiniMaxLogWriter    $logWriter,
-        private readonly ?LoggerInterface    $logger = null,
-    ) {}
+        ?LoggerInterface                     $logger = null,
+    ) {
+        $this->logger = $logger;
+    }
+
+    /**
+     * Wired by PHP-DI from {@see MiniMaxPlugin::register()}; the optional
+     * ctor param is short-circuited to null by reflection autowiring, so
+     * the setter is the only path that reaches the production logger.
+     */
+    public function setLogger(?LoggerInterface $logger): void
+    {
+        $this->logger = $logger;
+    }
 
     /**
      * Resolve settings for the given tool class, verify the API key is present, and

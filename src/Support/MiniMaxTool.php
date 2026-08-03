@@ -53,6 +53,14 @@ abstract class MiniMaxTool extends AbstractTool
         $this->support = $support ?? new MiniMaxToolSupport($configService, $httpClient, $logWriter, $logger);
     }
 
+    /**
+     * Wired by PHP-DI from {@see MiniMaxPlugin::register()}.
+     */
+    public function setLogger(?LoggerInterface $logger): void
+    {
+        $this->support->setLogger($logger);
+    }
+
     public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
     {
         // Resolve the timeout from per-tool settings before runWithValidation
