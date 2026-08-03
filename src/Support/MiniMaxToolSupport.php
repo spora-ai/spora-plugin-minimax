@@ -40,13 +40,9 @@ final class MiniMaxToolSupport
     }
 
     /**
-     * Wire the PSR-3 logger that the tool's catch blocks log to on
-     * MediaArchive ingest failures. The setter is invoked by PHP-DI from
-     * {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()} so the
-     * container's `LoggerInterface` binding (the Monolog `spora` logger)
-     * reaches the support without going through an optional ctor
-     * parameter — which PHP-DI's reflection autowiring leaves at its
-     * default value (`null`).
+     * Wired by PHP-DI from {@see MiniMaxPlugin::register()}; the optional
+     * ctor param is short-circuited to null by reflection autowiring, so
+     * the setter is the only path that reaches the production logger.
      */
     public function setLogger(?LoggerInterface $logger): void
     {

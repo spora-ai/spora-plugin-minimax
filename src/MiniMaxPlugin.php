@@ -74,30 +74,14 @@ final class MiniMaxPlugin extends AbstractPlugin
 
     /**
      * PHP-DI quirk: nullable ctor params with `= null` defaults are
-     * short-circuited to `null` by `DefaultValueResolver` before the
-     * type-hint resolver runs, so the tools' `?MediaArchiveService
-     * $mediaArchive = null` ctor params never get autowired. The same
-     * trick bites the optional `?LoggerInterface $logger = null` param
-     * — without an explicit binding the catch-block `?->warning()`
-     * calls in every tool silently no-op and a failing MediaArchive
-     * ingest looks identical to a successful one in the logs.
+     * short-circuited to null by DefaultValueResolver before the type-hint
+     * resolver runs, so the tools' optional `?MediaArchiveService` /
+     * `?LoggerInterface` ctor params never get autowired. Explicit
+     * `\DI\get(...)` resolvers + setter calls are the workaround.
      *
-     * The fix is the same pattern that wires `setMediaArchive` /
-     * `setLocalAssetStore`: bind the container's `LoggerInterface`
-     * (the Monolog `spora` logger) through `\DI\get(...)` and inject
-     * it via the support's `setLogger()` setter. The setter is on
-     * {@see Support\MiniMaxToolSupport}, which
-     * the base tool class builds internally and which owns every
-     * `$this->support->logger()?->…` call site, so a single setter
-     * covers all four tools.
-     *
-     * `setLocalAssetStore` is wired for the speech + music tools so
-     * their audio payloads always land at
-     * `/api/v1/assets/<token>.mp3` — never inlined as a
-     * `data:audio/mpeg;base64,…` URI (the chat UI sanitizer truncates
-     * long base64 to `[data-omitted]` and the base64 itself burns
-     * tokens). Image + video are URL-only upstream payloads, no
-     * LocalAssetStore needed.
+     * `setLocalAssetStore` is wired only for the speech + music tools so
+     * their audio payloads always land at `/api/v1/assets/<token>.mp3`
+     * (the chat UI sanitizer truncates long base64 to `[data-omitted]`).
      */
     public function register(ContainerBuilder $builder): void
     {

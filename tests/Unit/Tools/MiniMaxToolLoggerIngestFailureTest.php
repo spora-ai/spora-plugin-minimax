@@ -25,9 +25,8 @@ use Symfony\Component\HttpClient\Response\MockResponse;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
- * In-memory PSR-3 logger for ingest-failure assertions. Captures every
- * record so tests can assert both the call happened *and* the message
- * matches the production wording (so the operator can grep for it).
+ * In-memory PSR-3 logger that records every log() call so tests can
+ * assert both the call and the message.
  */
 final class CapturingLogger extends AbstractLogger
 {
@@ -45,28 +44,16 @@ final class CapturingLogger extends AbstractLogger
 }
 
 /**
- * Build a real `MediaArchiveService` that fetches bytes successfully
- * (so the URL branch returns the body and not an `external` row) but
- * then fails at the AssetStore write step — the only seam that throws
- * an exception which the tools' catch blocks observe.
- *
- * Without this arrangement a failing remote client produces an
- * `external` row (the resolver swallows the fetch error and persists
- * the original URL), which means the tool's catch never fires. The
- * `AssetStore` throws on `store()` because `MediaArchiveService::storeAsset`
- * catches `AssetTooLargeException` and rethrows it as a
- * `MediaArchiveException` — that exception bubbles out of `ingest()`
- * and lands in `MiniMax*Tool::ingest*()`'s `catch (Throwable)`.
+ * Real MediaArchiveService whose AssetStore throws on store(). The
+ * URL branch swallows fetch errors and persists an `external` row, so
+ * a failing remote client never reaches the tools' catch — the
+ * AssetStore write is the only seam that surfaces an exception to it.
  */
 function minimaxLoggerArchiveService(): MediaArchiveService
 {
     $logger  = new Psr\Log\NullLogger();
     $sniffer = new MimeSniffer();
 
-    // Tiny 8-byte payload for both the HEAD probe and the GET — the
-    // HEAD advertises a small content-length so the resolver doesn't
-    // skip the body fetch on a "too large" guess, and the GET returns
-    // the body itself.
     $http = new MockHttpClient([
         new MockResponse('', [
             'response_headers' => [
@@ -131,8 +118,6 @@ it('image tool logs a warning when MediaArchive::ingest throws', function () {
 
     $result = $tool->execute(['prompt' => 'a red fox'], 1);
 
-    // Tool still succeeds — ingest failure is non-fatal. The image
-    // URL falls back to the upstream CDN URL.
     expect($result->success)->toBeTrue();
 
     $matching = array_values(array_filter(
@@ -192,10 +177,6 @@ it('music tool logs a warning when MediaArchive::ingest throws', function () {
     $log     = new MiniMaxLogWriter();
     $logger  = new CapturingLogger();
 
-    // The music tool ships hex output through the configured
-    // AssetStore; we use a mock that never gets called (the
-    // LocalAssetStore is set as the wire so the configured
-    // AssetStore is bypassed). The archive service is what fails.
     $assetStore = M::mock(AssetStore::class);
     $assetStore->shouldNotReceive('store');
 

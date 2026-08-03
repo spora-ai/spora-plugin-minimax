@@ -54,12 +54,7 @@ abstract class MiniMaxTool extends AbstractTool
     }
 
     /**
-     * Pass-through to {@see MiniMaxToolSupport::setLogger()}. PHP-DI binds
-     * the container's `LoggerInterface` here from
-     * {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()} — the optional
-     * ctor param is short-circuited to `null` by reflection autowiring
-     * and never carries the production logger on its own. The setter is
-     * the wire.
+     * Wired by PHP-DI from {@see MiniMaxPlugin::register()}.
      */
     public function setLogger(?LoggerInterface $logger): void
     {

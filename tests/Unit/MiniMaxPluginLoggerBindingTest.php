@@ -8,19 +8,9 @@ use Spora\Plugins\MiniMax\MiniMaxPlugin;
 use Spora\Services\MediaArchive\MediaArchiveService;
 
 /**
- * Boots a real {@see ContainerBuilder} with the same wiring the core
- * kernel applies (PSR-3 LoggerInterface + MediaArchiveService) and
- * asserts the plugin's `register()` produced a container where the
- * MiniMax tools' optional `?LoggerInterface` ctor param is filled by a
- * real binding rather than PHP-DI's reflection-autowiring default
- * (`null`).
- *
- * Without the explicit `setLogger` binding, the catch-block
- * `?->warning(...)` in every MiniMax tool silently no-ops in
- * production — that's how the original bug (a missing
- * `MediaArchive` ingest surfaced as the generic
- * "the Media Archive plugin isn't installed" wording with no server
- * log entry) went unnoticed.
+ * Boots a real ContainerBuilder with PSR-3 + MediaArchive wired in,
+ * then asserts the plugin's register() produced a container where
+ * LoggerInterface resolves to the bound instance.
  */
 
 it('register() binds LoggerInterface to every MiniMax tool', function () {
