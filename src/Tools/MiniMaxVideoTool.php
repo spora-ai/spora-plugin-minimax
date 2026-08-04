@@ -42,9 +42,12 @@ use Throwable;
  *
  *   - `regenerate`     — re-submit a previously generated H3 video's `content[]`
  *     to `/v2/video_regeneration` with `resolution: '2K'` and the original
- *     768P output appended as a `role=base_video` source. The original
- *     `content[]` is persisted to `minimax_generation_log.submitted_content`
- *     on `generate` success and looked up by `minimax_task_id` here.
+ *     768P output appended as a `role=base_video` source. The LLM is
+ *     responsible for passing back the exact `prompt` / `first_frame_image` /
+ *     `last_frame_image` / `reference_*` arguments it used for the original
+ *     `generate` call, plus `base_video_url` (the previous 768P output's
+ *     `download_url` or `asset_url`). The tool does not persist the
+ *     original `content[]` — the LLM is the source of truth.
  *
  * All four operations share `pollUntilDone()` — the only difference is the
  * create endpoint and how the success envelope is consumed.
@@ -105,7 +108,7 @@ use Throwable;
 #[ToolParameter(
     name: 'prompt',
     type: 'string',
-    description: 'Text prompt describing the video. Camera-movement tags like `[Pan left]`, `[Push in]` are supported. Max 7000 characters (H3 cap). Required for `generate` and `enhance_prompt`; ignored by `resume` and `regenerate` (the latter replays the stored `content[]`).',
+    description: 'Text prompt describing the video. Camera-movement tags like `[Pan left]`, `[Push in]` are supported. Max 7000 characters (H3 cap). Required for `generate` and `enhance_prompt`; ignored by `resume`. `regenerate` requires the same `prompt` originally submitted (used to rebuild `content[]` from call arguments).',
     required: ['generate', 'enhance_prompt'],
     maximum: 7000,
 )]
@@ -228,6 +231,16 @@ final class MiniMaxVideoTool extends MiniMaxTool
      * has already exceeded `poll_timeout_seconds`.
      */
     protected const POLL_REQUEST_TIMEOUT_SECONDS = 30;
+
+    /**
+     * Maximum size (bytes) of an inline `data:` URI we'll forward to
+     * MiniMax. The v2 endpoint caps the request body at 64 MB and
+     * JSON wrapping + the rest of `content[]` adds ~10 KB of overhead,
+     * so 50 MB leaves ~14 MB of headroom for a single image without
+     * tripping the 64 MB ceiling. Larger payloads must use a public
+     * URL.
+     */
+    protected const MAX_DATA_URI_BYTES = 50 * 1024 * 1024;
 
     /**
      * Allowed resolution values under H3. MiniMax's v2 endpoint accepts
@@ -399,8 +412,9 @@ final class MiniMaxVideoTool extends MiniMaxTool
      * input validation too.
      *
      * `resume` doesn't need it (all fields are upstream-fixed at submit
-     * time). `regenerate` doesn't need it (the original `content[]` is
-     * replayed verbatim from the log row).
+     * time). `regenerate` runs `validateRegenerateArguments()` instead —
+     * its argument set is narrower (`task_id` + `base_video_url` + a
+     * locked `resolution: '2K'`).
      *
      * @param array<string, mixed> $arguments
      */
@@ -417,9 +431,17 @@ final class MiniMaxVideoTool extends MiniMaxTool
         }
 
         $durationRaw = $arguments['duration_seconds'] ?? 6;
-        $duration    = is_numeric($durationRaw) ? (int) $durationRaw : 0;
-        if ($duration < 4 || $duration > 15) {
-            $errors[] = 'duration_seconds must be an integer between 4 and 15.';
+        // H3 only accepts integers. Reject fractional / decimal inputs
+        // (e.g. "4.5") explicitly instead of silently truncating — a
+        // silent cast to (int) would round 4.5 → 4 and produce an
+        // unexpected clip length.
+        if (!$this->isIntegerLike($durationRaw)) {
+            $errors[] = 'duration_seconds must be an integer between 4 and 15 (no decimals, no non-numeric strings).';
+        } else {
+            $duration = (int) $durationRaw;
+            if ($duration < 4 || $duration > 15) {
+                $errors[] = 'duration_seconds must be an integer between 4 and 15.';
+            }
         }
 
         $resolution = trim((string) ($arguments['resolution'] ?? ''));
@@ -558,8 +580,12 @@ final class MiniMaxVideoTool extends MiniMaxTool
         $allUrls = array_values(array_filter([$first, $last], static fn(string $u): bool => $u !== ''));
         $allUrls = array_merge($allUrls, $refImgs, $refVids, $refAud);
         foreach ($allUrls as $url) {
+            if ($this->isMediaArchivePath($url)) {
+                $errors[] = $this->mediaArchiveRejectionMessage($url);
+                continue;
+            }
             if (!$this->isAcceptableUrl($url)) {
-                $errors[] = "media URL must be http(s):// or mm_file:// (data: URIs are rejected — the 64 MB request body cap can't carry inline base64): '{$url}'.";
+                $errors[] = "media URL must be http(s)://, mm_file://, or a data: URI (got: '{$url}').";
             }
         }
 
@@ -567,14 +593,64 @@ final class MiniMaxVideoTool extends MiniMaxTool
     }
 
     /**
-     * Accept `http://`, `https://`, or `mm_file://` URLs. Reject `data:`
-     * (per {@see collectContentErrors()}) and any other scheme.
+     * Accept `http://`, `https://`, `mm_file://`, or `data:` URIs (data: URIs
+     * are accepted for image-to-video workflows where the LLM has the bytes
+     * inline — the 50 MB cap on the URI string itself keeps the request body
+     * well under MiniMax's 64 MB ceiling once JSON wrapping is added).
      */
     private function isAcceptableUrl(string $url): bool
     {
-        return str_starts_with($url, 'http://')
-            || str_starts_with($url, 'https://')
-            || str_starts_with($url, 'mm_file://');
+        if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://') || str_starts_with($url, 'mm_file://')) {
+            return true;
+        }
+        if (str_starts_with($url, 'data:')) {
+            return strlen($url) <= self::MAX_DATA_URI_BYTES;
+        }
+        return false;
+    }
+
+    /**
+     * Match Spora Media Archive relative paths (`/api/v1/assets/<uuid>.<ext>`).
+     * These can't be passed to MiniMax: they're served by the Spora HTTP
+     * controller, not externally reachable, and H3 doesn't recognise the
+     * opaque URL form. Callers must either generate a fresh image via
+     * `minimax_image` (Path B in `minimax-image-to-video`) or supply a
+     * public URL.
+     */
+    private function isMediaArchivePath(string $url): bool
+    {
+        return str_starts_with($url, '/api/v1/assets/');
+    }
+
+    /**
+     * Produce an operator- and LLM-friendly rejection for a Media Archive
+     * path. Surfaces both the validation error and the recovery recipe so
+     * the LLM can self-correct without a retry round-trip.
+     */
+    private function mediaArchiveRejectionMessage(string $url): string
+    {
+        return "Media Archive URL '{$url}' is not reachable from MiniMax's servers. "
+            . 'For an uploaded image, generate a fresh image with `minimax_image` (Path B of the minimax-image-to-video skill) and pass the generated `image_urls[0]` as `first_frame_image`. '
+            . 'For an externally-hosted image, paste the public URL directly.';
+    }
+
+    /**
+     * Validate that a scalar represents an integer (int or numeric string
+     * with no decimal/exponent component). Used to reject `"4.5"` and
+     * `"4e0"` inputs that `(int)` cast would silently truncate.
+     *
+     * @param mixed $value
+     */
+    private function isIntegerLike(mixed $value): bool
+    {
+        if (is_int($value)) {
+            return true;
+        }
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            return $trimmed !== '' && preg_match('/^-?\d+$/', $trimmed) === 1;
+        }
+        return false;
     }
 
     /**
@@ -1008,11 +1084,10 @@ final class MiniMaxVideoTool extends MiniMaxTool
      * appends the previous 768P output as `base_video`, and submits
      * to `/v2/video_regeneration`.
      *
-     * `submitRegenerationTask()` is responsible for the content
-     * integrity check (H3 rejects regenerations whose `content` doesn't
-     * match what generated the source). We don't compare against a
-     * persisted log row — we trust the LLM to pass back the same
-     * arguments it used for `generate`. The skill spells this out.
+     * The tool does NOT validate that the rebuilt `content[]` matches
+     * what originally generated the source — H3 upstream will return
+     * 400 if it doesn't. The LLM is the source of truth; the skill
+     * spells this out.
      *
      * @param array<string, mixed> $arguments
      */
@@ -1175,7 +1250,7 @@ final class MiniMaxVideoTool extends MiniMaxTool
     ): string {
         if ($baseVideoUrl === '') {
             throw new MiniMaxApiException(
-                'regenerate: the original generate task\'s download URL is missing — the log row may have been written by an older plugin version that didn\'t capture the URL.',
+                'regenerate: base_video_url is required — pass the previous 768P output\'s `download_url` (or `asset_url` from the Media Archive).',
                 0,
             );
         }
@@ -1343,7 +1418,14 @@ final class MiniMaxVideoTool extends MiniMaxTool
                 'status'   => $status,
                 'interval' => $intervalSeconds,
             ]);
-            sleep($intervalSeconds);
+
+            // Cap the sleep to the remaining deadline — sleeping the full
+            // configured interval past the deadline would report `timed_out`
+            // up to one full interval late. Minimum 1 s so we always make
+            // forward progress.
+            $remainingAfterProbe = (int) ceil($deadline - microtime(true));
+            $sleepFor            = max(1, min($intervalSeconds, $remainingAfterProbe));
+            sleep($sleepFor);
         }
     }
 

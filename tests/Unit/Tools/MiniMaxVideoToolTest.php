@@ -173,6 +173,54 @@ it('rejects duration_seconds above 15', function () {
         ->and($result->content)->toContain('duration_seconds');
 });
 
+it('rejects fractional duration_seconds (string with decimal)', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    // A string like "4.5" would have been silently cast to (int) 4 — reject instead.
+    $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => '4.5'], 1);
+
+    expect($result->success)->toBeFalse()
+        ->and($result->content)->toContain('duration_seconds')
+        ->and($result->content)->toContain('no decimals');
+});
+
+it('rejects non-numeric duration_seconds', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => 'forever'], 1);
+
+    expect($result->success)->toBeFalse()
+        ->and($result->content)->toContain('duration_seconds')
+        ->and($result->content)->toContain('no decimals');
+});
+
+it('accepts integer-like duration_seconds strings (digit-only)', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn([
+        'api_key'               => 'k',
+        'poll_interval_seconds' => '1',
+        'poll_timeout_seconds'  => '5',
+    ]);
+
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->allows('request')
+        ->with('POST', 'https://api.minimax.io/v2/video_generation', Mockery::any())
+        ->andReturn(h3Response(200, json_encode(['task_id' => 'task-dur-str'])));
+    $http->allows('request')
+        ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
+        ->andReturn(h3Response(200, json_encode(['task' => ['id' => 'task-dur-str', 'status' => 'running']])));
+
+    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    // "6" as a string is acceptable — LLM tooling often sends numbers as strings.
+    $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => '6'], 1);
+
+    expect($result->data['timed_out'] ?? false)->toBeTrue();
+});
+
 it('rejects an unknown resolution value', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
@@ -596,7 +644,36 @@ it('regenerate rebuilds content[] from arguments and appends base_video at resol
         ->and($result->data['task_type'])->toBe('regeneration');
 });
 
-it('regenerate rejects data: URI for base_video_url', function () {
+it('regenerate accepts a data: URI for base_video_url (under the size cap)', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn([
+        'api_key'               => 'k',
+        'poll_interval_seconds' => '1',
+        'poll_timeout_seconds'  => '5',
+    ]);
+
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->allows('request')
+        ->with('POST', 'https://api.minimax.io/v2/video_regeneration', Mockery::any())
+        ->andReturn(h3Response(200, json_encode(['task_id' => 'task-regen-data'])));
+    $http->allows('request')
+        ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
+        ->andReturn(h3Response(200, json_encode(['task' => ['id' => 'task-regen-data', 'status' => 'running']])));
+
+    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $result = $tool->execute([
+        'action'         => 'regenerate',
+        'task_id'        => 'task-original',
+        // Small data: URI (well under the 50 MB cap) — accepted for regenerate.
+        'base_video_url' => 'data:video/mp4;base64,AAA=',
+        'prompt'         => 'a forest',
+    ], 1);
+
+    // Reaches the submit + poll loop; poll never terminates → timed_out.
+    expect($result->data['timed_out'] ?? false)->toBeTrue();
+});
+
+it('regenerate rejects a data: URI over the size cap for base_video_url', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
@@ -604,7 +681,8 @@ it('regenerate rejects data: URI for base_video_url', function () {
     $result = $tool->execute([
         'action'         => 'regenerate',
         'task_id'        => 'task-original',
-        'base_video_url' => 'data:video/mp4;base64,AAA=',
+        // > 50 MB data: URI — rejected client-side.
+        'base_video_url' => 'data:video/mp4;base64,' . str_repeat('A', 51 * 1024 * 1024),
         'prompt'         => 'a forest',
     ], 1);
 

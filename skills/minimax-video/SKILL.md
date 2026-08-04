@@ -104,7 +104,7 @@ The response is `ToolResult.data.enhanced_prompt` — pass it verbatim as the `p
 
 The v2 regeneration endpoint (`POST /v2/video_regeneration`) takes the original generation's `content[]` verbatim, appends the previous 768P source as a `role: base_video` item, and submits with `resolution: "2K"`. Per the spec: "**The `text` must be the final prompt actually sent to the model when generating the 768P source video, not the original prompt from before H3-Context-IR processing**."
 
-**`regenerate` rebuilds `content[]` from the same arguments you passed to `generate`** — pass back the exact `prompt`, `first_frame_image`, `last_frame_image`, `reference_*` you used originally, plus `base_video_url` (the previous 768P output's URL). The skill spells this out for the LLM, and the tool's client-side validation rejects mismatches early.
+**`regenerate` rebuilds `content[]` from the same arguments you passed to `generate`** — pass back the exact `prompt`, `first_frame_image`, `last_frame_image`, `reference_*` you used originally, plus `base_video_url` (the previous 768P output's URL). The tool does NOT validate the rebuilt `content[]` against the original — H3 upstream returns 400 if it doesn't match. The LLM is the source of truth for the original args; pass them through verbatim.
 
 `regenerate` is billed as a separate task — it does not "edit" the original.
 
@@ -240,11 +240,15 @@ The tool emits `debug` / `info` / `warning` PSR-3 entries to the Spora logger (M
 
 - `debug` "MiniMaxVideoTool: generate dispatched" — mode (text_only / i2v_… / r2v), content item count, duration, resolution, ratio, prompt length.
 - `info`  "MiniMaxVideoTool: generate submitted" — task_id, duration, resolution, ratio, content items.
-- `debug` "MiniMaxVideoTool: aspect ratio resolved …" — which mode-rule applied (t2v / i2v / r2v) and the final ratio.
+- `debug` "MiniMaxVideoTool: enhance_prompt dispatched" — same shape as `generate dispatched`.
+- `info`  "MiniMaxVideoTool: enhance_prompt submitted" — same shape as `generate submitted`.
+- `debug` "MiniMaxVideoTool: regenerate started" — source_task_id, base_video_url.
+- `info`  "MiniMaxVideoTool: regenerate submitted" — source_task_id, new_task_id, content_items, ratio, duration.
+- `debug` "MiniMaxVideoTool: aspect ratio resolved …" — which mode-rule applied (t2v / i2v / r2v / text-only fallback) and the final ratio.
 - `debug` "MiniMaxVideoTool: POST submit" / "… submit accepted" — endpoint, model, body shape (no URL contents), returned task_id.
-- `info`  "MiniMaxVideoTool: video generation started" — task_id, interval, poll_timeout.
+- `error` "MiniMaxVideoTool: submit returned no task_id" — endpoint, model, response shape (synthetic exception when upstream is missing the id).
+- `info`  "MiniMaxVideoTool: poll loop started" — task_id, interval, poll_timeout, expect_kind.
 - `debug` "MiniMaxVideoTool: still processing, sleeping" — per-poll, includes current status.
-- `info`  "MiniMaxVideoTool: enhance_prompt submitted" / "regenerate submitted" — same shape as `generate submitted`.
 - `warning` "MiniMaxVideoTool: unexpected task_type on success" — sanity check that the submitted task came back as the expected `task_type`.
 - `debug` "MiniMaxVideoTool: archiving result" — task_id, kind, download URL.
 

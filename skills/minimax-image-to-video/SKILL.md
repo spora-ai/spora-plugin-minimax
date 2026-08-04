@@ -1,20 +1,21 @@
 ---
 name: minimax-image-to-video
-description: "Animate a still image into a short video clip via MiniMax H3 image-to-video. Use when the user asks to 'animate this', 'bring this image to life', 'turn this into a video', 'make a clip of this picture', or any motion-from-still workflow. Chains `minimax_image` (or an existing uploaded image) → `minimax_video` with `first_frame_image` + `aspect_ratio: \"adaptive\"`. If the user supplied their own image, the LLM already has its Media Archive URL in context — no re-encoding required."
+description: "Animate a still image into a short video clip via MiniMax H3 image-to-video. Use when the user asks to 'animate this', 'bring this image to life', 'turn this into a video', 'make a clip of this picture', or any motion-from-still workflow. Chains `minimax_image` (or an externally-hosted image URL) → `minimax_video` with `first_frame_image` + `aspect_ratio: \"adaptive\"`. For uploaded chat attachments, Path B (regenerate via `minimax_image`) is the only working path — Spora Media Archive URLs aren't reachable from MiniMax's servers."
 license: MIT
 compatibility: spora>=0.7 spora-plugin-minimax>=1.2
 metadata:
   author: spora-ai
-  version: "1.0"
+  version: "1.1"
 allowed-tools: Spora\Plugins\MiniMax\Tools\MiniMaxImageTool, Spora\Plugins\MiniMax\Tools\MiniMaxVideoTool
 ---
 
 # MiniMax image-to-video workflow
 
-H3 supports first-frame image-to-video: the model takes a still image and animates it according to a text prompt describing the desired motion. This skill documents the two paths to feed an image into `minimax_video(first_frame_image: ...)`:
+H3 supports first-frame image-to-video: the model takes a still image and animates it according to a text prompt describing the desired motion. This skill documents the three paths to feed an image into `minimax_video(first_frame_image: ...)`:
 
-1. **Uploaded image** — the user attached a picture to the chat. Its Media Archive URL is already in the conversation context.
+1. **Externally-hosted image** — the user pasted or referenced a public URL. Pass it directly to `minimax_video`.
 2. **Generated image** — the user wants a video of a freshly generated image. Call `minimax_image` first, then take its output URL.
+3. **Uploaded chat attachment** — the user attached a picture to the chat. Its Media Archive URL is in the LLM's context, but it's NOT reachable from MiniMax's servers. Use Path B (regenerate via `minimax_image`) instead.
 
 ## When to load
 
@@ -30,14 +31,14 @@ If the user just wants a plain text-to-video (no still anchor), don't load this 
 
 ## Calling
 
-### Path A — uploaded image (the user attached a picture)
+### Path A — externally-hosted image (the user pasted a public URL)
 
-The attachment's Media Archive URL is already in the conversation context (Spora renders it as `<media src="/api/v1/assets/<token>.<ext>">` in the message). Pass that URL straight through to `minimax_video`:
+If the user already provided a publicly-reachable image URL, pass it directly. This is the highest-fidelity path — no re-encoding, no regeneration loss.
 
 ```
 minimax_video(
   prompt: "[Push in] The fox lifts its head and looks into the camera, wind rustling its fur, golden-hour lighting",
-  first_frame_image: "/api/v1/assets/9b8c7d6e-1234-5678-9abc-def012345678.png",
+  first_frame_image: "https://cdn.example.com/uploads/fox-still.png",
   duration_seconds: 6,
   resolution: "768P",
   aspect_ratio: "adaptive",
@@ -46,9 +47,11 @@ minimax_video(
 
 The `aspect_ratio: "adaptive"` is critical — H3 derives the output ratio from the input image for image-to-video mode. Setting a concrete ratio like `16:9` is silently ignored.
 
-### Path B — generated image (the user wants a video of a fresh image)
+URL hygiene: only `http://`, `https://`, and `mm_file://` are accepted (plus `data:` URIs up to ~50 MB for tools that can supply inline bytes). Relative paths, Spora Media Archive URLs (`/api/v1/assets/...`), and `data:` URIs above the size cap are rejected with an actionable error message.
 
-Two-step chain:
+### Path B — generated image (the user wants a video of a fresh image OR uploaded an attachment)
+
+Use this when the user has uploaded a chat attachment OR wants a fresh still generated from a description. Two-step chain — `minimax_image` returns absolute `image_urls` that `minimax_video` accepts directly:
 
 ```
 # Step 1 — generate the still
@@ -65,6 +68,23 @@ minimax_video(
 ```
 
 If `minimax_image` returned multiple images, pick the one the user wanted (usually `[0]` unless the user asked for variations). When in doubt, ask before generating — the still is the foundation of the clip.
+
+**Uploaded attachments and Path B**: when the user attaches a picture to chat, you see `<media src="/api/v1/assets/<token>.<ext>">` in the message. Don't pass that path to `minimax_video` — it's served by Spora's local HTTP controller and MiniMax can't reach it. Use Path B (regenerate a similar still via `minimax_image`) instead. This loses the user's exact image; if fidelity matters, ask the user to paste a public URL (Path A) or describe the image so Path B can closely approximate it.
+
+### Path C — multimodal first/last frame
+
+For start-end-frame animation (specifying both an opening and closing still), supply both URLs. Both must pass the URL hygiene rules above.
+
+```
+minimax_video(
+  prompt: "[Dolly zoom] The flower opens, petals unfurling into full bloom",
+  first_frame_image: "https://cdn.example.com/uploads/bud.png",
+  last_frame_image:  "https://cdn.example.com/uploads/bloom.png",
+  aspect_ratio: "adaptive",
+)
+```
+
+`last_frame_image` requires `first_frame_image` (H3 pairs them); the tool rejects mismatches.
 
 ## Prompt craft for the motion
 
@@ -83,7 +103,7 @@ When the still supplies the look, the `prompt` should describe **motion + camera
 
 Useful camera tags: `[Push in]`, `[Pull out]`, `[Pan left]`, `[Pan right]`, `[Tracking shot]`, `[Static]`, `[Slow motion]`, `[Shallow DOF]`.
 
-## Limits (H3 input caps for first_frame_image)
+## Limits (H3 input caps for first_frame_image / last_frame_image)
 
 - Single-file size: ≤30 MB.
 - Width / height: [256, 5760] px.
@@ -94,19 +114,19 @@ If the user supplied an image outside these bounds (e.g. a tall screenshot), dow
 
 ## Don'ts
 
-- **Don't base64-encode the image** — H3 caps the request body at 64 MB. Inline base64 inflates by ~33% and any non-trivial image will exceed the cap. Always pass the Media Archive URL (which starts with `/api/v1/assets/`) or a public URL.
-- **Don't re-encode the image** — pass the URL through verbatim. The Media Archive serves a stable URL that's safe to reference across turns.
+- **Don't pass a Spora Media Archive URL** (`/api/v1/assets/<token>.<ext>`) — it's served by the local HTTP controller, not externally reachable. MiniMax will return 4xx when trying to fetch it. Use Path A (public URL) or Path B (regenerate via `minimax_image`).
+- **Don't inline-base64-encode an uploaded attachment** — you don't have the raw bytes in context; the LLM message carries only the URL. Generating a similar still via Path B is the only practical way to animate an uploaded image.
 - **Don't set `aspect_ratio` to anything other than `adaptive` for i2v** — H3 forces `adaptive` server-side; sending `16:9` doesn't error but is silently ignored, wasting a request parameter that could trip up future migrations.
-- **Don't pass `reference_*` alongside `first_frame_image`** — i2v and r2v are mutually exclusive. If you need a style/character anchor on top of the input image, that's a different (currently unsupported) flow — fall back to plain t2v with the references.
-- **Don't use a CDN URL that might expire** — if the user uploaded an image, use the Media Archive URL (long-lived). If the user pasted an external URL, use it directly but warn them that the link must stay reachable.
+- **Don't pass `reference_*` alongside `first_frame_image`** — i2v and r2v are mutually exclusive. If you need a style/character anchor on top of the input image, fall back to plain t2v with the references.
+- **Don't use a CDN URL that might expire** — MiniMax may fetch the image asynchronously. Use a stable URL (S3 / GCS public object, a CDN with long-lived URLs). For short-lived URLs from `minimax_image`, prefer the `image_urls[0]` returned in the same session.
 - **Don't add a `last_frame_image` without a matching `first_frame_image`** — H3 requires them paired; the tool rejects mismatches.
 - **Don't claim "done" before the tool returns** — H3 generation takes 30 s to several minutes; the user sees a spinner. Tell them what you're doing ("generating… usually 30–120 s") and only claim success after `minimax_video` returns.
-- **Don't recurse the chain** — you don't need to call `minimax_image` to "preview" the image if the user supplied it. The attachment URL is already the preview.
-- **Don't skip Path A** — when an attachment is present, prefer Path A over Path B. Path B (regenerate) loses fidelity vs. the user's original.
+- **Don't skip Path B for attachments** — when an attachment is present and the user wants the exact image animated, Path B is the only option. If fidelity matters, surface this to the user explicitly.
 
 ## Failure modes
 
-- `media URL must be http(s):// or mm_file:// …` — you passed a `data:` URI or an empty string. Re-check the attachment.
+- `Media Archive URL '/api/v1/assets/...' is not reachable from MiniMax's servers. …` — you passed a Spora Media Archive path. Use Path A (public URL) or Path B (regenerate via `minimax_image`).
+- `media URL must be http(s)://, mm_file://, or a data: URI (got: ...)` — you passed a URL with an unsupported scheme (ftp://, file://, etc.) or an empty string. Re-check the URL.
 - `MiniMax H3 task failed (code=1026): video description contains sensitive content` — your prompt tripped the safety filter. Rephrase (replace specific violence / brand references with cinematic abstractions) and retry.
 - `H3 task did not finish within <N>s` — the generation didn't finish in time. Call `minimax_video(action: "resume", task_id: ...)` on the next turn to keep waiting.
 - `MiniMax succeeded but the response did not include a download URL` — extremely rare; the upstream succeeded but the response was malformed. Retry once; if it persists, surface.
