@@ -37,11 +37,6 @@ final class MiniMaxPlugin extends AbstractPlugin
         return 1;
     }
 
-    public function migrationsPath(): string
-    {
-        return __DIR__ . '/../database/migrations';
-    }
-
     /**
      * Plugin-shipped Skills live as siblings under `<plugin>/skills/<slug>/SKILL.md`.
      * Each of the four tools gets one Skill (`minimax-image`, `minimax-speech`,

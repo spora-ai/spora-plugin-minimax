@@ -21,29 +21,45 @@ use Spora\Tools\ValueObjects\ToolResult;
 use Throwable;
 
 /**
- * Generates a short video clip from a text prompt via MiniMax's
- * `video_generation` API. Two operations:
+ * Generates a short video clip via MiniMax's H3 multimodal video model.
  *
- *   - `generate` (default) — submit a prompt, poll status until
- *     `Success` or `Fail`, then `/v1/files/retrieve` for the MP4.
- *   - `resume` — re-attach to a previously submitted task by `task_id`
- *     and continue polling. Used when `generate` returned
- *     `success: false` with `data.timed_out: true`.
+ * Four operations:
  *
- * Both operations share `submitGeneration` / `pollUntilDone` /
- * `retrieveDownloadUrl` / `archiveAndRender`; the only thing that
- * differs is whether the task is fresh (generate) or pre-existing
- * (resume).
+ *   - `generate`       — submit a multimodal `content[]` payload (text + optional
+ *     first/last-frame images + reference images / videos / audio), poll
+ *     `/v2/query/video_generation/{task_id}` until `succeeded`, archive the
+ *     MP4 via the Media Archive. The download URL is read directly from
+ *     `task.content.url` on success — no second `/v1/files/retrieve` roundtrip.
+ *
+ *   - `resume`         — re-attach to a previously submitted task by `task_id`
+ *     and continue polling. Used when `generate` returned `success: false` with
+ *     `data.timed_out: true`.
+ *
+ *   - `enhance_prompt` — POST to `/v2/h3_context_ir` with the same `content[]`
+ *     shape; the upstream returns a structured, semantically richer video
+ *     prompt (retrievable from `task.content.prompt` when the task succeeds,
+ *     identified by `task_type=h3_context_ir`). No video is produced.
+ *
+ *   - `regenerate`     — re-submit a previously generated H3 video's `content[]`
+ *     to `/v2/video_regeneration` with `resolution: '2K'` and the original
+ *     768P output appended as a `role=base_video` source. The original
+ *     `content[]` is persisted to `minimax_generation_log.submitted_content`
+ *     on `generate` success and looked up by `minimax_task_id` here.
+ *
+ * All four operations share `pollUntilDone()` — the only difference is the
+ * create endpoint and how the success envelope is consumed.
  */
 #[Tool(
     name: 'video',
-    description: 'Generate a short video clip (asynchronous; up to 10s). The download URL is valid for ~1 hour. Pass `action: "resume"` with `task_id` to re-attach to an in-flight task whose first call timed out.',
+    description: 'Generate a short video clip via MiniMax H3 (multimodal: text + first/last-frame images + reference images / video clips / audio). Async; download URL valid briefly. Use `enhance_prompt` to enrich the prompt first, `resume` to re-attach to a timed-out task, and `regenerate` to upsample a finished 768P clip to 2K.',
     displayName: 'MiniMax Video',
     category: 'generation',
     icon: 'video',
 )]
-#[ToolOperation(name: 'generate', description: 'Generate a short video clip from a text prompt', enabledByDefault: true, requiresApprovalByDefault: false)]
+#[ToolOperation(name: 'generate', description: 'Submit a new H3 video task (text + optional image / video / audio references) and archive the result.', enabledByDefault: true, requiresApprovalByDefault: false)]
 #[ToolOperation(name: 'resume', description: 'Continue polling a previously submitted task by id. Use when a previous `generate` returned `data.timed_out: true`.', enabledByDefault: true, requiresApprovalByDefault: false)]
+#[ToolOperation(name: 'enhance_prompt', description: 'Send the same multimodal inputs to H3-Context-IR and return an enriched, structured prompt (no video is produced). Pass the returned prompt into a follow-up `generate` call for best results.', enabledByDefault: true, requiresApprovalByDefault: true)]
+#[ToolOperation(name: 'regenerate', description: 'Upsample a finished 768P H3 video to 2K by re-submitting the original content[] with the source clip as `base_video`. Requires a `task_id` from a previous `generate` call.', enabledByDefault: true, requiresApprovalByDefault: true)]
 #[ToolSetting(
     key: 'api_key',
     label: 'MiniMax API Key',
@@ -62,8 +78,8 @@ use Throwable;
     key: 'model',
     label: 'Model',
     type: 'text',
-    description: 'Video model id. Must be one of MiniMax-Hailuo-2.3, MiniMax-Hailuo-02, T2V-01-Director, T2V-01 (default: MiniMax-Hailuo-2.3).',
-    default: 'MiniMax-Hailuo-2.3',
+    description: 'Video model id. Only `MiniMax-H3` is supported by the v2 endpoint.',
+    default: self::DEFAULT_MODEL,
 )]
 #[ToolSetting(
     key: 'poll_interval_seconds',
@@ -76,7 +92,7 @@ use Throwable;
     key: 'poll_timeout_seconds',
     label: 'Poll timeout (s)',
     type: 'text',
-    description: 'Total wait window for video generation (default: 900). 1080P clips on Hailuo-2.3 can take 8–12 min on a busy day.',
+    description: 'Total wait window for H3 tasks (default: 900). 2K regeneration on a busy day can take 8–12 min.',
     default: '900',
 )]
 #[ToolSetting(
@@ -86,32 +102,70 @@ use Throwable;
     description: 'Per-request timeout for the submit API call (MiniMax queues the task server-side; default: 120).',
     default: '120',
 )]
-#[ToolSetting(
-    key: 'retrieve_timeout_seconds',
-    label: 'File retrieve timeout (s)',
-    type: 'number',
-    description: 'Per-request timeout for the /v1/files/retrieve call (default: 30).',
-    default: '30',
-)]
 #[ToolParameter(
     name: 'prompt',
     type: 'string',
-    description: 'Text prompt describing the video. Camera-movement tags like `[Pan left]`, `[Push in]` are supported (max 2000 characters). Required only for `generate`; `resume` ignores it.',
-    required: ['generate'],
-    maximum: 2000,
+    description: 'Text prompt describing the video. Camera-movement tags like `[Pan left]`, `[Push in]` are supported. Max 7000 characters (H3 cap). Required for `generate` and `enhance_prompt`; ignored by `resume` and `regenerate` (the latter replays the stored `content[]`).',
+    required: ['generate', 'enhance_prompt'],
+    maximum: 7000,
+)]
+#[ToolParameter(
+    name: 'first_frame_image',
+    type: 'string',
+    description: 'URL of the opening frame for image-to-video. Mutually exclusive with `last_frame_image` (use both for start-end-frame). H3 input caps: ≤30 MB, [256, 5760] px, aspect [0.4, 2.5]. `generate` / `enhance_prompt` only.',
+    required: false,
+)]
+#[ToolParameter(
+    name: 'last_frame_image',
+    type: 'string',
+    description: 'URL of the ending frame for start-end-frame image-to-video. Pairs with `first_frame_image`. Same input caps. `generate` / `enhance_prompt` only.',
+    required: false,
+)]
+#[ToolParameter(
+    name: 'reference_images',
+    type: 'array',
+    description: 'Subject/style reference images (reference-to-video mode). Up to 9. Mutually exclusive with `first_frame_image` / `last_frame_image` — pick image-to-video OR reference-to-video, not both.',
+    required: false,
+    items: ['type' => 'string'],
+    maximum: 9,
+)]
+#[ToolParameter(
+    name: 'reference_videos',
+    type: 'array',
+    description: 'Reference video clips (reference-to-video mode). Up to 3. Each: MP4/MOV, H.264/H.265, ≤50 MB, [2, 15] s, [256, 5760] px. `generate` / `enhance_prompt` only.',
+    required: false,
+    items: ['type' => 'string'],
+    maximum: 3,
+)]
+#[ToolParameter(
+    name: 'reference_audio',
+    type: 'array',
+    description: 'Reference audio clips (reference-to-video mode). Up to 3. Each: WAV/MP3, ≤15 MB, [2, 15] s. MUST be accompanied by an image or video input (H3 rejects audio-only `content[]`). `generate` / `enhance_prompt` only.',
+    required: false,
+    items: ['type' => 'string'],
+    maximum: 3,
+)]
+#[ToolParameter(
+    name: 'aspect_ratio',
+    type: 'string',
+    description: 'Aspect ratio. Required for text-only `generate` / `enhance_prompt` (cannot be `adaptive`). Auto-forced to `adaptive` whenever any image / video / audio reference is supplied (H3 derives the ratio from the input). Allowed: adaptive, 21:9, 16:9, 4:3, 1:1, 3:4, 9:16.',
+    required: false,
+    enum: self::ASPECT_RATIOS,
+    default: '16:9',
 )]
 #[ToolParameter(
     name: 'duration_seconds',
-    type: 'string',
-    description: 'Target video duration in seconds (`"6"` or `"10"`). 10s is only supported by `MiniMax-Hailuo-2.3` and `MiniMax-Hailuo-02` at 768P — see the *Resolution × duration matrix* in the skill.',
+    type: 'integer',
+    description: 'Target video duration in seconds. Integer, 4–15 inclusive. `generate` / `enhance_prompt` only.',
     required: false,
-    enum: ['6', '10'],
-    default: '6',
+    minimum: 4,
+    maximum: 15,
+    default: 6,
 )]
 #[ToolParameter(
     name: 'resolution',
     type: 'string',
-    description: 'Video resolution. One of `720P`, `768P`, `1080P` (uppercase P, exact match). Allowed values depend on the model and duration — see the *Resolution × duration matrix* in the skill. `resume` accepts it (preferred) so the timeout-failure data on `generate` can be replayed verbatim.',
+    description: 'Output resolution. One of `768P`, `2K`. `resume` accepts it (preferred) so a timed-out `generate` can be replayed verbatim.',
     required: false,
     enum: self::RESOLUTIONS,
 )]
@@ -133,18 +187,24 @@ use Throwable;
 #[ToolParameter(
     name: 'task_id',
     type: 'string',
-    description: 'The MiniMax task id from a previous `generate` call. Required only for `resume`.',
-    required: ['resume'],
+    description: 'The MiniMax task id from a previous `generate` (or `enhance_prompt`) call. Required for `resume` and `regenerate`.',
+    required: ['resume', 'regenerate'],
+)]
+#[ToolParameter(
+    name: 'base_video_url',
+    type: 'string',
+    description: 'For `regenerate`: the download URL of the previous 768P H3 video (the `download_url` / `asset_url` from the original `generate` response). Required for `regenerate`; ignored by other operations.',
+    required: ['regenerate'],
 )]
 final class MiniMaxVideoTool extends MiniMaxTool
 {
     use StoresBinaryAssets;
 
-    protected const PROVIDER        = 'video';
-    protected const DEFAULT_MODEL   = 'MiniMax-Hailuo-2.3';
-    protected const QUALIFIED_NAME  = 'minimax:video';
-    protected const TIMEOUT_SECONDS = 120;
-    protected const TOOL_LABEL      = 'Video generation';
+    protected const PROVIDER         = 'video';
+    protected const DEFAULT_MODEL    = 'MiniMax-H3';
+    protected const QUALIFIED_NAME   = 'minimax:video';
+    protected const TIMEOUT_SECONDS  = 120;
+    protected const TOOL_LABEL       = 'Video generation';
 
     /**
      * Hard floor for `poll_interval_seconds`. Operators can configure
@@ -161,7 +221,7 @@ final class MiniMaxVideoTool extends MiniMaxTool
     protected const MAX_POLL_INTERVAL_SECONDS = 600;
 
     /**
-     * Per-poll HTTP timeout. Bounds the single `GET /v1/query/...`
+     * Per-poll HTTP timeout. Bounds the single `GET /v2/query/...`
      * request so a stalled probe can't outlive the loop's overall
      * deadline — without this, a stalled request makes the
      * `timed_out` envelope never reachable even when wall-clock time
@@ -170,45 +230,33 @@ final class MiniMaxVideoTool extends MiniMaxTool
     protected const POLL_REQUEST_TIMEOUT_SECONDS = 30;
 
     /**
-     * Allowed resolution values. The MiniMax video endpoint uses
-     * uppercase `P` literal (`1080P`, not `1080p`) and rejects mixed
-     * case. Centralised here so the tool attribute, the validator,
-     * and the special-case hint all agree.
+     * Allowed resolution values under H3. MiniMax's v2 endpoint accepts
+     * only these two; uppercase `P` literal on `768P`.
      *
      * @var list<string>
      */
-    public const RESOLUTIONS = ['720P', '768P', '1080P'];
+    public const RESOLUTIONS = ['768P', '2K'];
 
     /**
-     * Width-constant shortcut for {@see RESOLUTIONS}. The matrix
-     * validator at {@see validateMatrix()} uses this for the
-     * "10s is only 768P" hint — pulling `1080P` here keeps SonarQube
-     * S1192 from flagging literal duplication.
+     * Allowed aspect-ratio values under H3. `adaptive` is valid only for
+     * image-to-video and reference-to-video modes (image-driven). For
+     * text-to-video `adaptive` is rejected upstream — the resolver in
+     * {@see resolveAspectRatio()} handles that mode-aware enforcement.
+     *
+     * @var list<string>
      */
-    public const RES_1080P = '1080P';
+    public const ASPECT_RATIOS = ['adaptive', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
 
     /**
-     * Per-upstream-matrix allow-list of (resolution, duration) pairs
-     * for each supported model. Sourced verbatim from
-     * https://platform.minimax.io/docs/api-reference/video-generation-t2v
-     * (table at "duration" + "resolution").
+     * Aspect ratios valid for text-to-video mode. Excludes `adaptive`,
+     * which H3 rejects for t2v (the spec: "Text-to-video (t2va): ratio is
+     * required and cannot be `adaptive`"). Used by the resolver to fall
+     * back to a safe concrete ratio when the LLM supplies `adaptive`
+     * with text-only content.
      *
-     * Lookup: `$rules[$model][$resolution]` returns the list of legal
-     * durations for that combination. An empty list means the
-     * combination is forbidden (e.g. `T2V-01` + `768P`).
-     *
-     * Effective defaults are derived from this same matrix in
-     * {@see resolveEffectiveResolution()}.
+     * @var list<string>
      */
-    private const DURATION_RULES = [
-        'MiniMax-Hailuo-2.3'  => ['720P' => [6], '768P' => [6, 10], '1080P' => [6]],
-        'MiniMax-Hailuo-02'   => ['720P' => [6], '768P' => [6, 10], '1080P' => [6]],
-        'T2V-01-Director'     => ['720P' => [6], '768P' => [],     '1080P' => [6]],
-        'T2V-01'              => ['720P' => [6], '768P' => [],     '1080P' => [6]],
-    ];
-
-    /** Models recognised by the MiniMax video endpoint, in declaration order. */
-    private const SUPPORTED_MODELS = ['MiniMax-Hailuo-2.3', 'MiniMax-Hailuo-02', 'T2V-01-Director', 'T2V-01'];
+    private const TEXT_ONLY_ASPECT_RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
 
     public function __construct(
         \Spora\Services\ToolConfigService $configService,
@@ -230,8 +278,7 @@ final class MiniMaxVideoTool extends MiniMaxTool
     }
 
     /**
-     * Multi-operation dispatcher. Mirrors MiniMaxMusicTool::execute()
-     * and MiniMaxSpeechTool::execute().
+     * Multi-operation dispatcher.
      *
      * Backward compat: pre-multi-op callers never passed `action` and
      * landed on `generate` (the only operation at the time). The
@@ -245,9 +292,11 @@ final class MiniMaxVideoTool extends MiniMaxTool
     {
         $operation = (string) ($arguments['action'] ?? 'generate');
         return match ($operation) {
-            'generate' => $this->generate($arguments, $agentId, $userId),
-            'resume'   => $this->resume($arguments, $agentId, $userId),
-            default    => new ToolResult(false, "Unknown video operation: {$operation}. Expected 'generate' or 'resume'."),
+            'generate'       => $this->generate($arguments, $agentId, $userId),
+            'resume'         => $this->resume($arguments, $agentId, $userId),
+            'enhance_prompt' => $this->enhancePrompt($arguments, $agentId, $userId),
+            'regenerate'     => $this->regenerate($arguments, $agentId, $userId),
+            default          => new ToolResult(false, "Unknown video operation: {$operation}. Expected 'generate', 'resume', 'enhance_prompt', or 'regenerate'."),
         };
     }
 
@@ -265,8 +314,10 @@ final class MiniMaxVideoTool extends MiniMaxTool
         $taskId    = mb_substr(trim((string) ($arguments['task_id'] ?? '')), 0, 40);
 
         return match ($operation) {
-            'resume'   => "Resume video polling for task: '{$taskId}'",
-            default    => "Generate video for prompt: '{$prompt}'",
+            'enhance_prompt' => "Enhance H3 prompt for: '{$prompt}'",
+            'regenerate'     => "Regenerate H3 video at 2K for task: '{$taskId}'",
+            'resume'         => "Resume video polling for task: '{$taskId}'",
+            default          => "Generate video for prompt: '{$prompt}'",
         };
     }
 
@@ -296,7 +347,7 @@ final class MiniMaxVideoTool extends MiniMaxTool
             static::TIMEOUT_SECONDS,
             static::TOOL_LABEL,
             fn(MiniMaxToolContext $c) => $this->doGenerate($c, $arguments),
-            fn(array $a) => $this->validateGenerateArguments($a),
+            fn(array $a) => $this->validateSubmitArguments($a),
         );
     }
 
@@ -314,27 +365,80 @@ final class MiniMaxVideoTool extends MiniMaxTool
         );
     }
 
+    /** @param array<string, mixed> $arguments */
+    public function enhancePrompt(array $arguments, int $agentId, ?int $userId): ToolResult
+    {
+        return $this->runWithValidation(
+            $arguments,
+            $agentId,
+            $userId,
+            static::TIMEOUT_SECONDS,
+            'Prompt enhancement',
+            fn(MiniMaxToolContext $c) => $this->doEnhancePrompt($c, $arguments),
+            fn(array $a) => $this->validateSubmitArguments($a),
+        );
+    }
+
+    /** @param array<string, mixed> $arguments */
+    public function regenerate(array $arguments, int $agentId, ?int $userId): ToolResult
+    {
+        return $this->runWithValidation(
+            $arguments,
+            $agentId,
+            $userId,
+            static::TIMEOUT_SECONDS,
+            static::TOOL_LABEL,
+            fn(MiniMaxToolContext $c) => $this->doRegenerate($c, $arguments),
+            fn(array $a) => $this->validateRegenerateArguments($a),
+        );
+    }
+
     /**
-     * Validate the `generate` operation's inputs.
+     * Validate `generate` and `enhance_prompt` inputs. Both operations
+     * share the same `content[]`-building path, so they share the same
+     * input validation too.
      *
-     * Catches every combination the upstream matrix (see {@see DURATION_RULES})
-     * rejects, *before* a submit burns quota. Also rejects:
-     *   - empty / oversized prompt
-     *   - non-enum `duration_seconds`
-     *   - non-enum `resolution` (case-sensitive — upstream wants `1080P`, not `1080p`)
-     *   - non-enum `model` setting (operator typo)
-     *   - any (model, resolution, duration) triple not in the matrix
+     * `resume` doesn't need it (all fields are upstream-fixed at submit
+     * time). `regenerate` doesn't need it (the original `content[]` is
+     * replayed verbatim from the log row).
      *
      * @param array<string, mixed> $arguments
      */
-    protected function validateGenerateArguments(array $arguments): ?ToolResult
+    protected function validateSubmitArguments(array $arguments): ?ToolResult
     {
-        return $this->validateCommonInputs($arguments, requirePrompt: true);
+        $errors = [];
+
+        $prompt = trim((string) ($arguments['prompt'] ?? ''));
+        if ($prompt === '') {
+            $errors[] = 'Prompt cannot be empty.';
+        }
+        if (mb_strlen($prompt) > 7000) {
+            $errors[] = 'Prompt exceeds the 7000-character H3 limit.';
+        }
+
+        $durationRaw = $arguments['duration_seconds'] ?? 6;
+        $duration    = is_numeric($durationRaw) ? (int) $durationRaw : 0;
+        if ($duration < 4 || $duration > 15) {
+            $errors[] = 'duration_seconds must be an integer between 4 and 15.';
+        }
+
+        $resolution = trim((string) ($arguments['resolution'] ?? ''));
+        if ($resolution !== '' && !in_array($resolution, self::RESOLUTIONS, true)) {
+            $errors[] = 'resolution must be "768P" or "2K" (uppercase P on 768P).';
+        }
+
+        // Build the content[] to surface mode + limit errors early.
+        $contentErrors = $this->collectContentErrors($arguments);
+        if ($contentErrors !== []) {
+            $errors = array_merge($errors, $contentErrors);
+        }
+
+        return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
     }
 
     /**
      * Validate the `resume` operation's inputs — just the `task_id`
-     * is required. Prompt / resolution / duration are ignored (the
+     * is required. Prompt / duration / resolution are ignored (the
      * task is already in flight).
      *
      * @param array<string, mixed> $arguments
@@ -349,156 +453,426 @@ final class MiniMaxVideoTool extends MiniMaxTool
     }
 
     /**
-     * Shared prompt / duration / resolution / model validation used
-     * by `generate`. `resume` doesn't need it because all four fields
-     * are upstream-fixed at submit time.
+     * Validate the `regenerate` operation's inputs. Needs `task_id`
+     * and `base_video_url` (the URL of the previous 768P source).
+     * Resolution is locked to `2K` (the only value the v2
+     * regeneration endpoint accepts).
      *
      * @param array<string, mixed> $arguments
      */
-    private function validateCommonInputs(array $arguments, bool $requirePrompt): ?ToolResult
+    protected function validateRegenerateArguments(array $arguments): ?ToolResult
     {
         $errors = [];
 
+        $taskId = trim((string) ($arguments['task_id'] ?? ''));
+        if ($taskId === '') {
+            $errors[] = 'task_id is required for the regenerate operation (the original `generate` call\'s task id).';
+        }
+
+        $baseVideoUrl = trim((string) ($arguments['base_video_url'] ?? ''));
+        if ($baseVideoUrl === '') {
+            $errors[] = 'base_video_url is required for the regenerate operation (the previous 768P output\'s download_url or asset_url).';
+        } elseif (!$this->isAcceptableUrl($baseVideoUrl)) {
+            $errors[] = 'base_video_url must be http(s):// or mm_file:// — data: URIs are rejected (the 64 MB request body cap can\'t carry inline base64).';
+        }
+
+        $resolution = trim((string) ($arguments['resolution'] ?? '2K'));
+        if ($resolution !== '' && $resolution !== '2K') {
+            $errors[] = 'regenerate currently only supports resolution "2K" (the v2 regeneration endpoint upsamples 768P sources to 2K).';
+        }
+
+        if ($errors !== []) {
+            return new ToolResult(false, implode(' ', $errors));
+        }
+        return null;
+    }
+
+    /**
+     * Inspect `arguments` for content[] violations. Returns a list of
+     * human-readable errors (empty when input is valid).
+     *
+     * Four families of checks:
+     *
+     *   1. **Mode exclusivity** — H3 forbids mixing `first_frame` /
+     *      `last_frame` with `reference_*` roles in the same `content[]`.
+     *      The validator here only sees the LLM's flat input, so we
+     *      derive the intended mode from the presence of any frame image
+     *      vs. any reference and reject combinations.
+     *
+     *   2. **Per-mode counts** — frame images: ≤2 (one each). References:
+     *      ≤9 images, ≤3 videos, ≤3 audio. Per the v2 spec tables.
+     *
+     *   3. **Audio-needs-image rule** — `reference_audio` must be
+     *      accompanied by an image or video input. H3 rejects audio-only
+     *      `content[]` ("cannot be input alone").
+     *
+     *   4. **URL hygiene** — every URL must be `http://`, `https://`, or
+     *      `mm_file://`. `data:` URIs are rejected here even though the
+     *      spec allows them, because the request body is capped at 64 MB
+     *      and inline base64 inflates by ~33% — any non-trivial base64
+     *      payload will exceed the cap and 400. Surface the rejection
+     *      client-side instead of burning quota.
+     *
+     * @param  array<string, mixed> $arguments
+     * @return list<string>
+     */
+    private function collectContentErrors(array $arguments): array
+    {
+        $errors   = [];
+        $first    = trim((string) ($arguments['first_frame_image'] ?? ''));
+        $last     = trim((string) ($arguments['last_frame_image'] ?? ''));
+        $refImgs  = $this->normaliseStringList($arguments['reference_images'] ?? null);
+        $refVids  = $this->normaliseStringList($arguments['reference_videos'] ?? null);
+        $refAud   = $this->normaliseStringList($arguments['reference_audio'] ?? null);
+
+        $hasFrames      = $first !== '' || $last !== '';
+        $hasReferences  = $refImgs !== [] || $refVids !== [] || $refAud !== [];
+
+        // 1. Mode exclusivity.
+        if ($hasFrames && $hasReferences) {
+            $errors[] = 'image-to-video (first_frame_image / last_frame_image) and reference-to-video (reference_*) are mutually exclusive — pick one mode per call.';
+        }
+
+        // 2a. Frame counts.
+        if ($first === '' && $last !== '') {
+            $errors[] = 'last_frame_image requires first_frame_image to be set (H3 pairs them).';
+        }
+
+        // 2b. Reference counts.
+        if (count($refImgs) > 9) {
+            $errors[] = 'reference_images accepts at most 9 entries.';
+        }
+        if (count($refVids) > 3) {
+            $errors[] = 'reference_videos accepts at most 3 entries.';
+        }
+        if (count($refAud) > 3) {
+            $errors[] = 'reference_audio accepts at most 3 entries.';
+        }
+
+        // 3. Audio-needs-image.
+        if ($refAud !== [] && $refImgs === [] && $refVids === [] && !$hasFrames) {
+            $errors[] = 'reference_audio must be accompanied by an image or video input (H3 rejects audio-only content[]).';
+        }
+
+        // 4. URL hygiene across all asset lists.
+        $allUrls = array_values(array_filter([$first, $last], static fn(string $u): bool => $u !== ''));
+        $allUrls = array_merge($allUrls, $refImgs, $refVids, $refAud);
+        foreach ($allUrls as $url) {
+            if (!$this->isAcceptableUrl($url)) {
+                $errors[] = "media URL must be http(s):// or mm_file:// (data: URIs are rejected — the 64 MB request body cap can't carry inline base64): '{$url}'.";
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * Accept `http://`, `https://`, or `mm_file://` URLs. Reject `data:`
+     * (per {@see collectContentErrors()}) and any other scheme.
+     */
+    private function isAcceptableUrl(string $url): bool
+    {
+        return str_starts_with($url, 'http://')
+            || str_starts_with($url, 'https://')
+            || str_starts_with($url, 'mm_file://');
+    }
+
+    /**
+     * Coerce a possibly-mixed user input into a clean list of non-empty strings.
+     * Accepts:
+     *   - null / missing → []
+     *   - list<string>   → filtered to non-empty entries, trimmed
+     *   - string         → wrapped as a single-element list (some callers
+     *                       pass "url1,url2" — we don't try to split on commas
+     *                       since URL parsing inside commas is brittle)
+     *
+     * @param  mixed       $raw
+     * @return list<string>
+     */
+    private function normaliseStringList(mixed $raw): array
+    {
+        if ($raw === null) {
+            return [];
+        }
+        if (is_string($raw)) {
+            $trimmed = trim($raw);
+            return $trimmed === '' ? [] : [$trimmed];
+        }
+        if (!is_array($raw)) {
+            return [];
+        }
+        $out = [];
+        foreach ($raw as $v) {
+            if (!is_string($v)) {
+                continue;
+            }
+            $t = trim($v);
+            if ($t !== '') {
+                $out[] = $t;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Build the H3 `content[]` array from the LLM's flat arguments.
+     * Always emits exactly one `text` item (H3 requires a non-empty
+     * prompt) and optionally appends frame / reference items with
+     * the right `role`.
+     *
+     * Frame images are added in order (first then last) to keep the
+     * upstream's expected order stable; references are appended in
+     * the LLM-supplied order.
+     *
+     * @param  array<string, mixed> $arguments
+     * @return list<array<string, mixed>>
+     */
+    private function buildContentArray(array $arguments): array
+    {
         $prompt = trim((string) ($arguments['prompt'] ?? ''));
-        if ($requirePrompt) {
-            if ($prompt === '') {
-                $errors[] = 'Prompt cannot be empty.';
-            }
-            if (mb_strlen($prompt) > 2000) {
-                $errors[] = 'Prompt exceeds the 2000-character MiniMax limit.';
-            }
+        $first  = trim((string) ($arguments['first_frame_image'] ?? ''));
+        $last   = trim((string) ($arguments['last_frame_image'] ?? ''));
+
+        $content = [['type' => 'text', 'text' => $prompt]];
+
+        if ($first !== '') {
+            $content[] = [
+                'type'      => 'image_url',
+                'image_url' => ['url' => $first],
+                'role'      => 'first_frame',
+            ];
+        }
+        if ($last !== '') {
+            $content[] = [
+                'type'      => 'image_url',
+                'image_url' => ['url' => $last],
+                'role'      => 'last_frame',
+            ];
         }
 
-        $durationRaw = (string) ($arguments['duration_seconds'] ?? '6');
-        if (!in_array($durationRaw, ['6', '10'], true)) {
-            $errors[] = 'duration_seconds must be "6" or "10".';
+        foreach ($this->normaliseStringList($arguments['reference_images'] ?? null) as $url) {
+            $content[] = [
+                'type'      => 'image_url',
+                'image_url' => ['url' => $url],
+                'role'      => 'reference_image',
+            ];
+        }
+        foreach ($this->normaliseStringList($arguments['reference_videos'] ?? null) as $url) {
+            $content[] = [
+                'type'      => 'video_url',
+                'video_url' => ['url' => $url],
+                'role'      => 'reference_video',
+            ];
+        }
+        foreach ($this->normaliseStringList($arguments['reference_audio'] ?? null) as $url) {
+            $content[] = [
+                'type'      => 'audio_url',
+                'audio_url' => ['url' => $url],
+                'role'      => 'reference_audio',
+            ];
         }
 
-        $resolution = trim((string) ($arguments['resolution'] ?? ''));
-        if ($resolution !== '' && !in_array($resolution, self::RESOLUTIONS, true)) {
-            $errors[] = 'resolution must be "720P", "768P", or "1080P" (uppercase P, exact match).';
-        }
-
-        return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
+        return $content;
     }
 
     /**
-     * Pick the effective resolution. This is the value that gets sent
-     * to MiniMax when the LLM omitted `resolution`, so the
-     * cross-product check below must run against the *effective*
-     * value, not the user-supplied one.
+     * Classify a built `content[]` into a short mode label for
+     * debug logging. One of `text_only`, `i2v_first_frame`,
+     * `i2v_first_last_frame`, `r2v`. Anything else falls through to
+     * `mixed` so the log line still surfaces the shape.
      *
-     * The Hailuo family defaults to 768P (the only resolution that
-     * supports 10 s); the T2V-01 family has no 768P at all and falls
-     * back to 720P. `duration` doesn't affect the choice.
-     *
-     * @param array<string, mixed> $arguments
+     * @param  array<int, array<string, mixed>> $content
      */
-    private function resolveEffectiveResolution(string $model, array $arguments): string
+    private function detectContentMode(array $content): string
     {
-        $supplied = trim((string) ($arguments['resolution'] ?? ''));
-        if ($supplied !== '') {
-            return $supplied;
+        $roles = [];
+        foreach ($content as $item) {
+            if (isset($item['role']) && is_string($item['role'])) {
+                $roles[] = $item['role'];
+            }
         }
+        $hasFirst = in_array('first_frame', $roles, true);
+        $hasLast  = in_array('last_frame', $roles, true);
+        $hasRef   = (bool) array_intersect($roles, ['reference_image', 'reference_video', 'reference_audio']);
 
-        return match ($model) {
-            'MiniMax-Hailuo-2.3', 'MiniMax-Hailuo-02' => '768P',
-            default                                    => '720P',
-        };
+        if ($hasFirst && $hasLast) {
+            return 'i2v_first_last_frame';
+        }
+        if ($hasFirst) {
+            return 'i2v_first_frame';
+        }
+        if ($hasRef) {
+            return 'r2v';
+        }
+        return 'text_only';
     }
 
     /**
-     * Validate the (model, resolution, duration) cross-product. Called
-     * *after* {@see validateCommonInputs()} so per-field errors land
-     * first and the cross-product error only fires when all three are
-     * individually valid.
+     * Resolve the effective aspect ratio to send upstream.
      *
-     * The matrix is the single source of truth (see {@see DURATION_RULES}).
-     * Adding a new MiniMax model is a one-line change to the matrix.
+     * H3 mode-aware rules (per the v2 spec):
      *
-     * Three failure modes collapse into a single accumulator and one
-     * return at the bottom — keeps the function inside the SonarQube
-     * S1142 (≤3 returns) and S3776 (CC ≤15) bounds without
-     * extracting a helper method.
+     *   - **Text-to-video** (`content[]` contains only `text`): ratio is
+     *     required and cannot be `adaptive`. If the LLM supplied
+     *     `adaptive`, fall back to `16:9`. If the LLM supplied nothing
+     *     valid, also fall back to `16:9`.
+     *   - **Image-to-video** (`content[]` has first_frame / last_frame):
+     *     ratio is always `adaptive`. Any concrete ratio supplied by
+     *     the LLM is silently ignored by upstream, so we just force it
+     *     and save the round-trip interpretation.
+     *   - **Reference-to-video** (`content[]` has reference_*): ratio is
+     *     optional and defaults to `adaptive`. LLM may also pass a
+     *     concrete ratio.
      *
-     * @param array<string, mixed> $arguments
-     * @param array<string, mixed> $settings
+     * `resume` doesn't need this (it polls only — the original submit
+     * already happened). `regenerate` reuses it (it rebuilds content[]
+     * from the same arguments).
+     *
+     * @param  array<int, array<string, mixed>> $content
      */
-    private function validateMatrix(array $arguments, array $settings): ?ToolResult
+    private function resolveAspectRatio(array $content, string $llmSupplied): string
     {
-        $model      = MiniMaxSettings::model(self::PROVIDER, $settings, self::DEFAULT_MODEL);
-        $durationRaw = (string) ($arguments['duration_seconds'] ?? '6');
-        $duration    = (int) $durationRaw;
-        $resolution  = $this->resolveEffectiveResolution($model, $arguments);
-
-        $message = null;
-        if (!in_array($model, self::SUPPORTED_MODELS, true)) {
-            $message = sprintf(
-                'model "%s" is not a supported MiniMax video model. Allowed: %s.',
-                $model,
-                implode(', ', self::SUPPORTED_MODELS),
-            );
-        } else {
-            $rules = self::DURATION_RULES[$model];
-            if (!array_key_exists($resolution, $rules)) {
-                $message = sprintf(
-                    'resolution "%s" is not supported by model "%s". Allowed: %s.',
-                    $resolution,
-                    $model,
-                    implode(', ', array_keys($rules)),
-                );
-            } elseif (!in_array($duration, $rules[$resolution], true)) {
-                $allowedDurations = $rules[$resolution];
-                sort($allowedDurations);
-                $allowedList = implode('/', $allowedDurations) . 's';
-
-                // Special-case the most common trap (1080P + 10s) with an
-                // actionable hint instead of a flat "not allowed".
-                $hint = ($resolution === self::RES_1080P && $duration === 10)
-                    ? ' At 10s, only 768P is supported.'
-                    : '';
-
-                $message = sprintf(
-                    'resolution "%s" + duration_seconds "%d" is not a valid combination for model "%s". '
-                    . 'Allowed durations at this resolution: %s.%s',
-                    $resolution,
-                    $duration,
-                    $model,
-                    $allowedList,
-                    $hint,
-                );
+        $hasNonText = false;
+        foreach ($content as $item) {
+            $type = is_string($item['type'] ?? null) ? $item['type'] : '';
+            if ($type !== 'text') {
+                $hasNonText = true;
+                break;
             }
         }
 
-        return $message === null ? null : new ToolResult(false, $message);
+        if ($hasNonText) {
+            // i2v: H3 silently ignores any non-`adaptive` value when content[]
+            // has a first_frame / last_frame, so we force `adaptive` server-side
+            // (saves a round-trip interpretation). r2v: defaults to `adaptive`
+            // but LLM-supplied concrete ratios are honoured.
+            $hasFrameImages = false;
+            foreach ($content as $item) {
+                $role = is_string($item['role'] ?? null) ? $item['role'] : '';
+                if ($role === 'first_frame' || $role === 'last_frame') {
+                    $hasFrameImages = true;
+                    break;
+                }
+            }
+
+            if ($hasFrameImages) {
+                $resolved = 'adaptive';
+            } else {
+                $concrete = in_array($llmSupplied, self::TEXT_ONLY_ASPECT_RATIOS, true);
+                $resolved = $concrete ? $llmSupplied : 'adaptive';
+            }
+
+            $this->support->logger()?->debug('MiniMaxVideoTool: aspect ratio resolved (non-text content)', [
+                'mode'         => $this->detectContentMode($content),
+                'llm_supplied' => $llmSupplied,
+                'resolved'     => $resolved,
+            ]);
+            return $resolved;
+        }
+
+        // t2v: must be concrete; reject `adaptive` by falling back.
+        if ($llmSupplied !== '' && in_array($llmSupplied, self::TEXT_ONLY_ASPECT_RATIOS, true)) {
+            $this->support->logger()?->debug('MiniMaxVideoTool: aspect ratio resolved (text-only)', [
+                'mode'         => 'text_only',
+                'llm_supplied' => $llmSupplied,
+                'resolved'     => $llmSupplied,
+            ]);
+            return $llmSupplied;
+        }
+        $this->support->logger()?->debug('MiniMaxVideoTool: aspect ratio resolved (text-only fallback)', [
+            'mode'         => 'text_only',
+            'llm_supplied' => $llmSupplied,
+            'resolved'     => '16:9',
+            'reason'       => 't2v requires a concrete ratio; `adaptive` or invalid input defaults to 16:9',
+        ]);
+        return '16:9';
     }
 
     /**
      * Per-call work for the `generate` operation. Submits, polls,
-     * retrieves, archives. Errors surfaced via the standard
-     * MiniMaxToolSupport::run() try/catch.
+     * retrieves the download URL from the poll response, archives.
      *
      * @param array<string, mixed> $arguments
      */
     protected function doGenerate(MiniMaxToolContext $ctx, array $arguments): ToolResult
     {
-        $matrixError = $this->validateMatrix($arguments, $ctx->settings);
-        if ($matrixError !== null) {
-            return $matrixError;
-        }
+        $content = $this->buildContentArray($arguments);
+        $ratio   = $this->resolveAspectRatio(
+            $content,
+            trim((string) ($arguments['aspect_ratio'] ?? '16:9')),
+        );
+        $durationRaw = $arguments['duration_seconds'] ?? 6;
+        $duration    = is_numeric($durationRaw) ? (int) $durationRaw : 6;
+        $resolution  = $this->resolveResolution($arguments, $ctx->settings);
+        $filenameRaw = isset($arguments['filename']) ? (string) $arguments['filename'] : '';
 
-        return $this->generateAndArchive(
+        $this->support->logger()?->debug('MiniMaxVideoTool: generate dispatched', [
+            'mode'           => $this->detectContentMode($content),
+            'content_items'  => count($content),
+            'duration'       => $duration,
+            'resolution'     => $resolution,
+            'ratio'          => $ratio,
+            'prompt_len'     => mb_strlen((string) ($arguments['prompt'] ?? '')),
+            'filename_supplied' => $filenameRaw !== '',
+        ]);
+
+        /** @var MiniMaxHttpClient $client */
+        $client = $ctx->client;
+        $submitTimeout = $this->resolveTimeout('submit_timeout_seconds', $ctx->settings, static::TIMEOUT_SECONDS);
+
+        $taskId = $this->submitTask(
+            $client,
+            $ctx->settings,
+            $content,
+            $duration,
+            $resolution,
+            $ratio,
+            $submitTimeout,
+        );
+
+        $this->support->logger()?->info('MiniMaxVideoTool: generate submitted', [
+            'task_id'       => $taskId,
+            'duration'      => $duration,
+            'resolution'    => $resolution,
+            'ratio'         => $ratio,
+            'content_items' => count($content),
+        ]);
+
+        $pollResult = $this->pollUntilDone(
+            $client,
+            $taskId,
             $ctx,
             $arguments,
-            taskId: null,
-            isResume: false,
+            expectKind: 'generation',
+        );
+        if (!$pollResult['success']) {
+            return $this->timedOutResult($pollResult['data'], $arguments, $ctx->settings);
+        }
+        $finalResponse = $pollResult['data'];
+        $downloadUrl   = (string) ($finalResponse['content']['url'] ?? '');
+
+        $this->support->logSuccess($ctx, $finalResponse);
+
+        return $this->archiveAndRender(
+            $ctx,
+            $arguments,
+            $downloadUrl,
+            [
+                'task_id'        => $taskId,
+                'final_response' => $finalResponse,
+                'duration'       => $duration,
+                'resolution'     => $resolution,
+                'prompt'         => trim((string) ($arguments['prompt'] ?? '')),
+                'ratio'          => $ratio,
+                'kind'           => 'generation',
+                'filename_raw'   => $filenameRaw,
+            ],
         );
     }
 
     /**
      * Per-call work for the `resume` operation. Polls an existing
-     * task_id and archives on success. Submits nothing — the task is
-     * already in flight on MiniMax's side.
+     * task_id and archives on success.
      *
      * @param array<string, mixed> $arguments
      */
@@ -512,205 +886,403 @@ final class MiniMaxVideoTool extends MiniMaxTool
             return new ToolResult(false, 'task_id is required for the resume operation.');
         }
 
-        return $this->generateAndArchive(
+        $pollResult = $this->pollUntilDone(
+            $ctx->client,
+            $taskId,
             $ctx,
             $arguments,
-            taskId: $taskId,
-            isResume: true,
+            expectKind: null,
+        );
+        if (!$pollResult['success']) {
+            return $this->timedOutResult($pollResult['data'], $arguments, $ctx->settings);
+        }
+        $finalResponse = $pollResult['data'];
+        $downloadUrl   = (string) ($finalResponse['content']['url'] ?? '');
+
+        $this->support->logSuccess($ctx, $finalResponse);
+
+        $taskKind = is_string($finalResponse['task_type'] ?? null) ? (string) $finalResponse['task_type'] : 'generation';
+        if ($taskKind === 'h3_context_ir') {
+            // The task is a prompt-enhancement job, not a video — `resume`
+            // shouldn't be called on one in normal flow, but if it is,
+            // surface the enhanced prompt rather than nothing.
+            $prompt = (string) ($finalResponse['content']['prompt'] ?? '');
+            return new ToolResult(true, "Enhanced prompt:\n\n{$prompt}", [
+                'task_id'         => $taskId,
+                'enhanced_prompt' => $prompt,
+                'task_type'       => $taskKind,
+            ]);
+        }
+
+        $duration   = isset($finalResponse['duration']) ? (int) $finalResponse['duration'] : 0;
+        $resolution = (string) ($finalResponse['resolution'] ?? '');
+        $ratio      = (string) ($finalResponse['ratio'] ?? '');
+
+        return $this->archiveAndRender(
+            $ctx,
+            $arguments,
+            $downloadUrl,
+            [
+                'task_id'        => $taskId,
+                'final_response' => $finalResponse,
+                'duration'       => $duration,
+                'resolution'     => $resolution,
+                'prompt'         => '',
+                'ratio'          => $ratio,
+                'kind'           => $taskKind,
+                'filename_raw'   => '',
+            ],
         );
     }
 
     /**
-     * Common generate-and-archive path shared by both operations.
-     *
-     * `generate` calls this with `$taskId = null` (we submit here),
-     * then poll + retrieve + archive.
-     *
-     * `resume` calls this with `$taskId = $taskId` (skip the submit,
-     * jump straight to poll).
-     *
-     * On poll-timeout, returns a failed ToolResult carrying the
-     * task_id and the original prompt/duration/resolution/filename
-     * so the LLM can retry with the `resume` operation verbatim.
-     * Without those fields the resumed video re-archives with
-     * empty-prompt/default-resolution metadata, which misrepresents
-     * a 10 s / T2V task. The task continues server-side and is
-     * billable, so the LLM must surface that to the user.
+     * Per-call work for the `enhance_prompt` operation. Submits to
+     * `/v2/h3_context_ir`, polls, returns the enriched prompt as data.
+     * No archive step — H3-Context-IR produces text, not media.
      *
      * @param array<string, mixed> $arguments
      */
-    private function generateAndArchive(
-        MiniMaxToolContext $ctx,
-        array $arguments,
-        ?string $taskId,
-        bool $isResume,
-    ): ToolResult {
-        $prompt       = trim((string) ($arguments['prompt'] ?? ''));
-        $durationRaw  = (string) ($arguments['duration_seconds'] ?? '6');
-        $duration     = (int) $durationRaw;
-        $resolution   = $this->resolveEffectiveResolution(
-            MiniMaxSettings::model(self::PROVIDER, $ctx->settings, self::DEFAULT_MODEL),
-            $arguments,
+    protected function doEnhancePrompt(MiniMaxToolContext $ctx, array $arguments): ToolResult
+    {
+        $content  = $this->buildContentArray($arguments);
+        $ratio    = $this->resolveAspectRatio(
+            $content,
+            trim((string) ($arguments['aspect_ratio'] ?? '16:9')),
         );
-        $filenameRaw  = isset($arguments['filename']) ? (string) $arguments['filename'] : '';
+        $durationRaw = $arguments['duration_seconds'] ?? 6;
+        $duration    = is_numeric($durationRaw) ? (int) $durationRaw : 6;
 
-        $pollInterval = MiniMaxSettings::intSetting(self::PROVIDER, 'poll_interval_seconds', $ctx->settings, 10);
+        $this->support->logger()?->debug('MiniMaxVideoTool: enhance_prompt dispatched', [
+            'mode'          => $this->detectContentMode($content),
+            'content_items' => count($content),
+            'duration'      => $duration,
+            'ratio'         => $ratio,
+        ]);
 
-        // poll_timeout_seconds resolution order:
-        //   1. Per-call ToolParameter (LLM-supplied, this call only).
-        //   2. Operator setting (`poll_timeout_seconds`).
-        //   3. MiniMaxSettings::PROVIDER_DEFAULTS (900 s).
-        // We don't use MiniMaxSettings::timeoutSeconds() here because
-        // it requires the key to be in PROVIDER_DEFAULTS and the
-        // per-call override needs to win cleanly.
-        $overrideTimeout = isset($arguments['poll_timeout_seconds'])
-            ? (int) $arguments['poll_timeout_seconds']
-            : 0;
-        $settingTimeout = MiniMaxSettings::intSetting(self::PROVIDER, 'poll_timeout_seconds', $ctx->settings, 900);
-        $pollTimeout = $overrideTimeout > 0 ? $overrideTimeout : $settingTimeout;
+        $submitTimeout = $this->resolveTimeout('submit_timeout_seconds', $ctx->settings, static::TIMEOUT_SECONDS);
+        $taskId = $this->submitEnhancePromptTask($client = $ctx->client, $ctx->settings, $content, $duration, $ratio, $submitTimeout);
 
-        /** @var MiniMaxHttpClient $client */
-        $client = $ctx->client;
-
-        if (!$isResume) {
-            $submitTimeout = $this->resolveTimeout('submit_timeout_seconds', $ctx->settings, static::TIMEOUT_SECONDS);
-            $taskId = $this->submitGeneration($client, $ctx->settings, $prompt, $duration, $resolution, $submitTimeout);
-        }
-
-        $this->support->logger()?->info('MiniMaxVideoTool: video generation ' . ($isResume ? 'resumed' : 'started'), [
-            'task_id'      => $taskId,
-            'interval'     => $pollInterval,
-            'poll_timeout' => $pollTimeout,
-            'is_resume'    => $isResume,
+        $this->support->logger()?->info('MiniMaxVideoTool: enhance_prompt submitted', [
+            'task_id' => $taskId,
+            'duration' => $duration,
         ]);
 
         $pollResult = $this->pollUntilDone(
             $client,
             $taskId,
-            $pollInterval,
-            $pollTimeout,
-            self::POLL_REQUEST_TIMEOUT_SECONDS,
+            $ctx,
+            $arguments,
+            expectKind: 'h3_context_ir',
         );
         if (!$pollResult['success']) {
-            // pollUntilDone() returned a timed-out envelope — surface it
-            // as a failed ToolResult with the task_id + original
-            // submission params intact so the LLM can `resume` it on
-            // a subsequent call without losing metadata.
-            $err = $pollResult['data'];
-            return new ToolResult(false, $err['content'], [
-                'task_id'          => $err['task_id'],
-                'status'           => $err['status'],
-                'timed_out'        => $err['timed_out'],
-                'prompt'           => $prompt,
-                'duration_seconds' => $duration,
-                'resolution'       => $resolution,
-                'filename'         => $filenameRaw,
-            ]);
+            return $this->timedOutResult($pollResult['data'], $arguments, $ctx->settings);
         }
         $finalResponse = $pollResult['data'];
+        $enhancedPrompt = (string) ($finalResponse['content']['prompt'] ?? '');
+
+        $this->support->logSuccess($ctx, $finalResponse);
+
+        if ($enhancedPrompt === '') {
+            return new ToolResult(false, "H3-Context-IR task succeeded (task_id={$taskId}) but the enhanced prompt was empty.", [
+                'task_id'   => $taskId,
+                'task_type' => 'h3_context_ir',
+            ]);
+        }
+
+        return new ToolResult(
+            true,
+            "Enhanced prompt (task_id={$taskId}):\n\n{$enhancedPrompt}",
+            [
+                'task_id'         => $taskId,
+                'enhanced_prompt' => $enhancedPrompt,
+                'task_type'       => 'h3_context_ir',
+                'usage'           => is_array($finalResponse['usage'] ?? null) ? $finalResponse['usage'] : null,
+            ],
+        );
+    }
+
+    /**
+     * Per-call work for the `regenerate` operation. Re-builds the
+     * original generation's `content[]` from the same arguments the
+     * LLM passed to `generate` (the agent has them in its context),
+     * appends the previous 768P output as `base_video`, and submits
+     * to `/v2/video_regeneration`.
+     *
+     * `submitRegenerationTask()` is responsible for the content
+     * integrity check (H3 rejects regenerations whose `content` doesn't
+     * match what generated the source). We don't compare against a
+     * persisted log row — we trust the LLM to pass back the same
+     * arguments it used for `generate`. The skill spells this out.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    protected function doRegenerate(MiniMaxToolContext $ctx, array $arguments): ToolResult
+    {
+        $taskId       = trim((string) ($arguments['task_id'] ?? ''));
+        $baseVideoUrl = trim((string) ($arguments['base_video_url'] ?? ''));
+
+        $this->support->logger()?->debug('MiniMaxVideoTool: regenerate started', [
+            'source_task_id' => $taskId,
+            'base_video_url' => $baseVideoUrl,
+        ]);
+
+        $content  = $this->buildContentArray($arguments);
+        $ratio    = $this->resolveAspectRatio(
+            $content,
+            trim((string) ($arguments['aspect_ratio'] ?? '16:9')),
+        );
+        $durationRaw = $arguments['duration_seconds'] ?? 6;
+        $duration    = is_numeric($durationRaw) ? (int) $durationRaw : 6;
+
+        $submitTimeout = $this->resolveTimeout('submit_timeout_seconds', $ctx->settings, static::TIMEOUT_SECONDS);
+        $newTaskId = $this->submitRegenerationTask(
+            $ctx->client,
+            $ctx->settings,
+            $content,
+            $baseVideoUrl,
+            $submitTimeout,
+        );
+
+        $this->support->logger()?->info('MiniMaxVideoTool: regenerate submitted', [
+            'source_task_id' => $taskId,
+            'new_task_id'    => $newTaskId,
+            'content_items'  => count($content),
+            'ratio'          => $ratio,
+            'duration'       => $duration,
+        ]);
+
+        $pollResult = $this->pollUntilDone(
+            $ctx->client,
+            $newTaskId,
+            $ctx,
+            $arguments,
+            expectKind: 'regeneration',
+        );
+        if (!$pollResult['success']) {
+            return $this->timedOutResult($pollResult['data'], $arguments, $ctx->settings);
+        }
+        $finalResponse = $pollResult['data'];
+        $downloadUrl   = (string) ($finalResponse['content']['url'] ?? '');
 
         $this->support->logSuccess($ctx, $finalResponse);
 
         return $this->archiveAndRender(
             $ctx,
             $arguments,
-            $client,
+            $downloadUrl,
             [
-                'task_id'        => $taskId,
+                'task_id'        => $newTaskId,
                 'final_response' => $finalResponse,
                 'duration'       => $duration,
-                'resolution'     => $resolution,
-                'prompt'         => $prompt,
+                'resolution'     => '2K',
+                'prompt'         => trim((string) ($arguments['prompt'] ?? '')),
+                'ratio'          => $ratio,
+                'kind'           => 'regeneration',
+                'filename_raw'   => '',
             ],
         );
     }
 
     /**
-     * Returns null if the upstream didn't return a download URL — the caller
-     * surfaces a clear failure rather than pretending success.
+     * Resolve the effective resolution. Only `768P` and `2K` are valid
+     * under H3; no per-model matrix.
+     *
+     * @param array<string, mixed> $arguments
+     * @param array<string, mixed> $settings
      */
-    private function retrieveDownloadUrl(MiniMaxHttpClient $client, string $fileId, int $timeoutSeconds): ?string
+    private function resolveResolution(array $arguments, array $settings): string
     {
-        $response = $client->getJson(
-            '/v1/files/retrieve',
-            ['file_id' => $fileId],
-            timeoutSeconds: $timeoutSeconds,
-        );
-        $file = is_array($response['file'] ?? null) ? $response['file'] : [];
-        $url = $file['download_url'] ?? null;
-        return is_string($url) && $url !== '' ? $url : null;
+        $supplied = trim((string) ($arguments['resolution'] ?? ''));
+        if ($supplied !== '' && in_array($supplied, self::RESOLUTIONS, true)) {
+            return $supplied;
+        }
+        // Default to 768P — cheaper than 2K, and the only resolution the
+        // regeneration endpoint accepts as source. Operators can pick 2K
+        // for higher-quality first-pass.
+        return '768P';
     }
 
     /**
-     * @param array<string, mixed> $settings
+     * Build and POST the v2 `video_generation` body.
+     *
+     * @param  list<array<string, mixed>> $content
+     * @param  array<string, mixed>       $settings
      */
-    private function submitGeneration(
+    private function submitTask(
         MiniMaxHttpClient $client,
         array $settings,
-        string $prompt,
+        array $content,
         int $duration,
         string $resolution,
+        string $ratio,
+        int $timeoutSeconds,
+    ): string {
+        $body = [
+            'model'      => MiniMaxSettings::model(self::PROVIDER, $settings, self::DEFAULT_MODEL),
+            'content'    => $content,
+            'duration'   => $duration,
+            'resolution' => $resolution,
+            'ratio'      => $ratio,
+        ];
+
+        return $this->postAndExtractTaskId($client, '/v2/video_generation', $body, $timeoutSeconds);
+    }
+
+    /**
+     * Build and POST the v2 `h3_context_ir` body. Same shape minus
+     * `resolution` (H3-Context-IR returns a prompt, not a video, so
+     * resolution doesn't apply).
+     *
+     * @param  list<array<string, mixed>> $content
+     * @param  array<string, mixed>       $settings
+     */
+    private function submitEnhancePromptTask(
+        MiniMaxHttpClient $client,
+        array $settings,
+        array $content,
+        int $duration,
+        string $ratio,
         int $timeoutSeconds,
     ): string {
         $body = [
             'model'    => MiniMaxSettings::model(self::PROVIDER, $settings, self::DEFAULT_MODEL),
-            'prompt'   => $prompt,
+            'content'  => $content,
             'duration' => $duration,
-            'resolution' => $resolution,
+            'ratio'    => $ratio,
         ];
 
-        $startResponse = $client->postJson('/v1/video_generation', $body, timeoutSeconds: $timeoutSeconds);
-        $taskId = $startResponse['task_id'] ?? null;
-        if (!is_string($taskId) || $taskId === '') {
-            // Synthetic MiniMaxApiException so the shared try/catch in
-            // MiniMaxToolSupport::run() logs and converts to a ToolResult.
-            throw new MiniMaxApiException('MiniMax returned no task_id.', 0, $startResponse);
+        return $this->postAndExtractTaskId($client, '/v2/h3_context_ir', $body, $timeoutSeconds);
+    }
+
+    /**
+     * Build and POST the v2 `video_regeneration` body. Per the spec,
+     * `content` must reproduce the original generation's `content[]`
+     * verbatim (the `text` is the FINAL prompt sent to the model, not
+     * the user's original pre-Context-IR prompt) and append exactly
+     * one `base_video` source.
+     *
+     * Only `resolution: '2K'` is supported upstream.
+     *
+     * @param  list<array<string, mixed>> $content
+     * @param  array<string, mixed>       $settings
+     */
+    private function submitRegenerationTask(
+        MiniMaxHttpClient $client,
+        array $settings,
+        array $content,
+        string $baseVideoUrl,
+        int $timeoutSeconds,
+    ): string {
+        if ($baseVideoUrl === '') {
+            throw new MiniMaxApiException(
+                'regenerate: the original generate task\'s download URL is missing — the log row may have been written by an older plugin version that didn\'t capture the URL.',
+                0,
+            );
         }
+        $content[] = [
+            'type'      => 'video_url',
+            'video_url' => ['url' => $baseVideoUrl],
+            'role'      => 'base_video',
+        ];
+
+        $body = [
+            'model'      => MiniMaxSettings::model(self::PROVIDER, $settings, self::DEFAULT_MODEL),
+            'content'    => $content,
+            'resolution' => '2K',
+        ];
+
+        return $this->postAndExtractTaskId($client, '/v2/video_regeneration', $body, $timeoutSeconds);
+    }
+
+    /**
+     * POST a body to one of the v2 video endpoints and extract the
+     * returned `task_id`. Synthetic {@see MiniMaxApiException} on
+     * missing id keeps the shared error envelope consistent with the
+     * rest of the plugin.
+     *
+     * @param  array<string, mixed> $body
+     */
+    private function postAndExtractTaskId(
+        MiniMaxHttpClient $client,
+        string $path,
+        array $body,
+        int $timeoutSeconds,
+    ): string {
+        $this->support->logger()?->debug('MiniMaxVideoTool: POST submit', [
+            'path'           => $path,
+            'model'          => $body['model'] ?? null,
+            'resolution'     => $body['resolution'] ?? null,
+            'duration'       => $body['duration'] ?? null,
+            'ratio'          => $body['ratio'] ?? null,
+            'content_items'  => is_array($body['content'] ?? null) ? count($body['content']) : 0,
+            'timeout'        => $timeoutSeconds,
+        ]);
+
+        $response     = $client->postJson($path, $body, timeoutSeconds: $timeoutSeconds);
+        $taskId       = is_string($response['task_id'] ?? null) ? $response['task_id'] : '';
+        if ($taskId === '') {
+            $this->support->logger()?->error('MiniMaxVideoTool: submit returned no task_id', [
+                'path'     => $path,
+                'response' => $response,
+            ]);
+            throw new MiniMaxApiException("MiniMax returned no task_id from {$path}.", 0, $response);
+        }
+        $this->support->logger()?->debug('MiniMaxVideoTool: submit accepted', [
+            'path'    => $path,
+            'task_id' => $taskId,
+        ]);
         return $taskId;
     }
 
     /**
-     * Poll the task until it reaches a terminal state.
+     * Poll the shared H3 task query endpoint until the task reaches a
+     * terminal state. Works for `generation`, `h3_context_ir`, and
+     * `regeneration` task types — the caller decides what to do with
+     * the success envelope via `expectKind` and `task_type`.
      *
-     * Two terminal-state outcomes are possible:
+     * Terminal states:
+     *   - `succeeded` → returns `['success' => true, 'data' => <task>]`.
+     *   - `failed`    → throws {@see MiniMaxApiException} with the
+     *                   upstream `error.message`.
+     *   - `cancelled` → throws {@see MiniMaxApiException}.
      *
-     *   - `Success` → returns `['success' => true, 'data' => <response>]`.
-     *     Caller archives the file and renders.
-     *   - `Fail`    → throws {@see MiniMaxApiException} (the upstream
-     *     error message is preserved). Caller's try/catch surfaces it
-     *     as a ToolResult.
+     * Non-terminal:
+     *   - Timeout     → returns `['success' => false, 'data' => <envelope>]`
+     *                   so the caller can surface a resume-able failure.
      *
-     * One non-terminal outcome is possible:
+     * `expectKind` is informational only — the caller's `doGenerate` /
+     * `doEnhancePrompt` / `doRegenerate` already knows which task type
+     * it submitted. A mismatch between submit type and `task_type` on
+     * success is logged but not rejected; the upstream shouldn't
+     * re-classify.
      *
-     *   - Timeout   → returns `['success' => false, 'data' => [task_id, timed_out=true, …]]`.
-     *     Caller surfaces the failure with the task_id intact so the
-     *     LLM can resume. **The task is still running on MiniMax's
-     *     side and is billable** — the failure message must convey
-     *     this so the operator can decide whether to wait or abandon.
-     *
-     * Defensive clamps:
-     *   - `$intervalSeconds` is forced into
-     *     [`MIN_POLL_INTERVAL_SECONDS`, `MAX_POLL_INTERVAL_SECONDS`]
-     *     so an operator-set zero / negative / huge value cannot spin a
-     *     busy poll against a stalled endpoint or strand a task.
-     *   - `$timeoutSeconds` is forced `>= 10` (the per-call
-     *     parameter validator already enforces this for the LLM path).
-     *   - Each `GET /v1/query/...` is given a bounded HTTP timeout
-     *     (`min(remaining, $perRequestTimeoutSeconds)`) — without it
-     *     a single stalled request can outlive the loop's overall
-     *     deadline and the `timed_out` envelope becomes unreachable.
-     *
+     * @param  ?string             $expectKind  Optional expected `task_type` for sanity-checking.
      * @return array{success: bool, data?: array<string, mixed>}
      */
     private function pollUntilDone(
         MiniMaxHttpClient $client,
         string $taskId,
-        int $intervalSeconds,
-        int $timeoutSeconds,
-        int $perRequestTimeoutSeconds,
+        MiniMaxToolContext $ctx,
+        array $arguments,
+        ?string $expectKind,
     ): array {
-        $intervalSeconds = max(self::MIN_POLL_INTERVAL_SECONDS, min(self::MAX_POLL_INTERVAL_SECONDS, $intervalSeconds));
-        $deadline        = microtime(true) + max(10, $timeoutSeconds);
+        $pollInterval = MiniMaxSettings::intSetting(self::PROVIDER, 'poll_interval_seconds', $ctx->settings, 10);
+
+        $overrideTimeout = isset($arguments['poll_timeout_seconds'])
+            ? (int) $arguments['poll_timeout_seconds']
+            : 0;
+        $settingTimeout  = MiniMaxSettings::intSetting(self::PROVIDER, 'poll_timeout_seconds', $ctx->settings, 900);
+        $pollTimeout     = $overrideTimeout > 0 ? $overrideTimeout : $settingTimeout;
+
+        $intervalSeconds = max(self::MIN_POLL_INTERVAL_SECONDS, min(self::MAX_POLL_INTERVAL_SECONDS, $pollInterval));
+        $deadline        = microtime(true) + max(10, $pollTimeout);
+
+        $this->support->logger()?->info('MiniMaxVideoTool: poll loop started', [
+            'task_id'      => $taskId,
+            'interval'     => $intervalSeconds,
+            'poll_timeout' => $pollTimeout,
+            'expect_kind'  => $expectKind,
+        ]);
 
         while (true) {
             if (microtime(true) >= $deadline) {
@@ -721,13 +1293,10 @@ final class MiniMaxVideoTool extends MiniMaxTool
                         'status'    => 'still_running',
                         'timed_out' => true,
                         'content'   => sprintf(
-                            'MiniMax video generation did not finish within %ds (task_id=%s). '
-                            . 'The task is still running on MiniMax\'s side and is billable. '
-                            . 'Increase `poll_timeout_seconds` and call `minimax_video(action: "resume", task_id: "%s", '
-                            . 'prompt: "<original prompt>", duration_seconds: "<original duration>", '
-                            . 'resolution: "<original resolution>")` to keep waiting, '
+                            'H3 task did not finish within %ds (task_id=%s). The task is still running on MiniMax\'s side and is billable. '
+                            . 'Increase `poll_timeout_seconds` and call `minimax_video(action: "resume", task_id: "%s")` to keep waiting, '
                             . 'or abandon it and accept the billed quota.',
-                            $timeoutSeconds,
+                            $pollTimeout,
                             $taskId,
                             $taskId,
                         ),
@@ -735,25 +1304,38 @@ final class MiniMaxVideoTool extends MiniMaxTool
                 ];
             }
 
-            // Bound the per-request HTTP timeout so a single stalled
-            // query can never push the loop past `deadline`.
             $remainingSeconds    = (int) ceil($deadline - microtime(true));
-            $effectivePerRequest = max(1, min($remainingSeconds, $perRequestTimeoutSeconds));
+            $effectivePerRequest = max(1, min($remainingSeconds, self::POLL_REQUEST_TIMEOUT_SECONDS));
 
             $response = $client->getJson(
-                '/v1/query/video_generation',
-                ['task_id' => $taskId],
+                '/v2/query/video_generation/' . $taskId,
+                [],
                 timeoutSeconds: $effectivePerRequest,
             );
-            $status = $response['status'] ?? null;
 
-            if ($status === 'Success') {
-                return ['success' => true, 'data' => $response];
+            $task = is_array($response['task'] ?? null) ? $response['task'] : [];
+            $status = is_string($task['status'] ?? null) ? $task['status'] : '';
+
+            if ($status === 'succeeded') {
+                if ($expectKind !== null && isset($task['task_type']) && $task['task_type'] !== $expectKind) {
+                    $this->support->logger()?->warning('MiniMaxVideoTool: unexpected task_type on success', [
+                        'task_id'  => $taskId,
+                        'expected' => $expectKind,
+                        'actual'   => $task['task_type'],
+                    ]);
+                }
+                return ['success' => true, 'data' => $task];
             }
-            if ($status === 'Fail') {
-                $baseResp = is_array($response['base_resp'] ?? null) ? $response['base_resp'] : [];
-                $msg = is_string($baseResp['status_msg'] ?? null) ? $baseResp['status_msg'] : 'video generation failed';
-                throw new MiniMaxApiException("MiniMax video generation failed: {$msg}", 0, $baseResp);
+
+            if ($status === 'failed') {
+                $err  = is_array($task['error'] ?? null) ? $task['error'] : [];
+                $code = is_string($err['code'] ?? null) ? $err['code'] : 'unknown';
+                $msg  = is_string($err['message'] ?? null) ? $err['message'] : 'video task failed';
+                throw new MiniMaxApiException("MiniMax H3 task failed (code={$code}): {$msg}", 0, $task);
+            }
+
+            if ($status === 'cancelled') {
+                throw new MiniMaxApiException('MiniMax H3 task was cancelled.', 0, $task);
             }
 
             $this->support->logger()?->debug('MiniMaxVideoTool: still processing, sleeping', [
@@ -766,62 +1348,71 @@ final class MiniMaxVideoTool extends MiniMaxTool
     }
 
     /**
-     * Final stage: retrieve the MP4 download URL, archive it via
-     * MediaArchiveService (with fallback to the CDN URL on archive
-     * failure), and return the rendered ToolResult.
+     * Format a timed-out poll envelope into a failed ToolResult that
+     * carries the task_id and the original submission metadata so the
+     * LLM can `resume` on a subsequent turn without losing context.
      *
-     * Bundling `$taskOutcome` keeps the parameter count inside the
-     * SonarQube S107 (≤7) bound. The bundle keys are:
-     *   - `task_id`        MiniMax task id (from `submitGeneration`).
-     *   - `final_response` The upstream `Success` envelope (carries
-     *                       `file_id` + `video_width` / `video_height`).
-     *   - `duration`       Effective duration used at submit time.
-     *   - `resolution`     Effective resolution used at submit time.
-     *   - `prompt`         Trimmed prompt (for the archive row's
-     *                       `prompt` column and filename seed).
+     * @param  array<string, mixed>       $err          poll-loop timeout envelope
+     * @param  array<string, mixed>       $arguments    original call's args
+     * @param  array<string, mixed>       $settings
+     */
+    private function timedOutResult(array $err, array $arguments, array $settings): ToolResult
+    {
+        $filenameRaw = isset($arguments['filename']) ? (string) $arguments['filename'] : '';
+        return new ToolResult(false, $err['content'], [
+            'task_id'           => $err['task_id'],
+            'status'            => $err['status'],
+            'timed_out'         => $err['timed_out'],
+            'prompt'            => trim((string) ($arguments['prompt'] ?? '')),
+            'first_frame_image' => trim((string) ($arguments['first_frame_image'] ?? '')),
+            'last_frame_image'  => trim((string) ($arguments['last_frame_image'] ?? '')),
+            'reference_images'  => $this->normaliseStringList($arguments['reference_images'] ?? null),
+            'reference_videos'  => $this->normaliseStringList($arguments['reference_videos'] ?? null),
+            'reference_audio'   => $this->normaliseStringList($arguments['reference_audio'] ?? null),
+            'aspect_ratio'      => trim((string) ($arguments['aspect_ratio'] ?? '')),
+            'duration_seconds'  => (int) ($arguments['duration_seconds'] ?? 6),
+            'resolution'        => trim((string) ($arguments['resolution'] ?? '')),
+            'filename'          => $filenameRaw,
+        ]);
+    }
+
+    /**
+     * Ingest the H3 download URL into the Media Archive and return a
+     * rendered ToolResult with the `<video>` element + trailing
+     * verbatim-echo instruction.
      *
-     * @param array<string, mixed> $arguments
-     * @param array{
-     *   task_id: string,
-     *   final_response: array<string, mixed>,
-     *   duration: int,
-     *   resolution: string,
-     *   prompt: string,
+     * v2 doesn't return width/height in the success envelope (the v1
+     * `video_width` / `video_height` fields are gone), so the embed
+     * renders without explicit dimensions — the chat UI auto-sizes
+     * the player.
+     *
+     * @param  array<string, mixed> $arguments
+     * @param  array{
+     *     task_id: string,
+     *     final_response: array<string, mixed>,
+     *     duration: int,
+     *     resolution: string,
+     *     prompt: string,
+     *     ratio: string,
+     *     kind: string,
+     *     filename_raw: string,
      * } $taskOutcome
      */
     private function archiveAndRender(
         MiniMaxToolContext $ctx,
         array $arguments,
-        MiniMaxHttpClient $client,
+        string $downloadUrl,
         array $taskOutcome,
     ): ToolResult {
-        $taskId        = $taskOutcome['task_id'];
-        $finalResponse = $taskOutcome['final_response'];
-        $duration      = $taskOutcome['duration'];
-        $resolution    = $taskOutcome['resolution'];
-        $prompt        = $taskOutcome['prompt'];
-
-        $fileId = is_string($finalResponse['file_id'] ?? null) ? $finalResponse['file_id'] : null;
-        $width  = is_int($finalResponse['video_width'] ?? null) ? $finalResponse['video_width'] : null;
-        $height = is_int($finalResponse['video_height'] ?? null) ? $finalResponse['video_height'] : null;
-
-        if ($fileId === null) {
-            return new ToolResult(false, 'MiniMax video succeeded but returned no file_id.');
+        if ($downloadUrl === '') {
+            return new ToolResult(false, "MiniMax H3 video succeeded (task_id={$taskOutcome['task_id']}) but the response did not include a download URL.");
         }
 
-        // The retrieve response carries a `download_url` valid for ~1 hour.
-        $retrieveTimeout = $this->resolveTimeout('retrieve_timeout_seconds', $ctx->settings, 30);
-        $downloadUrl = $this->retrieveDownloadUrl($client, $fileId, $retrieveTimeout);
-
-        $sizeLine = ($width !== null && $height !== null) ? " ({$width}x{$height})" : '';
-        if ($downloadUrl === null) {
-            return new ToolResult(
-                false,
-                "MiniMax video succeeded (task_id={$taskId}, file_id={$fileId}) "
-                . "but the file-retrieve API did not return a download_url. "
-                . "Try again or fetch the file directly from your MiniMax dashboard.",
-            );
-        }
+        $this->support->logger()?->debug('MiniMaxVideoTool: archiving result', [
+            'task_id'      => $taskOutcome['task_id'],
+            'kind'         => $taskOutcome['kind'],
+            'download_url' => $downloadUrl,
+        ]);
 
         // Ingest failures must never break the tool — fall back to the CDN URL.
         $archiveAsset = null;
@@ -831,13 +1422,11 @@ final class MiniMaxVideoTool extends MiniMaxTool
                 agentId: $ctx->agentId,
                 pluginSlug: 'minimax',
                 toolName: 'video',
-                prompt: $prompt,
-                width: $width,
-                height: $height,
-                durationSeconds: (float) $duration,
+                prompt: $taskOutcome['prompt'],
+                durationSeconds: (float) $taskOutcome['duration'],
                 filename: self::resolveFilename(
-                    isset($arguments['filename']) ? (string) $arguments['filename'] : null,
-                    $prompt,
+                    $taskOutcome['filename_raw'] !== '' ? $taskOutcome['filename_raw'] : null,
+                    $taskOutcome['prompt'] !== '' ? $taskOutcome['prompt'] : 'h3-video',
                     'minimax-video',
                     'mp4',
                 ),
@@ -851,37 +1440,40 @@ final class MiniMaxVideoTool extends MiniMaxTool
 
         // `archived` distinguishes the two states the trailing
         // instruction has to acknowledge — the rendered `<video>` is
-        // served by the Media Archive, or it isn't. Without this
-        // split the LLM writes a `<video>` tag with a CDN `src` that
-        // 404s an hour later and renders with `src="/api/v1/assets/…"`
-        // wording that doesn't match the actual URL.
+        // served by the Media Archive, or it isn't.
         $archived = $archiveAsset !== null
             && $archiveAsset->asset_url !== ''
             && !str_starts_with($archiveAsset->asset_url, 'data:');
         $archiveUrl = $archived ? $archiveAsset->asset_url : null;
         $embedUrl   = $archiveUrl ?? $downloadUrl;
-        $sizeNote   = $archiveUrl !== null
-            ? ''
-            : ' (URL valid ~1 hour)';
+        $sizeNote   = $archiveUrl !== null ? '' : ' (URL valid briefly — download promptly)';
+
+        $kind = $taskOutcome['kind'];
+        $kindLabel = match ($kind) {
+            'regeneration' => 'Regenerated video',
+            'generation'   => 'Generated video',
+            default        => 'H3 video',
+        };
 
         $renderInstruction = $archived
             ? "Echo the `<video>` element above verbatim — its `src` is `/api/v1/assets/<token>.mp4` served by the Media Archive, not a relative filename (rewriting it breaks playback). Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`."
-            : "Echo the `<video>` element above verbatim — its `src` is the upstream MiniMax CDN URL (valid ~1 hour); the Media Archive plugin isn't installed or this file was rejected, so the URL isn't rewritten to a long-lived `/api/v1/assets/...` path. Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.";
+            : "Echo the `<video>` element above verbatim — its `src` is the upstream MiniMax CDN URL (valid briefly); the Media Archive plugin isn't installed or this file was rejected, so the URL isn't rewritten to a long-lived `/api/v1/assets/...` path. Don't strip this sentence; it tells the chat UI to render the player inline. For the raw URL, read `ToolResult.data.asset_url`.";
 
-        $content = "Generated video{$sizeLine} for prompt: \"{$prompt}\"\n\n"
-            . MediaEmbed::videoFromUrl($embedUrl, $width, $height) . "\n\n"
-            . "task_id: {$taskId}  file_id: {$fileId}{$sizeNote}"
+        $ratioLine  = $taskOutcome['ratio'] !== '' ? " ({$taskOutcome['ratio']})" : '';
+        $promptLine = $taskOutcome['prompt'] !== '' ? " for prompt: \"{$taskOutcome['prompt']}\"" : '';
+        $content    = "{$kindLabel}{$ratioLine}{$promptLine}\n\n"
+            . MediaEmbed::videoFromUrl($embedUrl) . "\n\n"
+            . "task_id: {$taskOutcome['task_id']}  resolution: {$taskOutcome['resolution']}  duration: {$taskOutcome['duration']}s{$sizeNote}"
             . "\n\n" . $renderInstruction;
 
         return new ToolResult(true, $content, [
-            'task_id'      => $taskId,
-            'file_id'      => $fileId,
+            'task_id'      => $taskOutcome['task_id'],
             'download_url' => $downloadUrl,
             'asset_url'    => $embedUrl,
-            'width'        => $width,
-            'height'       => $height,
-            'duration'     => $duration,
-            'resolution'   => $resolution !== '' ? $resolution : null,
+            'duration'     => $taskOutcome['duration'],
+            'resolution'   => $taskOutcome['resolution'] !== '' ? $taskOutcome['resolution'] : null,
+            'ratio'        => $taskOutcome['ratio'] !== '' ? $taskOutcome['ratio'] : null,
+            'task_type'    => $kind,
         ]);
     }
 }
