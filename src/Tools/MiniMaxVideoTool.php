@@ -453,28 +453,12 @@ final class MiniMaxVideoTool extends MiniMaxTool
         }
 
         $finalResponse = $pollResult['data'];
-        $downloadUrl   = (string) ($finalResponse['content']['url'] ?? '');
         $this->support->logSuccess($ctx, $finalResponse);
 
         $taskKind = is_string($finalResponse['task_type'] ?? null) ? (string) $finalResponse['task_type'] : 'generation';
-        if ($taskKind === 'h3_context_ir') {
-            return $this->doResumeEnhancedPrompt($ctx, $finalResponse, $taskId);
-        }
-
-        return $this->archiveAndRender(
-            $ctx,
-            $downloadUrl,
-            [
-                'task_id'        => $taskId,
-                'final_response' => $finalResponse,
-                'duration'       => isset($finalResponse['duration']) ? (int) $finalResponse['duration'] : 0,
-                'resolution'     => (string) ($finalResponse['resolution'] ?? ''),
-                'prompt'         => '',
-                'ratio'          => (string) ($finalResponse['ratio'] ?? ''),
-                'kind'           => $taskKind,
-                'filename_raw'   => '',
-            ],
-        );
+        return $taskKind === 'h3_context_ir'
+            ? $this->buildResumeEnhancedPromptResult($finalResponse, $taskId)
+            : $this->archiveAndRender($ctx, (string) ($finalResponse['content']['url'] ?? ''), $this->resumeTaskOutcome($taskId, $finalResponse, $taskKind));
     }
 
     /**
@@ -484,7 +468,7 @@ final class MiniMaxVideoTool extends MiniMaxTool
      *
      * @param array<string, mixed> $finalResponse
      */
-    private function doResumeEnhancedPrompt(MiniMaxToolContext $ctx, array $finalResponse, string $taskId): ToolResult
+    private function buildResumeEnhancedPromptResult(array $finalResponse, string $taskId): ToolResult
     {
         $prompt = (string) ($finalResponse['content']['prompt'] ?? '');
         return new ToolResult(true, "Enhanced prompt:\n\n{$prompt}", [
@@ -492,6 +476,38 @@ final class MiniMaxVideoTool extends MiniMaxTool
             'enhanced_prompt' => $prompt,
             'task_type'       => 'h3_context_ir',
         ]);
+    }
+
+    /**
+     * Build the `taskOutcome` shape that {@see archiveAndRender}
+     * expects, for the `resume` operation. Resume doesn't carry the
+     * original `prompt` / `filename` arguments — the operator may
+     * have lost them across turns — so both fields are blank.
+     *
+     * @param  array<string, mixed> $finalResponse
+     * @return array{
+     *     task_id: string,
+     *     final_response: array<string, mixed>,
+     *     duration: int,
+     *     resolution: string,
+     *     prompt: string,
+     *     ratio: string,
+     *     kind: string,
+     *     filename_raw: string,
+     * }
+     */
+    private function resumeTaskOutcome(string $taskId, array $finalResponse, string $taskKind): array
+    {
+        return [
+            'task_id'        => $taskId,
+            'final_response' => $finalResponse,
+            'duration'       => isset($finalResponse['duration']) ? (int) $finalResponse['duration'] : 0,
+            'resolution'     => (string) ($finalResponse['resolution'] ?? ''),
+            'prompt'         => '',
+            'ratio'          => (string) ($finalResponse['ratio'] ?? ''),
+            'kind'           => $taskKind,
+            'filename_raw'   => '',
+        ];
     }
 
     /**
