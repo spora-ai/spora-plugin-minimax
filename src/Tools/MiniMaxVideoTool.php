@@ -181,12 +181,6 @@ use Throwable;
     required: false,
 )]
 #[ToolParameter(
-    name: 'action',
-    type: 'string',
-    description: 'Operation selector. Default `generate`. Other values: `resume`, `enhance_prompt`, `regenerate`.',
-    required: false,
-)]
-#[ToolParameter(
     name: 'task_id',
     type: 'string',
     description: 'Required for `resume` and `regenerate` — the task_id returned by a previous `generate` (or `enhance_prompt`) call.',
