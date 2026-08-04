@@ -451,27 +451,15 @@ final class MiniMaxVideoTool extends MiniMaxTool
         if (!$pollResult['success']) {
             return $this->timedOutResult($pollResult['data'], $arguments);
         }
+
         $finalResponse = $pollResult['data'];
         $downloadUrl   = (string) ($finalResponse['content']['url'] ?? '');
-
         $this->support->logSuccess($ctx, $finalResponse);
 
         $taskKind = is_string($finalResponse['task_type'] ?? null) ? (string) $finalResponse['task_type'] : 'generation';
         if ($taskKind === 'h3_context_ir') {
-            // The task is a prompt-enhancement job, not a video — `resume`
-            // shouldn't be called on one in normal flow, but if it is,
-            // surface the enhanced prompt rather than nothing.
-            $prompt = (string) ($finalResponse['content']['prompt'] ?? '');
-            return new ToolResult(true, "Enhanced prompt:\n\n{$prompt}", [
-                'task_id'         => $taskId,
-                'enhanced_prompt' => $prompt,
-                'task_type'       => $taskKind,
-            ]);
+            return $this->doResumeEnhancedPrompt($ctx, $finalResponse, $taskId);
         }
-
-        $duration   = isset($finalResponse['duration']) ? (int) $finalResponse['duration'] : 0;
-        $resolution = (string) ($finalResponse['resolution'] ?? '');
-        $ratio      = (string) ($finalResponse['ratio'] ?? '');
 
         return $this->archiveAndRender(
             $ctx,
@@ -479,14 +467,31 @@ final class MiniMaxVideoTool extends MiniMaxTool
             [
                 'task_id'        => $taskId,
                 'final_response' => $finalResponse,
-                'duration'       => $duration,
-                'resolution'     => $resolution,
+                'duration'       => isset($finalResponse['duration']) ? (int) $finalResponse['duration'] : 0,
+                'resolution'     => (string) ($finalResponse['resolution'] ?? ''),
                 'prompt'         => '',
-                'ratio'          => $ratio,
+                'ratio'          => (string) ($finalResponse['ratio'] ?? ''),
                 'kind'           => $taskKind,
                 'filename_raw'   => '',
             ],
         );
+    }
+
+    /**
+     * Build the ToolResult for a `resume` call that lands on an
+     * `h3_context_ir` task (the upstream is a prompt-enhancement job,
+     * not a video). Surfaces the enhanced prompt instead of nothing.
+     *
+     * @param array<string, mixed> $finalResponse
+     */
+    private function doResumeEnhancedPrompt(MiniMaxToolContext $ctx, array $finalResponse, string $taskId): ToolResult
+    {
+        $prompt = (string) ($finalResponse['content']['prompt'] ?? '');
+        return new ToolResult(true, "Enhanced prompt:\n\n{$prompt}", [
+            'task_id'         => $taskId,
+            'enhanced_prompt' => $prompt,
+            'task_type'       => 'h3_context_ir',
+        ]);
     }
 
     /**

@@ -102,11 +102,9 @@ final class MiniMaxVideoUrlPolicy
      */
     public static function normaliseStringList(mixed $raw): array
     {
-        if ($raw === null) {
-            return [];
-        }
         if (is_string($raw)) {
             $trimmed = trim($raw);
+
             return $trimmed === '' ? [] : [$trimmed];
         }
         if (!is_array($raw)) {
@@ -114,14 +112,14 @@ final class MiniMaxVideoUrlPolicy
         }
         $out = [];
         foreach ($raw as $v) {
-            if (!is_string($v)) {
-                continue;
-            }
-            $t = trim($v);
-            if ($t !== '') {
-                $out[] = $t;
+            if (is_string($v)) {
+                $t = trim($v);
+                if ($t !== '') {
+                    $out[] = $t;
+                }
             }
         }
+
         return $out;
     }
 }

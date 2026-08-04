@@ -187,6 +187,18 @@ final class MiniMaxVideoValidator
         // 4. URL hygiene across all asset lists.
         $allUrls = array_values(array_filter([$first, $last], static fn(string $u): bool => $u !== ''));
         $allUrls = array_merge($allUrls, $refImgs, $refVids, $refAud);
+        $errors = array_merge($errors, self::collectUrlErrors($allUrls));
+
+        return $errors;
+    }
+
+    /**
+     * @param list<string> $allUrls
+     * @return list<string>
+     */
+    private static function collectUrlErrors(array $allUrls): array
+    {
+        $errors = [];
         foreach ($allUrls as $url) {
             if (MiniMaxVideoUrlPolicy::isMediaArchivePath($url)) {
                 $errors[] = MiniMaxVideoUrlPolicy::mediaArchiveRejectionMessage($url);

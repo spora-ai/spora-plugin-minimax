@@ -122,16 +122,12 @@ final class MiniMaxVideoContentBuilder
         $hasLast  = in_array('last_frame', $roles, true);
         $hasRef   = (bool) array_intersect($roles, ['reference_image', 'reference_video', 'reference_audio']);
 
-        if ($hasFirst && $hasLast) {
-            return 'i2v_first_last_frame';
-        }
-        if ($hasFirst) {
-            return 'i2v_first_frame';
-        }
-        if ($hasRef) {
-            return 'r2v';
-        }
-        return 'text_only';
+        return match (true) {
+            $hasFirst && $hasLast => 'i2v_first_last_frame',
+            $hasFirst             => 'i2v_first_frame',
+            $hasRef               => 'r2v',
+            default               => 'text_only',
+        };
     }
 
     /**
@@ -159,41 +155,55 @@ final class MiniMaxVideoContentBuilder
      */
     public static function resolveAspectRatio(array $content, string $llmSupplied): string
     {
+        $flags = self::scanContentFlags($content);
+
+        if (!$flags['hasNonText']) {
+            $resolved = self::resolveTextOnlyRatio($llmSupplied);
+        } elseif ($flags['hasFrameImages']) {
+            $resolved = 'adaptive';
+        } elseif ($llmSupplied !== '' && in_array($llmSupplied, self::ASPECT_RATIOS, true)) {
+            $resolved = $llmSupplied;
+        } else {
+            $resolved = 'adaptive';
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>> $content
+     * @return array{hasNonText: bool, hasFrameImages: bool}
+     */
+    private static function scanContentFlags(array $content): array
+    {
         $hasNonText     = false;
         $hasFrameImages = false;
+
         foreach ($content as $item) {
             $type = is_string($item['type'] ?? null) ? $item['type'] : '';
             if ($type !== 'text') {
                 $hasNonText = true;
             }
+
             $role = is_string($item['role'] ?? null) ? $item['role'] : '';
             if ($role === 'first_frame' || $role === 'last_frame') {
                 $hasFrameImages = true;
             }
         }
 
-        if (!$hasNonText) {
-            // Text-to-video: ratio is required, must be a concrete value.
-            // If LLM passed `adaptive` (or anything else invalid for t2v)
-            // fall back to `16:9`.
-            if ($llmSupplied !== '' && in_array($llmSupplied, self::TEXT_ONLY_ASPECT_RATIOS, true)) {
-                return $llmSupplied;
-            }
-            return '16:9';
-        }
+        return [
+            'hasNonText'     => $hasNonText,
+            'hasFrameImages' => $hasFrameImages,
+        ];
+    }
 
-        if ($hasFrameImages) {
-            // Image-to-video: H3 forces `adaptive` server-side. Force it
-            // here so the request body matches what upstream will see.
-            return 'adaptive';
-        }
-
-        // Reference-to-video: `adaptive` is the spec default but a
-        // concrete ratio from the LLM is honoured.
-        if ($llmSupplied !== '' && in_array($llmSupplied, self::ASPECT_RATIOS, true)) {
+    private static function resolveTextOnlyRatio(string $llmSupplied): string
+    {
+        if ($llmSupplied !== '' && in_array($llmSupplied, self::TEXT_ONLY_ASPECT_RATIOS, true)) {
             return $llmSupplied;
         }
-        return 'adaptive';
+
+        return '16:9';
     }
 
     /**
