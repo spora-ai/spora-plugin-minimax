@@ -226,29 +226,60 @@ final class MiniMaxHttpClient
             return null;
         }
 
+        $anthropic = $this->anthropicErrorMessage($decoded);
+        if ($anthropic !== null) {
+            return $anthropic;
+        }
+
+        return $this->minimaxBaseRespErrorMessage($decoded);
+    }
+
+    /**
+     * Extract an Anthropic-style error.message from a decoded body.
+     * Returns `null` when the body doesn't carry an `error` object.
+     *
+     * @param array<string, mixed> $decoded
+     */
+    private function anthropicErrorMessage(array $decoded): ?string
+    {
         $error = $decoded['error'] ?? null;
-        if (is_array($error)) {
-            $message = $error['message'] ?? null;
-            $code    = $error['code'] ?? null;
-            if (is_string($message) && $message !== '') {
-                $prefix = is_int($code) || (is_string($code) && $code !== '')
-                    ? "[{$code}] "
-                    : '';
-                return $prefix . $message;
-            }
+        if (!is_array($error)) {
+            return null;
         }
 
+        $message = $error['message'] ?? null;
+        if (!is_string($message) || $message === '') {
+            return null;
+        }
+
+        $code = $error['code'] ?? null;
+        $prefix = (is_int($code) || (is_string($code) && $code !== ''))
+            ? "[{$code}] "
+            : '';
+        return $prefix . $message;
+    }
+
+    /**
+     * Extract a MiniMax-style base_resp.status_msg from a decoded body.
+     * Returns `null` when the body doesn't carry a `base_resp` object.
+     *
+     * @param array<string, mixed> $decoded
+     */
+    private function minimaxBaseRespErrorMessage(array $decoded): ?string
+    {
         $baseResp = $decoded['base_resp'] ?? null;
-        if (is_array($baseResp)) {
-            $msg = $baseResp['status_msg'] ?? null;
-            $code = $baseResp['status_code'] ?? null;
-            if (is_string($msg) && $msg !== '') {
-                $prefix = is_int($code) ? "[{$code}] " : '';
-                return $prefix . $msg;
-            }
+        if (!is_array($baseResp)) {
+            return null;
         }
 
-        return null;
+        $msg = $baseResp['status_msg'] ?? null;
+        if (!is_string($msg) || $msg === '') {
+            return null;
+        }
+
+        $code = $baseResp['status_code'] ?? null;
+        $prefix = is_int($code) ? "[{$code}] " : '';
+        return $prefix . $msg;
     }
 
     /**

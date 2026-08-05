@@ -118,6 +118,26 @@ final class MiniMaxVideoV1Matrix
      */
     public static function explain(string $model, string $resolution, int $duration): ?string
     {
+        $gateReason = self::earlyRejection($model);
+        if ($gateReason !== null) {
+            return $gateReason;
+        }
+
+        $rules = self::DURATION_RULES[$model];
+        $resolutionError = self::resolutionError($model, $resolution, $rules);
+        if ($resolutionError !== null) {
+            return $resolutionError;
+        }
+
+        return self::durationError($model, $resolution, $duration, $rules);
+    }
+
+    /**
+     * Reject unknown / unimplemented models before checking the matrix.
+     * Returns `null` when the model passes the gate.
+     */
+    private static function earlyRejection(string $model): ?string
+    {
         if (!in_array($model, self::SUPPORTED_MODELS, true)) {
             return sprintf(
                 'model "%s" is not a supported MiniMax v1 video model. Allowed: %s.',
@@ -135,36 +155,62 @@ final class MiniMaxVideoV1Matrix
             );
         }
 
-        $rules = self::DURATION_RULES[$model];
-        if (!array_key_exists($resolution, $rules)) {
-            return sprintf(
-                'resolution "%s" is not supported by model "%s". Allowed: %s.',
-                $resolution,
-                $model,
-                implode(', ', array_keys($rules)),
-            );
-        }
-
-        if (!in_array($duration, $rules[$resolution], true)) {
-            $allowedDurations = $rules[$resolution];
-            sort($allowedDurations);
-            $allowedList = implode('/', $allowedDurations) . 's';
-
-            $hint = ($resolution === '1080P' && $duration === 10)
-                ? ' At 10s, only 768P is supported.'
-                : '';
-
-            return sprintf(
-                'resolution "%s" + duration_seconds "%d" is not a valid combination for model "%s". '
-                . 'Allowed durations at this resolution: %s.%s',
-                $resolution,
-                $duration,
-                $model,
-                $allowedList,
-                $hint,
-            );
-        }
-
         return null;
+    }
+
+    /**
+     * Reject resolutions the model doesn't support. Returns `null` when
+     * the resolution is in the matrix.
+     *
+     * @param array<string, list<int>> $rules
+     */
+    private static function resolutionError(string $model, string $resolution, array $rules): ?string
+    {
+        if (array_key_exists($resolution, $rules)) {
+            return null;
+        }
+
+        return sprintf(
+            'resolution "%s" is not supported by model "%s". Allowed: %s.',
+            $resolution,
+            $model,
+            implode(', ', array_keys($rules)),
+        );
+    }
+
+    /**
+     * Reject durations that the model doesn't support at the given
+     * resolution. Returns `null` when the duration is in the matrix.
+     *
+     * The error message carries an actionable hint (`At 10s, only 768P
+     * is supported`) for the most common trap (1080P + 10s) so the
+     * LLM can self-correct without a second round-trip.
+     *
+     * @param array<string, list<int>> $rules
+     */
+    private static function durationError(string $model, string $resolution, int $duration, array $rules): ?string
+    {
+        $allowedDurations = $rules[$resolution] ?? [];
+        if (in_array($duration, $allowedDurations, true)) {
+            return null;
+        }
+
+        $sorted = $allowedDurations;
+        sort($sorted);
+        $allowedList = implode('/', $sorted) . 's';
+
+        $hint = ($resolution === '1080P' && $duration === 10)
+            ? ' At 10s, only 768P is supported.'
+            : '';
+
+        return sprintf(
+            'resolution "%s" + duration_seconds "%d" is not a valid combination for model "%s". '
+            . 'Allowed durations at this resolution: %s.%s',
+            $resolution,
+            $duration,
+            $model,
+            $allowedList,
+            $hint,
+        );
     }
 }
