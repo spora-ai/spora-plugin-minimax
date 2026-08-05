@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Spora\Plugins\MiniMax\Support;
 
 use Psr\Log\LoggerInterface;
+use Spora\Plugins\MiniMax\Tools\MiniMaxMediaArchiveResolver;
 use Spora\Services\ToolConfigService;
 use Spora\Tools\AbstractTool;
 use Spora\Tools\ValueObjects\ToolResult;
@@ -41,6 +42,15 @@ abstract class MiniMaxTool extends AbstractTool
 
     protected MiniMaxToolSupport $support;
 
+    /**
+     * Spora Media Archive UUID → data URI resolver. Wired by the
+     * plugin's DI registration when the host application provides
+     * a {@see \Spora\Services\MediaArchive\MediaAssetReader}; left
+     * null for tools that don't accept first-frame images (image,
+     * speech, music) and for tests that don't stand up a reader.
+     */
+    protected ?MiniMaxMediaArchiveResolver $mediaArchiveResolver = null;
+
     public function __construct(
         ToolConfigService   $configService,
         HttpClientInterface $httpClient,
@@ -59,6 +69,17 @@ abstract class MiniMaxTool extends AbstractTool
     public function setLogger(?LoggerInterface $logger): void
     {
         $this->support->setLogger($logger);
+    }
+
+    /**
+     * Wired by PHP-DI from {@see MiniMaxPlugin::register()} for the
+     * video tools that accept first-frame / reference images. Optional:
+     * tools that don't take asset URLs (image, speech, music) skip
+     * this step entirely.
+     */
+    public function setMediaArchiveResolver(?MiniMaxMediaArchiveResolver $resolver): void
+    {
+        $this->mediaArchiveResolver = $resolver;
     }
 
     public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
@@ -245,6 +266,21 @@ abstract class MiniMaxTool extends AbstractTool
         callable $work,
         ?callable $validate = null,
     ): ToolResult {
+        // Media Archive UUID resolution runs BEFORE the URL policy so a
+        // bare UUID (or opaque `/api/v1/assets/<uuid>.<ext>`) flowing
+        // from `media:search` lands as a forwardable `data:` URI by
+        // the time {@see MiniMaxVideoValidator::collectUrlErrors()}
+        // sees it. The resolver is optional — tools without it (e.g.
+        // the image / speech / music tools, or any test that doesn't
+        // wire a reader) skip this step entirely.
+        if ($this->mediaArchiveResolver !== null) {
+            $resolution = $this->mediaArchiveResolver->resolve($arguments, $userId);
+            if (isset($resolution['failed'])) {
+                return $resolution['failed'];
+            }
+            $arguments = $resolution['resolved'];
+        }
+
         if ($validate !== null) {
             $validation = $validate($arguments);
             if ($validation !== null) {
