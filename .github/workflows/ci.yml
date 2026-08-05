@@ -54,6 +54,12 @@ jobs:
           coverage: pcov
           tools: composer
 
+      - name: Configure path repo for spora-core
+        # Override the default 'url: ../spora-core' (local-dev layout) to
+        # the CI layout where the plugin lives at GITHUB_WORKSPACE root
+        # and spora-core is a sibling at ${GITHUB_WORKSPACE}/spora-core.
+        run: composer config --unset repositories.spora-core 2>/dev/null; composer config repositories.spora-core path spora-core
+
       - name: Composer install
         run: composer install --no-interaction --prefer-dist
 
@@ -92,6 +98,12 @@ jobs:
           coverage: none
           tools: composer
 
+      - name: Configure path repo for spora-core
+        # Override the default 'url: ../spora-core' (local-dev layout) to
+        # the CI layout where the plugin lives at GITHUB_WORKSPACE root
+        # and spora-core is a sibling at ${GITHUB_WORKSPACE}/spora-core.
+        run: composer config --unset repositories.spora-core 2>/dev/null; composer config repositories.spora-core path spora-core
+
       - name: Composer install
         run: composer install --no-interaction --prefer-dist
 
@@ -119,6 +131,12 @@ jobs:
           coverage: none
           tools: composer
 
+      - name: Configure path repo for spora-core
+        # Override the default 'url: ../spora-core' (local-dev layout) to
+        # the CI layout where the plugin lives at GITHUB_WORKSPACE root
+        # and spora-core is a sibling at ${GITHUB_WORKSPACE}/spora-core.
+        run: composer config --unset repositories.spora-core 2>/dev/null; composer config repositories.spora-core path spora-core
+
       - name: Composer install
         run: composer install --no-interaction --prefer-dist
 
@@ -145,6 +163,12 @@ jobs:
           extensions: curl, mbstring
           coverage: none
           tools: composer
+
+      - name: Configure path repo for spora-core
+        # Override the default 'url: ../spora-core' (local-dev layout) to
+        # the CI layout where the plugin lives at GITHUB_WORKSPACE root
+        # and spora-core is a sibling at ${GITHUB_WORKSPACE}/spora-core.
+        run: composer config --unset repositories.spora-core 2>/dev/null; composer config repositories.spora-core path spora-core
 
       - name: Composer install
         run: composer install --no-interaction --prefer-dist

@@ -2912,11 +2912,11 @@
         },
         {
             "name": "spora-ai/spora-core",
-            "version": "dev-pr-196",
+            "version": "dev-main",
             "dist": {
                 "type": "path",
                 "url": "../spora-core",
-                "reference": "e2843295f002e4db8198d031ca562b898dddfb0f"
+                "reference": "5b9483edc89b1986db2d70af9f3fafc053f804ac"
             },
             "require": {
                 "chriskonnertz/string-calc": "^2.0",
