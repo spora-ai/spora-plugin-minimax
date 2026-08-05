@@ -8,6 +8,7 @@ use Spora\Plugins\MiniMax\Tools\MiniMaxImageTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxMusicTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxVideoTool;
+use Spora\Plugins\MiniMax\Tools\MiniMaxVideoV1Tool;
 use Spora\Services\MediaArchive\MediaArchiveService;
 
 it('returns plugin name', function () {
@@ -15,13 +16,14 @@ it('returns plugin name', function () {
     expect($plugin->getName())->toBe('MiniMax');
 });
 
-it('contributes all four MiniMax tools', function () {
+it('contributes all five MiniMax tools', function () {
     $plugin = new MiniMaxPlugin();
     expect($plugin->tools())->toBe([
         MiniMaxImageTool::class,
         MiniMaxSpeechTool::class,
         MiniMaxMusicTool::class,
         MiniMaxVideoTool::class,
+        MiniMaxVideoV1Tool::class,
     ]);
 });
 

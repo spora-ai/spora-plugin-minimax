@@ -11,6 +11,7 @@ use Spora\Plugins\MiniMax\Tools\MiniMaxImageTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxMusicTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxVideoTool;
+use Spora\Plugins\MiniMax\Tools\MiniMaxVideoV1Tool;
 use Spora\Services\LocalAssetStore;
 use Spora\Services\MediaArchive\MediaArchiveService;
 
@@ -29,6 +30,7 @@ final class MiniMaxPlugin extends AbstractPlugin
             MiniMaxSpeechTool::class,
             MiniMaxMusicTool::class,
             MiniMaxVideoTool::class,
+            MiniMaxVideoV1Tool::class,
         ];
     }
 
@@ -97,6 +99,9 @@ final class MiniMaxPlugin extends AbstractPlugin
                 ->method('setLocalAssetStore', $localAssetStore)
                 ->method('setLogger', $logger),
             MiniMaxVideoTool::class  => \DI\autowire()
+                ->method('setMediaArchive', $archiveService)
+                ->method('setLogger', $logger),
+            MiniMaxVideoV1Tool::class => \DI\autowire()
                 ->method('setMediaArchive', $archiveService)
                 ->method('setLogger', $logger),
         ]);
