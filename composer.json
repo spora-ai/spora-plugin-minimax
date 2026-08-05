@@ -35,6 +35,8 @@
     },
     "scripts": {
         "test": "pest",
+        "test:parallel": "pest --parallel --processes=auto --max-batch-size=50 --fail-on-risky",
+        "test:coverage:clover": "pest --parallel --processes=auto --max-batch-size=50 --coverage-clover=coverage.xml --fail-on-risky",
         "analyse": "phpstan analyse --no-progress --memory-limit=512M",
         "lint": "php-cs-fixer fix --dry-run --diff --no-interaction"
     },
