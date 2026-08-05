@@ -54,11 +54,15 @@ jobs:
           coverage: pcov
           tools: composer
 
-      - name: Configure path repo for spora-core
-        # Override the default 'url: ../spora-core' (local-dev layout) to
-        # the CI layout where the plugin lives at GITHUB_WORKSPACE root
-        # and spora-core is a sibling at ${GITHUB_WORKSPACE}/spora-core.
-        run: composer config --unset repositories.spora-core 2>/dev/null; composer config repositories.spora-core path spora-core
+      - name: Rewrite composer.json path repo for CI
+        # The committed composer.json uses '../spora-core' (local-dev path).
+        # CI's plugin checkout sits at GITHUB_WORKSPACE with spora-core as a
+        # sibling, so the path repo must be 'spora-core' here. Rewrite in
+        # place — the running compose step below calls `composer update` so
+        # the lock file regenerates against the new URL.
+        run: |
+          sed -i.bak 's|"url": "../spora-core"|"url": "spora-core"|' composer.json
+          rm composer.json.bak
 
       - name: Composer install
         # `composer update spora-ai/spora-core` is needed because the
@@ -101,11 +105,15 @@ jobs:
           coverage: none
           tools: composer
 
-      - name: Configure path repo for spora-core
-        # Override the default 'url: ../spora-core' (local-dev layout) to
-        # the CI layout where the plugin lives at GITHUB_WORKSPACE root
-        # and spora-core is a sibling at ${GITHUB_WORKSPACE}/spora-core.
-        run: composer config --unset repositories.spora-core 2>/dev/null; composer config repositories.spora-core path spora-core
+      - name: Rewrite composer.json path repo for CI
+        # The committed composer.json uses '../spora-core' (local-dev path).
+        # CI's plugin checkout sits at GITHUB_WORKSPACE with spora-core as a
+        # sibling, so the path repo must be 'spora-core' here. Rewrite in
+        # place — the running compose step below calls `composer update` so
+        # the lock file regenerates against the new URL.
+        run: |
+          sed -i.bak 's|"url": "../spora-core"|"url": "spora-core"|' composer.json
+          rm composer.json.bak
 
       - name: Composer install
         # `composer update spora-ai/spora-core` is needed because the
@@ -137,11 +145,15 @@ jobs:
           coverage: none
           tools: composer
 
-      - name: Configure path repo for spora-core
-        # Override the default 'url: ../spora-core' (local-dev layout) to
-        # the CI layout where the plugin lives at GITHUB_WORKSPACE root
-        # and spora-core is a sibling at ${GITHUB_WORKSPACE}/spora-core.
-        run: composer config --unset repositories.spora-core 2>/dev/null; composer config repositories.spora-core path spora-core
+      - name: Rewrite composer.json path repo for CI
+        # The committed composer.json uses '../spora-core' (local-dev path).
+        # CI's plugin checkout sits at GITHUB_WORKSPACE with spora-core as a
+        # sibling, so the path repo must be 'spora-core' here. Rewrite in
+        # place — the running compose step below calls `composer update` so
+        # the lock file regenerates against the new URL.
+        run: |
+          sed -i.bak 's|"url": "../spora-core"|"url": "spora-core"|' composer.json
+          rm composer.json.bak
 
       - name: Composer install
         # `composer update spora-ai/spora-core` is needed because the
@@ -173,11 +185,15 @@ jobs:
           coverage: none
           tools: composer
 
-      - name: Configure path repo for spora-core
-        # Override the default 'url: ../spora-core' (local-dev layout) to
-        # the CI layout where the plugin lives at GITHUB_WORKSPACE root
-        # and spora-core is a sibling at ${GITHUB_WORKSPACE}/spora-core.
-        run: composer config --unset repositories.spora-core 2>/dev/null; composer config repositories.spora-core path spora-core
+      - name: Rewrite composer.json path repo for CI
+        # The committed composer.json uses '../spora-core' (local-dev path).
+        # CI's plugin checkout sits at GITHUB_WORKSPACE with spora-core as a
+        # sibling, so the path repo must be 'spora-core' here. Rewrite in
+        # place — the running compose step below calls `composer update` so
+        # the lock file regenerates against the new URL.
+        run: |
+          sed -i.bak 's|"url": "../spora-core"|"url": "spora-core"|' composer.json
+          rm composer.json.bak
 
       - name: Composer install
         # `composer update spora-ai/spora-core` is needed because the
