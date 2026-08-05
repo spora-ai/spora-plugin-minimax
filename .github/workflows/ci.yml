@@ -28,6 +28,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      # The plugin requires spora-core >=0.15.0 for MediaAssetReader
+      # (added in spora-core#195, not yet released on Packagist). The
+      # path repo declared in this repo's composer.json points at the
+      # sibling spora-core checkout below, so the lock file can resolve
+      # against the dev ref. `ref: main` is acceptable for a forward-
+      # only feature addition; pin to a SHA when this becomes a long-
+      # lived dependency.
+      - name: Checkout spora-core (sibling)
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: spora-ai/spora-core
+          ref: main
+          path: ../spora-core
+
       # pcov is ~3-5x faster than xdebug for coverage. The trade-off is
       # that branch/path coverage is not reported (statement + line only),
       # which is fine for the quality gate (clover XML is consumed by
@@ -51,7 +65,7 @@ jobs:
         with:
           name: coverage-report
           path: coverage.xml
-          if-no-files-found: error
+          if-no-found: error
           retention-days: 7
 
   test-85:
@@ -62,6 +76,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Checkout spora-core (sibling)
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: spora-ai/spora-core
+          ref: main
+          path: ../spora-core
 
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
@@ -83,6 +104,13 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
+      - name: Checkout spora-core (sibling)
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: spora-ai/spora-core
+          ref: main
+          path: ../spora-core
+
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
         with:
@@ -102,6 +130,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Checkout spora-core (sibling)
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: spora-ai/spora-core
+          ref: main
+          path: ../spora-core
 
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
