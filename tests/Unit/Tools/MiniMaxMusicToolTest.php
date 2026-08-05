@@ -66,7 +66,7 @@ it('parses the music response and returns the audio URL for compose', function (
             // Per-call timeout MUST be passed through; previously this
             // assertion only checked body keys, which let a regression
             // where the timeout override was dropped slip past CI.
-            return ($opts['json']['model'] ?? null) === 'music-2.6'
+            return ($opts['json']['model'] ?? null) === 'music-3.0'
                 && ($opts['json']['output_format'] ?? null) === 'url'
                 && ($opts['json']['prompt'] ?? null) === MiniMaxMusicToolTestLiterals::PROMPT_SUNNY_DAY
                 && ($opts['json']['lyrics'] ?? null) === ''

@@ -55,8 +55,8 @@ use Throwable;
     key: 'model',
     label: 'Model',
     type: 'text',
-    description: 'Music model id (default: music-2.6). Applies to `compose`; the lyrics endpoint has no model parameter.',
-    default: 'music-2.6',
+    description: 'Music model id (default: music-3.0). Applies to `compose`; the lyrics endpoint has no model parameter. Per https://platform.minimax.io/docs/guides/models-intro, `music-3.0` is the current default; `music-2.6` and `music-cover` are also accepted.',
+    default: 'music-3.0',
 )]
 #[ToolSetting(
     key: 'http_timeout_seconds',
@@ -106,7 +106,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
     use StoresBinaryAssets;
 
     protected const PROVIDER              = 'music';
-    protected const DEFAULT_MODEL         = 'music-2.6';
+    protected const DEFAULT_MODEL         = 'music-3.0';
     protected const QUALIFIED_NAME        = 'minimax:music';
     protected const TIMEOUT_SECONDS       = 30; // overridden per-op
     protected const TOOL_LABEL            = ''; // unused — dispatch via execute()

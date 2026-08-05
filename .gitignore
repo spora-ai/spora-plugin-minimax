@@ -3,6 +3,7 @@
 /.phpunit.result.cache/
 /.php-cs-fixer.cache
 /coverage/
+/coverage.xml
 /storage/
 /.idea/
 /.vscode/

@@ -21,7 +21,7 @@ use InvalidArgumentException;
  */
 final class MiniMaxSettings
 {
-    public const PROVIDERS = ['image', 'speech', 'music', 'video'];
+    public const PROVIDERS = ['image', 'speech', 'music', 'video', 'video_v1'];
 
     /**
      * Global / international MiniMax API endpoint. Operators in China can
@@ -49,6 +49,10 @@ final class MiniMaxSettings
      *    day, so the default needs headroom. Operators who want a
      *    fast-fail can lower this in settings.
      *  - video.retrieve: 30 s — file-retrieval API call.
+     *  - video_v1: same shape as the v2 video — MiniMax queues submit
+     *    server-side, 1080P clips still routinely hit 8–12 min. The
+     *    v1 file-retrieve API call is bounded to 30 s. Operators on
+     *    plans that don't include MiniMax-H3 fall back to this tool.
      */
     public const PROVIDER_DEFAULTS = [
         'image'  => ['http_timeout_seconds' => 60],
@@ -60,6 +64,11 @@ final class MiniMaxSettings
         'video'  => [
             'submit_timeout_seconds'  => 120,
             'poll_timeout_seconds'    => 900,
+            'retrieve_timeout_seconds' => 30,
+        ],
+        'video_v1' => [
+            'submit_timeout_seconds'   => 120,
+            'poll_timeout_seconds'     => 900,
             'retrieve_timeout_seconds' => 30,
         ],
     ];

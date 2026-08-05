@@ -163,9 +163,14 @@ final class MiniMaxHttpClient
                 'status' => $statusCode,
                 'body'   => $this->safeTruncate($content),
             ]);
+            $upstream = $this->extractUpstreamError($content);
+            $message  = $upstream !== null
+                ? "MiniMax API returned HTTP {$statusCode}: {$upstream}"
+                : "MiniMax API returned HTTP {$statusCode}";
             throw new MiniMaxApiException(
-                "MiniMax API returned HTTP {$statusCode}",
+                $message,
                 $statusCode,
+                $this->safeJsonDecode($content),
             );
         }
 
@@ -198,6 +203,95 @@ final class MiniMaxHttpClient
         }
 
         return $decoded;
+    }
+
+    /**
+     * Extract the upstream `error.message` (with `error.code` prefix when
+     * present) from a 4xx/5xx response body. Returns `null` when the body
+     * isn't JSON, doesn't carry an `error` object, or the message is empty.
+     *
+     * Two shapes are accepted:
+     *   - Anthropic-style: `{"type":"error","error":{"type":"...","message":"...","code":...}}`
+     *   - MiniMax-style: `{"base_resp":{"status_msg":"...","status_code":...}}`
+     * The Anthropic-style is what the v2 video endpoints use (the
+     * "TokenPlan or Credit does not currently support MiniMax-H3 series
+     * models (2013)" message that landed in `spora-local`); the
+     * MiniMax-style is what the v1 endpoints use. Without this the LLM
+     * only sees `MiniMax API returned HTTP 400` and has to guess.
+     */
+    private function extractUpstreamError(string $content): ?string
+    {
+        $decoded = json_decode($content, true);
+        if (!is_array($decoded)) {
+            return null;
+        }
+
+        $anthropic = $this->anthropicErrorMessage($decoded);
+        if ($anthropic !== null) {
+            return $anthropic;
+        }
+
+        return $this->minimaxBaseRespErrorMessage($decoded);
+    }
+
+    /**
+     * Extract an Anthropic-style error.message from a decoded body.
+     * Returns `null` when the body doesn't carry an `error` object.
+     *
+     * @param array<string, mixed> $decoded
+     */
+    private function anthropicErrorMessage(array $decoded): ?string
+    {
+        $error = $decoded['error'] ?? null;
+        if (!is_array($error)) {
+            return null;
+        }
+
+        $message = $error['message'] ?? null;
+        if (!is_string($message) || $message === '') {
+            return null;
+        }
+
+        $code = $error['code'] ?? null;
+        $prefix = (is_int($code) || (is_string($code) && $code !== ''))
+            ? "[{$code}] "
+            : '';
+        return $prefix . $message;
+    }
+
+    /**
+     * Extract a MiniMax-style base_resp.status_msg from a decoded body.
+     * Returns `null` when the body doesn't carry a `base_resp` object.
+     *
+     * @param array<string, mixed> $decoded
+     */
+    private function minimaxBaseRespErrorMessage(array $decoded): ?string
+    {
+        $baseResp = $decoded['base_resp'] ?? null;
+        if (!is_array($baseResp)) {
+            return null;
+        }
+
+        $msg = $baseResp['status_msg'] ?? null;
+        if (!is_string($msg) || $msg === '') {
+            return null;
+        }
+
+        $code = $baseResp['status_code'] ?? null;
+        $prefix = is_int($code) ? "[{$code}] " : '';
+        return $prefix . $msg;
+    }
+
+    /**
+     * Best-effort JSON decode for the exception context map. Returns an
+     * empty array on failure (callers treat the context as advisory).
+     *
+     * @return array<string, mixed>
+     */
+    private function safeJsonDecode(string $content): array
+    {
+        $decoded = json_decode($content, true);
+        return is_array($decoded) ? $decoded : [];
     }
 
     private function backoffMicroseconds(int $attempt): int

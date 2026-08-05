@@ -217,29 +217,18 @@ it('video tool logs a warning when MediaArchive::ingest throws', function () {
 
     $upstream = M::mock(HttpClientInterface::class);
     $upstream->allows('request')
-        ->with('POST', 'https://api.minimax.io/v1/video_generation', M::any())
-        ->andReturn(minimaxLoggerArchiveResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
-            'task_id'   => 'task-xyz',
-        ])));
+        ->with('POST', 'https://api.minimax.io/v2/video_generation', M::any())
+        ->andReturn(minimaxLoggerArchiveResponse(200, json_encode(['task_id' => 'task-xyz'])));
     $upstream->allows('request')
-        ->with('GET', 'https://api.minimax.io/v1/query/video_generation', M::any())
+        ->with('GET', M::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), M::any())
         ->andReturn(minimaxLoggerArchiveResponse(200, json_encode([
-            'base_resp'    => ['status_code' => 0, 'status_msg' => 'success'],
-            'task_id'      => 'task-xyz',
-            'status'       => 'Success',
-            'file_id'      => 'file-abc-123',
-            'video_width'  => 1920,
-            'video_height' => 1080,
-        ])));
-    $upstream->allows('request')
-        ->with('GET', 'https://api.minimax.io/v1/files/retrieve', M::any())
-        ->andReturn(minimaxLoggerArchiveResponse(200, json_encode([
-            'file' => [
-                'file_id'      => 'file-abc-123',
-                'download_url' => 'https://minimax.example/output.mp4',
+            'task' => [
+                'id'        => 'task-xyz',
+                'status'    => 'succeeded',
+                'task_type' => 'generation',
+                'modality'  => 'video',
+                'content'   => ['url' => 'https://minimax.example/output.mp4'],
             ],
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
         ])));
 
     $archive = minimaxLoggerArchiveService();
@@ -249,7 +238,7 @@ it('video tool logs a warning when MediaArchive::ingest throws', function () {
     $tool = new MiniMaxVideoTool($config, $upstream, $log, null, null, $archive);
     $tool->setLogger($logger);
 
-    $result = $tool->execute(['prompt' => '[Push in] a forest', 'duration_seconds' => '6'], 11);
+    $result = $tool->execute(['prompt' => '[Push in] a forest', 'duration_seconds' => 6], 11);
 
     expect($result->success)->toBeTrue();
 

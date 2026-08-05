@@ -8,6 +8,7 @@ use Spora\Plugins\MiniMax\Tools\MiniMaxImageTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxMusicTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxVideoTool;
+use Spora\Plugins\MiniMax\Tools\MiniMaxVideoV1Tool;
 use Spora\Services\MediaArchive\MediaArchiveService;
 
 it('returns plugin name', function () {
@@ -15,13 +16,14 @@ it('returns plugin name', function () {
     expect($plugin->getName())->toBe('MiniMax');
 });
 
-it('contributes all four MiniMax tools', function () {
+it('contributes all five MiniMax tools', function () {
     $plugin = new MiniMaxPlugin();
     expect($plugin->tools())->toBe([
         MiniMaxImageTool::class,
         MiniMaxSpeechTool::class,
         MiniMaxMusicTool::class,
         MiniMaxVideoTool::class,
+        MiniMaxVideoV1Tool::class,
     ]);
 });
 
@@ -30,10 +32,10 @@ it('declares schema version 1', function () {
     expect($plugin->schemaVersion())->toBe(1);
 });
 
-it('points migrations at the bundled migrations directory', function () {
-    $plugin = new MiniMaxPlugin();
-    expect($plugin->migrationsPath())->toEndWith('/database/migrations');
-});
+// Note: the plugin previously exposed a `database/migrations/` directory
+// with an audit-log table. The table was unused (write-only, no SELECTs),
+// so it was removed in the H3 migration. `migrationsPath()` was deleted
+// alongside it; if a future migration is added, restore the method + test.
 
 it('register() binds each MiniMax tool with a setMediaArchive resolver', function () {
     $plugin = new MiniMaxPlugin();

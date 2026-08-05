@@ -72,7 +72,7 @@ minimax_music(action: "edit_lyrics", prompt: "make every other line rhyme and sw
 |--------------------------------|---------|-------|
 | `api_key`                      | —       | Required. Shared with image/speech/video. |
 | `base_url`                     | `https://api.minimax.io` | Override only for China-region or private gateway. |
-| `model`                        | `music-2.6` | Applies to `compose` only — `write_lyrics` and `edit_lyrics` don't take a `model`. |
+| `model`                        | `music-3.0` | Applies to `compose` only — `write_lyrics` and `edit_lyrics` don't take a `model`. Per https://platform.minimax.io/docs/guides/models-intro, `music-3.0` is the current default; `music-2.6` and `music-cover` are also accepted by the upstream endpoint. |
 | `http_timeout_seconds`         | `180`    | `compose` only. Composition can take 60–180 s on slow networks; raise to 240–300 s if the operator sees cURL 28 errors. |
 | `http_timeout_seconds_lyrics`  | `30`     | `write_lyrics` / `edit_lyrics`. Lyrics endpoint is pure text and finishes quickly. |
 

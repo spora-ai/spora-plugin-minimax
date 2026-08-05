@@ -8,81 +8,120 @@ use Spora\Services\ToolConfigService;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Contracts\HttpClient\ResponseInterface;
 
-function minimaxVideoResponse(int $status, string $body): ResponseInterface
-{
-    $response = Mockery::mock(ResponseInterface::class);
-    $response->allows('getStatusCode')->andReturn($status);
-    $response->allows('getContent')->andReturn($body);
-    return $response;
+/**
+ * Helpers for building mocked Symfony HttpClient responses against the
+ * H3 v2 endpoints (`/v2/video_generation`, `/v2/h3_context_ir`,
+ * `/v2/video_regeneration`, `/v2/query/video_generation/{task_id}`).
+ *
+ * `function_exists` guards keep the helpers reusable from sibling test
+ * files (e.g. `MiniMaxVideoToolContentLimitsTest`) without colliding.
+ */
+if (!function_exists('h3Response')) {
+    function h3Response(int $status, string $body): ResponseInterface
+    {
+        $response = Mockery::mock(ResponseInterface::class);
+        $response->allows('getStatusCode')->andReturn($status);
+        $response->allows('getContent')->andReturn($body);
+        return $response;
+    }
 }
 
-/**
- * Assert that the Symfony HttpClient options array carries a `json`
- * body with the keys the MiniMax video endpoint requires.
- * Returns true on match so it can be wrapped in `Mockery::on()`.
- */
-function minimaxVideoBodyShape(array $opts, array $expected): bool
-{
-    if (!is_array($opts['json'] ?? null)) {
-        return false;
-    }
-    foreach ($expected as $key => $value) {
-        if (($opts['json'][$key] ?? null) !== $value) {
+if (!function_exists('h3BodyMatches')) {
+    /**
+     * @param array<string, mixed> $opts
+     * @param array<string, mixed> $expected
+     */
+    function h3BodyMatches(array $opts, array $expected): bool
+    {
+        if (!is_array($opts['json'] ?? null)) {
             return false;
         }
+        foreach ($expected as $key => $value) {
+            if (($opts['json'][$key] ?? null) !== $value) {
+                return false;
+            }
+        }
+        return true;
     }
-    return true;
 }
+
+if (!function_exists('h3ContentHas')) {
+    /**
+     * @param array<string, mixed> $opts
+     */
+    function h3ContentHas(array $opts, string $type, ?string $role = null): bool
+    {
+        $items = $opts['json']['content'] ?? null;
+        if (!is_array($items)) {
+            return false;
+        }
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            if (($item['type'] ?? null) !== $type) {
+                continue;
+            }
+            if ($role === null || ($item['role'] ?? null) === $role) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+if (!function_exists('h3SuccessTask')) {
+    /**
+     * @param array<string, mixed> $overrides
+     */
+    function h3SuccessTask(string $taskId, string $downloadUrl, array $overrides = []): array
+    {
+        return array_merge([
+            'task' => [
+                'id'        => $taskId,
+                'model'     => 'MiniMax-H3',
+                'status'    => 'succeeded',
+                'content'   => ['url' => $downloadUrl],
+                'task_type' => 'generation',
+                'modality'  => 'video',
+            ],
+        ], $overrides);
+    }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// 1. Dispatch / validation — no HTTP
+// ───────────────────────────────────────────────────────────────────────────
 
 it('returns an error when the API key is missing', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn([]);
 
-    $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
+    $http  = Mockery::mock(HttpClientInterface::class);
+    $log   = new MiniMaxLogWriter();
 
     $tool = new MiniMaxVideoTool($config, $http, $log);
-
     $result = $tool->execute(['prompt' => 'a forest'], 1);
+
     expect($result->success)->toBeFalse()
         ->and($result->content)->toContain('API key is not configured');
-});
-
-it('returns an error when duration_seconds is invalid', function () {
-    $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
-
-    $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxVideoTool($config, $http, $log);
-
-    $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => '30'], 1);
-    expect($result->success)->toBeFalse()
-        ->and($result->content)->toContain('duration_seconds');
 });
 
 it('returns an error for an unknown action', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
+    $http  = Mockery::mock(HttpClientInterface::class);
+    $log   = new MiniMaxLogWriter();
 
     $tool = new MiniMaxVideoTool($config, $http, $log);
-
     $result = $tool->execute(['action' => 'party', 'prompt' => 'a forest'], 1);
+
     expect($result->success)->toBeFalse()
-        ->and($result->content)->toContain("Unknown video operation: party");
+        ->and($result->content)->toContain('Unknown video operation: party');
 });
 
 it('falls back to generate when action is absent (backward compat)', function () {
-    // Mirrors MiniMaxSpeechTool's pre-multi-op behavior. The legacy
-    // `minimax_video(...)` calls that never passed `action` must
-    // continue to land on generate, not fail with "unknown op".
-    // We don't need to exercise the full poll/retrieve flow here —
-    // just confirm `execute(['prompt' => ...])` reaches the submit
-    // endpoint. The submit's task_id in the response is the signal.
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn([
         'api_key'               => 'k',
@@ -90,108 +129,76 @@ it('falls back to generate when action is absent (backward compat)', function ()
         'poll_timeout_seconds'  => '2',
     ]);
 
-    $http = Mockery::mock(HttpClientInterface::class);
     $submitCalls = 0;
-    $pollCalls   = 0;
+    $http = Mockery::mock(HttpClientInterface::class);
     $http->allows('request')
-        ->with('POST', 'https://api.minimax.io/v1/video_generation', Mockery::any())
+        ->with('POST', 'https://api.minimax.io/v2/video_generation', Mockery::any())
         ->andReturnUsing(function () use (&$submitCalls): ResponseInterface {
             $submitCalls++;
-            return minimaxVideoResponse(200, json_encode([
-                'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
-                'task_id'   => 'task-xyz',
-            ]));
+            return h3Response(200, json_encode(['task_id' => 'task-xyz']));
         });
-    // Every poll returns Processing — the test only needs to prove
-    // the dispatch reached generate (i.e. a POST happened); the
-    // poll timeout fires fast and is swallowed.
+    // Every poll returns "running" — the deadline hits before we ever reach succeeded.
     $http->allows('request')
-        ->with('GET', 'https://api.minimax.io/v1/query/video_generation', Mockery::any())
-        ->andReturnUsing(function () use (&$pollCalls): ResponseInterface {
-            $pollCalls++;
-            return minimaxVideoResponse(200, json_encode([
-                'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-                'task_id'   => 'task-xyz',
-                'status'    => 'Processing',
-            ]));
-        });
+        ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
+        ->andReturn(h3Response(200, json_encode(['task' => ['id' => 'task-xyz', 'status' => 'running']])));
 
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxVideoTool($config, $http, $log);
+    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
     $result = $tool->execute(['prompt' => 'a forest'], 1);
 
     expect($result->success)->toBeFalse()             // poll timed out
         ->and($result->data['task_id'])->toBe('task-xyz')
         ->and($result->data['timed_out'])->toBeTrue()
-        ->and($submitCalls)->toBe(1)                    // generate branch submitted
-        ->and($pollCalls)->toBeGreaterThan(0);          // and polled at least once
+        ->and($submitCalls)->toBe(1);
 });
 
-it('rejects an unknown resolution enum value', function () {
+it('rejects duration_seconds below 4', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => 3], 1);
 
-    $tool = new MiniMaxVideoTool($config, $http, $log);
-
-    // Lowercase 'p' — MiniMax wants uppercase P, exact match.
-    $result = $tool->execute(['prompt' => 'a forest', 'resolution' => '1080p'], 1);
     expect($result->success)->toBeFalse()
-        ->and($result->content)->toContain('resolution')
-        ->and($result->content)->toContain('uppercase P');
+        ->and($result->content)->toContain('duration_seconds');
 });
 
-it('rejects resolution 1080P with duration_seconds 10 for MiniMax-Hailuo-2.3', function () {
-    // Cross-product matrix guard: this is the most expensive trap.
-    // 1080P + 10s is silently rejected by upstream with 2013 after
-    // the task is queued — burning quota. Validate client-side.
+it('rejects duration_seconds above 15', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxVideoTool($config, $http, $log);
-
-    $result = $tool->execute([
-        'prompt'           => 'a forest',
-        'duration_seconds' => '10',
-        'resolution'       => '1080P',
-    ], 1);
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => 16], 1);
 
     expect($result->success)->toBeFalse()
-        ->and($result->content)->toContain('1080P')
-        ->and($result->content)->toContain('10')
-        ->and($result->content)->toContain('MiniMax-Hailuo-2.3')
-        ->and($result->content)->toContain('At 10s, only 768P is supported');
+        ->and($result->content)->toContain('duration_seconds');
 });
 
-it('rejects duration_seconds 10 with model T2V-01-Director', function () {
-    // T2V-01-Director doesn't support 10s at any resolution.
+it('rejects fractional duration_seconds (string with decimal)', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn([
-        'api_key' => 'k',
-        'model'   => 'T2V-01-Director',
-    ]);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxVideoTool($config, $http, $log);
-
-    $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => '10'], 1);
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    // A string like "4.5" would have been silently cast to (int) 4 — reject instead.
+    $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => '4.5'], 1);
 
     expect($result->success)->toBeFalse()
-        ->and($result->content)->toContain('T2V-01-Director')
-        ->and($result->content)->toContain('"10"');
+        ->and($result->content)->toContain('duration_seconds')
+        ->and($result->content)->toContain('no decimals');
 });
 
-it('accepts duration_seconds 10 with resolution 768P for MiniMax-Hailuo-2.3', function () {
-    // Positive matrix: Hailuo-2.3 + 768P + 10s is the only valid 10s
-    // combination. Verify the happy path is reachable end-to-end.
+it('rejects non-numeric duration_seconds', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => 'forever'], 1);
+
+    expect($result->success)->toBeFalse()
+        ->and($result->content)->toContain('duration_seconds')
+        ->and($result->content)->toContain('no decimals');
+});
+
+it('accepts integer-like duration_seconds strings (digit-only)', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn([
         'api_key'               => 'k',
@@ -200,232 +207,74 @@ it('accepts duration_seconds 10 with resolution 768P for MiniMax-Hailuo-2.3', fu
     ]);
 
     $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
-    // Submit with 768P + 10s.
-    $http->expects('request')
-        ->with('POST', 'https://api.minimax.io/v1/video_generation', Mockery::on(
-            fn($opts) => minimaxVideoBodyShape($opts, [
-                'model'      => 'MiniMax-Hailuo-2.3',
-                'prompt'     => '[Push in] a forest',
-                'duration'   => 10,
-                'resolution' => '768P',
-            ]),
-        ))
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
-            'task_id'   => 'task-xyz',
-        ])));
-
-    $http->expects('request')
-        ->with('GET', 'https://api.minimax.io/v1/query/video_generation', Mockery::any())
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'base_resp'    => ['status_code' => 0, 'status_msg' => 'success'],
-            'task_id'      => 'task-xyz',
-            'status'       => 'Success',
-            'file_id'      => 'file-abc-123',
-            'video_width'  => 1280,
-            'video_height' => 720,
-        ])));
-
-    $http->expects('request')
-        ->with('GET', 'https://api.minimax.io/v1/files/retrieve', Mockery::any())
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'file' => [
-                'file_id'      => 'file-abc-123',
-                'bytes'        => 5_896_337,
-                'filename'     => 'output_aigc.mp4',
-                'purpose'      => 'video_generation',
-                'download_url' => 'https://minimax.example/output.mp4',
-            ],
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-        ])));
-
-    $tool = new MiniMaxVideoTool($config, $http, $log);
-    $result = $tool->execute([
-        'prompt'           => '[Push in] a forest',
-        'duration_seconds' => '10',
-        'resolution'       => '768P',
-    ], 1);
-
-    expect($result->success)->toBeTrue()
-        ->and($result->data['duration'])->toBe(10)
-        ->and($result->data['resolution'])->toBe('768P');
-});
-
-it('defaults resolution to 768P for MiniMax-Hailuo-2.3 when the LLM omits resolution', function () {
-    // Hailuo-2.3 + 6s → 768P. Verifies that the effective resolution
-    // lands in the submit body, not the user's empty string. Polls
-    // return Processing so the test doesn't hang — we only need the
-    // submit body assertion.
-    $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn([
-        'api_key'               => 'k',
-        'poll_interval_seconds' => '1',
-        'poll_timeout_seconds'  => '2',
-    ]);
-
-    $http = Mockery::mock(HttpClientInterface::class);
-    $http->expects('request')
-        ->with('POST', 'https://api.minimax.io/v1/video_generation', Mockery::on(
-            fn($opts) => ($opts['json']['resolution'] ?? null) === '768P',
-        ))
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
-            'task_id'   => 'task-xyz',
-        ])));
-
-    // Without this the poll loop would hit an unmocked method and
-    // Mockery's behaviour is to throw — fast, but noisier than
-    // returning a clean Processing response that lets the deadline
-    // hit on its own.
     $http->allows('request')
-        ->with('GET', 'https://api.minimax.io/v1/query/video_generation', Mockery::any())
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-            'task_id'   => 'task-xyz',
-            'status'    => 'Processing',
-        ])));
-
-    $log = new MiniMaxLogWriter();
-    $tool = new MiniMaxVideoTool($config, $http, $log);
-    $tool->execute(['prompt' => 'a forest'], 1);
-
-    expect(true)->toBeTrue();
-});
-
-it('defaults resolution to 720P for T2V-01-Director when the LLM omits resolution', function () {
-    // T2V-01 family doesn't support 768P — falls back to 720P.
-    $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn([
-        'api_key'               => 'k',
-        'model'                 => 'T2V-01-Director',
-        'poll_interval_seconds' => '1',
-        'poll_timeout_seconds'  => '2',
-    ]);
-
-    $http = Mockery::mock(HttpClientInterface::class);
-    $http->expects('request')
-        ->with('POST', 'https://api.minimax.io/v1/video_generation', Mockery::on(
-            fn($opts) => ($opts['json']['resolution'] ?? null) === '720P'
-                && ($opts['json']['model'] ?? null) === 'T2V-01-Director',
-        ))
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
-            'task_id'   => 'task-xyz',
-        ])));
-
+        ->with('POST', 'https://api.minimax.io/v2/video_generation', Mockery::any())
+        ->andReturn(h3Response(200, json_encode(['task_id' => 'task-dur-str'])));
     $http->allows('request')
-        ->with('GET', 'https://api.minimax.io/v1/query/video_generation', Mockery::any())
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-            'task_id'   => 'task-xyz',
-            'status'    => 'Processing',
-        ])));
+        ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
+        ->andReturn(h3Response(200, json_encode(['task' => ['id' => 'task-dur-str', 'status' => 'running']])));
 
-    $log = new MiniMaxLogWriter();
-    $tool = new MiniMaxVideoTool($config, $http, $log);
-    $tool->execute(['prompt' => 'a forest'], 1);
+    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    // "6" as a string is acceptable — LLM tooling often sends numbers as strings.
+    $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => '6'], 1);
 
-    expect(true)->toBeTrue();
+    expect($result->data['timed_out'] ?? false)->toBeTrue();
 });
 
-it('rejects an unknown model setting value', function () {
-    // Operator-configured setting is wrong — MiniMax would silently
-    // reject the request after the submit. Catch it client-side.
+it('rejects an unknown resolution value', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn([
-        'api_key' => 'k',
-        'model'   => 'MiniMax-Hailuo-99',  // not in SUPPORTED_MODELS
-    ]);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxVideoTool($config, $http, $log);
-
-    $result = $tool->execute(['prompt' => 'a forest'], 1);
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $result = $tool->execute(['prompt' => 'a forest', 'resolution' => '4K'], 1);
 
     expect($result->success)->toBeFalse()
-        ->and($result->content)->toContain('MiniMax-Hailuo-99')
-        ->and($result->content)->toContain('Allowed:');
+        ->and($result->content)->toContain('resolution')
+        ->and($result->content)->toContain('768P');
 });
 
 it('rejects resume without task_id', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxVideoTool($config, $http, $log);
-
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
     $result = $tool->execute(['action' => 'resume'], 1);
 
     expect($result->success)->toBeFalse()
         ->and($result->content)->toContain('task_id');
 });
 
-it('returns success=false with task_id and timed_out=true when poll_timeout elapses', function () {
-    // The V6 fix: a timed-out poll must surface the task_id so the
-    // LLM can call resume on the next turn — the task is still
-    // billable on MiniMax's side.
-    //
-    // The V13 fix: the failure data also carries the original prompt,
-    // duration_seconds, resolution, and filename so the resumed task
-    // re-archives with correct metadata rather than re-deriving
-    // empty-prompt defaults.
+it('rejects regenerate without task_id', function () {
     $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn([
-        'api_key'               => 'k',
-        'poll_interval_seconds' => '1',
-        'poll_timeout_seconds'  => '5',
-    ]);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $result = $tool->execute(['action' => 'regenerate'], 1);
 
-    $http->allows('request')
-        ->with('POST', 'https://api.minimax.io/v1/video_generation', Mockery::any())
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
-            'task_id'   => 'task-slow',
-        ])));
+    expect($result->success)->toBeFalse()
+        ->and($result->content)->toContain('task_id');
+});
 
-    // Every poll returns Processing — eventually the deadline hits.
-    $http->allows('request')
-        ->with('GET', 'https://api.minimax.io/v1/query/video_generation', Mockery::any())
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-            'task_id'   => 'task-slow',
-            'status'    => 'Processing',
-        ])));
+it('rejects regenerate without base_video_url', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoTool($config, $http, $log);
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
     $result = $tool->execute([
-        'prompt'           => 'a forest',
-        'duration_seconds' => '10',
-        'resolution'       => '768P',
-        'filename'         => 'forest-push-in',
+        'action'  => 'regenerate',
+        'task_id' => 'task-abc',
+        'prompt'  => 'a forest',
     ], 1);
 
     expect($result->success)->toBeFalse()
-        ->and($result->content)->toContain('task_id=task-slow')
-        ->and($result->content)->toContain('still running on MiniMax')
-        ->and($result->data['task_id'])->toBe('task-slow')
-        ->and($result->data['status'])->toBe('still_running')
-        ->and($result->data['timed_out'])->toBeTrue()
-        // V13: original metadata preserved through the failure envelope.
-        ->and($result->data['prompt'])->toBe('a forest')
-        ->and($result->data['duration_seconds'])->toBe(10)
-        ->and($result->data['resolution'])->toBe('768P')
-        ->and($result->data['filename'])->toBe('forest-push-in');
+        ->and($result->content)->toContain('base_video_url');
 });
 
-it('surfaces base_resp.status_msg when the upstream returns Fail', function () {
-    // Fail is a separate terminal state (not a timeout). The
-    // standard MiniMaxToolSupport::run() try/catch converts the
-    // thrown MiniMaxApiException into a ToolResult.
+// ───────────────────────────────────────────────────────────────────────────
+// 2. Submit body shape — content[] construction + ratio rules
+// ───────────────────────────────────────────────────────────────────────────
+
+it('generate submits content[] with a single text item and ratio=16:9 for text-only', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn([
         'api_key'               => 'k',
@@ -434,219 +283,34 @@ it('surfaces base_resp.status_msg when the upstream returns Fail', function () {
     ]);
 
     $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
-    $http->allows('request')
-        ->with('POST', 'https://api.minimax.io/v1/video_generation', Mockery::any())
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
-            'task_id'   => 'task-bad',
-        ])));
-
-    $http->allows('request')
-        ->with('GET', 'https://api.minimax.io/v1/query/video_generation', Mockery::any())
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            // Per the upstream contract, the Fail-state response carries
-            // the reason inside `base_resp.status_msg`. Spora's HTTP
-            // wrapper strips `base_resp.status_code != 0` errors
-            // *before* this code runs, so reaching `status: Fail` means
-            // `base_resp.status_code == 0` and the message lives here.
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'sensitive content detected'],
-            'task_id'   => 'task-bad',
-            'status'    => 'Fail',
-        ])));
-
-    $tool = new MiniMaxVideoTool($config, $http, $log);
-    $result = $tool->execute(['prompt' => 'a forest'], 1);
-
-    expect($result->success)->toBeFalse()
-        ->and($result->content)->toContain('MiniMax video generation failed')
-        ->and($result->content)->toContain('sensitive content detected');
-});
-
-it('resume operation polls an existing task_id without re-submitting', function () {
-    // The V8 fix: a timed-out generate can be resumed on the next
-    // turn by passing the task_id. The resume operation must NOT
-    // call /v1/video_generation again — it just polls.
-    $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn([
-        'api_key'               => 'k',
-        'poll_interval_seconds' => '1',
-        'poll_timeout_seconds'  => '5',
-    ]);
-
-    $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
-    // Critical assertion: POST to /v1/video_generation MUST NOT
-    // happen during resume. The submit endpoint is never called.
-    $http->shouldNotReceive('request')
-        ->with('POST', 'https://api.minimax.io/v1/video_generation', Mockery::any());
-
-    // First poll returns Processing, second returns Success.
-    $pollCalls = 0;
-    $http->allows('request')
-        ->with('GET', 'https://api.minimax.io/v1/query/video_generation', Mockery::any())
-        ->andReturnUsing(function () use (&$pollCalls) {
-            $pollCalls++;
-            $isSecond = $pollCalls >= 2;
-            return minimaxVideoResponse(200, json_encode([
-                'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-                'task_id'   => 'task-resume',
-                'status'    => $isSecond ? 'Success' : 'Processing',
-                'file_id'   => $isSecond ? 'file-resume-xyz' : null,
-                'video_width'  => $isSecond ? 1920 : null,
-                'video_height' => $isSecond ? 1080 : null,
-            ]));
-        });
-
     $http->expects('request')
-        ->with('GET', 'https://api.minimax.io/v1/files/retrieve', Mockery::on(function ($opts) {
-            return ($opts['query']['file_id'] ?? null) === 'file-resume-xyz';
-        }))
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'file' => [
-                'file_id'      => 'file-resume-xyz',
-                'bytes'        => 5_896_337,
-                'filename'     => 'output_aigc.mp4',
-                'purpose'      => 'video_generation',
-                'download_url' => 'https://minimax.example/resumed.mp4',
-            ],
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-        ])));
-
-    $tool = new MiniMaxVideoTool($config, $http, $log);
-    $result = $tool->execute([
-        'action'  => 'resume',
-        'task_id' => 'task-resume',
-    ], 1);
-
-    expect($result->success)->toBeTrue()
-        ->and($result->content)->toContain('https://minimax.example/resumed.mp4')
-        ->and($result->data['task_id'])->toBe('task-resume')
-        ->and($result->data['file_id'])->toBe('file-resume-xyz')
-        ->and($pollCalls)->toBeGreaterThanOrEqual(2);
-});
-
-it('honours per-call poll_timeout_seconds override', function () {
-    // The V7 fix: the LLM can dial the timeout up or down per
-    // call. With a 1-second override, the deadline fires well
-    // before the operator-configured 900 s default.
-    $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn([
-        'api_key'               => 'k',
-        'poll_interval_seconds' => '1',
-        // Operator setting is high — must NOT win.
-        'poll_timeout_seconds'  => '900',
-    ]);
-
-    $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
-    $http->allows('request')
-        ->with('POST', 'https://api.minimax.io/v1/video_generation', Mockery::any())
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
-            'task_id'   => 'task-override',
-        ])));
-
-    $http->allows('request')
-        ->with('GET', 'https://api.minimax.io/v1/query/video_generation', Mockery::any())
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-            'task_id'   => 'task-override',
-            'status'    => 'Processing',
-        ])));
-
-    $tool = new MiniMaxVideoTool($config, $http, $log);
-    $result = $tool->execute([
-        'prompt'                => 'a forest',
-        'poll_timeout_seconds'  => 10,  // per-call override; operator default is 900
-    ], 1);
-
-    expect($result->success)->toBeFalse()
-        ->and($result->data['task_id'])->toBe('task-override')
-        ->and($result->content)->toContain('within 10s');
-});
-
-it('polls the task status, calls file-retrieve, and embeds the download URL', function () {
-    $config = Mockery::mock(ToolConfigService::class);
-    $config->allows('getEffectiveSettings')->andReturn([
-        'api_key'                  => 'k',
-        // Poll quickly: interval=1s, timeout=5s — the happy path doesn't wait
-        // long, but the loop still has a real deadline.
-        'poll_interval_seconds'    => '1',
-        'poll_timeout_seconds'     => '5',
-    ]);
-
-    $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
-    // 1. Start the task — returns a task_id with the canonical body
-    // shape (model + prompt + duration + resolution).
-    $http->expects('request')
-        ->with('POST', 'https://api.minimax.io/v1/video_generation', Mockery::on(
-            fn($opts) => minimaxVideoBodyShape($opts, [
-                'model'      => 'MiniMax-Hailuo-2.3',
-                'prompt'     => '[Push in] a forest',
+        ->with('POST', 'https://api.minimax.io/v2/video_generation', Mockery::on(
+            fn($opts) => h3BodyMatches($opts, [
+                'model'      => 'MiniMax-H3',
                 'duration'   => 6,
                 'resolution' => '768P',
-            ]),
+                'ratio'      => '16:9',
+            ])
+            && is_array($opts['json']['content'] ?? null)
+            && count($opts['json']['content']) === 1
+            && ($opts['json']['content'][0]['type'] ?? null) === 'text'
+            && ($opts['json']['content'][0]['text'] ?? null) === 'a forest at dawn',
         ))
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
-            'task_id'   => 'task-xyz',
-        ])));
+        ->andReturn(h3Response(200, json_encode(['task_id' => 'task-1'])));
 
-    // 2. Poll — returns "Success" with file_id + dimensions.
-    $http->expects('request')
-        ->with('GET', 'https://api.minimax.io/v1/query/video_generation', Mockery::on(function ($opts) {
-            return ($opts['query']['task_id'] ?? null) === 'task-xyz';
-        }))
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'base_resp'    => ['status_code' => 0, 'status_msg' => 'success'],
-            'task_id'      => 'task-xyz',
-            'status'       => 'Success',
-            'file_id'      => 'file-abc-123',
-            'video_width'  => 1920,
-            'video_height' => 1080,
-        ])));
+    $http->allows('request')
+        ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
+        ->andReturn(h3Response(200, json_encode(h3SuccessTask('task-1', 'https://minimax.example/output.mp4'))));
 
-    // 3. File retrieve — returns the download URL valid for 1 hour.
-    $http->expects('request')
-        ->with('GET', 'https://api.minimax.io/v1/files/retrieve', Mockery::on(function ($opts) {
-            return ($opts['query']['file_id'] ?? null) === 'file-abc-123';
-        }))
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'file' => [
-                'file_id'      => 'file-abc-123',
-                'bytes'        => 5_896_337,
-                'filename'     => 'output_aigc.mp4',
-                'purpose'      => 'video_generation',
-                'download_url' => 'https://minimax.example/output.mp4',
-            ],
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-        ])));
-
-    $tool = new MiniMaxVideoTool($config, $http, $log);
-    $result = $tool->execute(['prompt' => '[Push in] a forest'], 1);
+    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $result = $tool->execute(['prompt' => 'a forest at dawn'], 1);
 
     expect($result->success)->toBeTrue()
-        ->and($result->content)->toContain('<video')
-        ->and($result->content)->toContain('https://minimax.example/output.mp4')
-        ->and($result->content)->toContain('width="1920"')
-        ->and($result->content)->toContain('height="1080"')
-        ->and($result->content)->toContain('file_id: file-abc-123')
-        ->and($result->content)->toContain('1 hour')
-        ->and($result->content)->toContain('Echo the `<video>` element above verbatim')
-        ->and($result->data['file_id'])->toBe('file-abc-123')
-        ->and($result->data['task_id'])->toBe('task-xyz')
-        ->and($result->data['download_url'])->toBe('https://minimax.example/output.mp4')
-        ->and($result->data['width'])->toBe(1920)
-        ->and($result->data['height'])->toBe(1080);
+        ->and($result->data['task_id'])->toBe('task-1')
+        ->and($result->data['download_url'])->toBe('https://minimax.example/output.mp4');
 });
 
-it('returns a failure when file-retrieve omits the download URL', function () {
+it('generate with first_frame_image submits content[]=[text, image_url: first_frame] and ratio=adaptive', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn([
         'api_key'               => 'k',
@@ -655,34 +319,373 @@ it('returns a failure when file-retrieve omits the download URL', function () {
     ]);
 
     $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
+    $http->expects('request')
+        ->with('POST', 'https://api.minimax.io/v2/video_generation', Mockery::on(
+            fn($opts) => ($opts['json']['ratio'] ?? null) === 'adaptive'
+                && h3ContentHas($opts, 'image_url', 'first_frame'),
+        ))
+        ->andReturn(h3Response(200, json_encode(['task_id' => 'task-2'])));
 
     $http->allows('request')
-        ->with('POST', 'https://api.minimax.io/v1/video_generation', Mockery::any())
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
-            'task_id'   => 'task-xyz',
-        ])));
+        ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
+        ->andReturn(h3Response(200, json_encode(h3SuccessTask('task-2', 'https://minimax.example/i2v.mp4'))));
+
+    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $result = $tool->execute([
+        'prompt'            => '[Push in] the fox looks up',
+        'first_frame_image' => 'https://cdn.example.com/fox.png',
+        'aspect_ratio'      => '16:9',  // LLM supplied a concrete ratio — tool must force adaptive
+    ], 1);
+
+    expect($result->success)->toBeTrue();
+});
+
+it('generate with reference_images submits content[]=[text, image_url: reference_image]', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn([
+        'api_key'               => 'k',
+        'poll_interval_seconds' => '1',
+        'poll_timeout_seconds'  => '5',
+    ]);
+
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->expects('request')
+        ->with('POST', 'https://api.minimax.io/v2/video_generation', Mockery::on(
+            fn($opts) => ($opts['json']['ratio'] ?? null) === 'adaptive'
+                && h3ContentHas($opts, 'image_url', 'reference_image'),
+        ))
+        ->andReturn(h3Response(200, json_encode(['task_id' => 'task-3'])));
+
     $http->allows('request')
-        ->with('GET', 'https://api.minimax.io/v1/query/video_generation', Mockery::any())
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'base_resp'    => ['status_code' => 0, 'status_msg' => 'success'],
-            'task_id'      => 'task-xyz',
-            'status'       => 'Success',
-            'file_id'      => 'file-abc-123',
-            'video_width'  => 1920,
-            'video_height' => 1080,
-        ])));
+        ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
+        ->andReturn(h3Response(200, json_encode(h3SuccessTask('task-3', 'https://minimax.example/r2v.mp4'))));
+
+    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $result = $tool->execute([
+        'prompt'           => 'cinematic alley scene',
+        'reference_images' => ['https://cdn.example.com/char-a.png', 'https://cdn.example.com/char-b.png'],
+        'aspect_ratio'     => 'adaptive',  // explicit — r2v honours concrete ratios by default
+    ], 1);
+
+    expect($result->success)->toBeTrue();
+});
+
+it('text-only generate falls back to 16:9 when LLM supplies aspect_ratio=adaptive', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn([
+        'api_key'               => 'k',
+        'poll_interval_seconds' => '1',
+        'poll_timeout_seconds'  => '5',
+    ]);
+
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->expects('request')
+        ->with('POST', 'https://api.minimax.io/v2/video_generation', Mockery::on(
+            fn($opts) => ($opts['json']['ratio'] ?? null) === '16:9',
+        ))
+        ->andReturn(h3Response(200, json_encode(['task_id' => 'task-adaptive'])));
+
     $http->allows('request')
-        ->with('GET', 'https://api.minimax.io/v1/files/retrieve', Mockery::any())
-        ->andReturn(minimaxVideoResponse(200, json_encode([
-            'file'      => ['file_id' => 'file-abc-123'],
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
+        ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
+        ->andReturn(h3Response(200, json_encode(h3SuccessTask('task-adaptive', 'https://minimax.example/output.mp4'))));
+
+    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $result = $tool->execute(['prompt' => 'a forest', 'aspect_ratio' => 'adaptive'], 1);
+
+    expect($result->success)->toBeTrue();
+});
+
+it('generate defaults resolution to 768P when the LLM omits resolution', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn([
+        'api_key'               => 'k',
+        'poll_interval_seconds' => '1',
+        'poll_timeout_seconds'  => '2',
+    ]);
+
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->expects('request')
+        ->with('POST', 'https://api.minimax.io/v2/video_generation', Mockery::on(
+            fn($opts) => ($opts['json']['resolution'] ?? null) === '768P',
+        ))
+        ->andReturn(h3Response(200, json_encode(['task_id' => 'task-4'])));
+
+    $http->allows('request')
+        ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
+        ->andReturn(h3Response(200, json_encode(['task' => ['id' => 'task-4', 'status' => 'running']])));
+
+    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool->execute(['prompt' => 'a forest'], 1);
+
+    expect(true)->toBeTrue();
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 3. Poll-loop outcomes — succeeded / failed / cancelled / timed_out
+// ───────────────────────────────────────────────────────────────────────────
+
+it('returns success with download_url on poll=succeeded', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn([
+        'api_key'               => 'k',
+        'poll_interval_seconds' => '1',
+        'poll_timeout_seconds'  => '5',
+    ]);
+
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->allows('request')
+        ->with('POST', 'https://api.minimax.io/v2/video_generation', Mockery::any())
+        ->andReturn(h3Response(200, json_encode(['task_id' => 'task-ok'])));
+
+    $http->allows('request')
+        ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
+        ->andReturn(h3Response(200, json_encode(h3SuccessTask('task-ok', 'https://minimax.example/clip.mp4', [
+            'task' => [
+                'id'         => 'task-ok',
+                'model'      => 'MiniMax-H3',
+                'status'     => 'succeeded',
+                'content'    => ['url' => 'https://minimax.example/clip.mp4'],
+                'task_type'  => 'generation',
+                'modality'   => 'video',
+                'resolution' => '2K',
+                'duration'   => 5,
+            ],
+        ]))));
+
+    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $result = $tool->execute(['prompt' => 'a forest', 'resolution' => '2K'], 1);
+
+    expect($result->success)->toBeTrue()
+        ->and($result->data['task_id'])->toBe('task-ok')
+        ->and($result->data['download_url'])->toBe('https://minimax.example/clip.mp4')
+        ->and($result->data['resolution'])->toBe('2K');
+});
+
+it('returns a failed ToolResult when the upstream reports task=failed', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn([
+        'api_key'               => 'k',
+        'poll_interval_seconds' => '1',
+        'poll_timeout_seconds'  => '5',
+    ]);
+
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->allows('request')
+        ->with('POST', 'https://api.minimax.io/v2/video_generation', Mockery::any())
+        ->andReturn(h3Response(200, json_encode(['task_id' => 'task-bad'])));
+
+    $http->allows('request')
+        ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
+        ->andReturn(h3Response(200, json_encode([
+            'task' => [
+                'id'     => 'task-bad',
+                'status' => 'failed',
+                'error'  => ['code' => '1026', 'message' => 'video description contains sensitive content'],
+            ],
         ])));
 
-    $tool = new MiniMaxVideoTool($config, $http, $log);
-    $result = $tool->execute(['prompt' => '[Push in] a forest'], 1);
+    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $result = $tool->execute(['prompt' => 'unsafe prompt'], 1);
 
     expect($result->success)->toBeFalse()
-        ->and($result->content)->toContain('did not return a download_url');
+        ->and($result->content)->toContain('1026')
+        ->and($result->content)->toContain('sensitive content');
+});
+
+it('returns success=false with task_id and timed_out=true when poll_timeout elapses', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn([
+        'api_key'               => 'k',
+        'poll_interval_seconds' => '1',
+        'poll_timeout_seconds'  => '3',
+    ]);
+
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->allows('request')
+        ->with('POST', 'https://api.minimax.io/v2/video_generation', Mockery::any())
+        ->andReturn(h3Response(200, json_encode(['task_id' => 'task-slow'])));
+
+    $http->allows('request')
+        ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
+        ->andReturn(h3Response(200, json_encode(['task' => ['id' => 'task-slow', 'status' => 'running']])));
+
+    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $result = $tool->execute(['prompt' => 'a slow forest'], 1);
+
+    expect($result->success)->toBeFalse()
+        ->and($result->data['task_id'])->toBe('task-slow')
+        ->and($result->data['timed_out'])->toBeTrue()
+        ->and($result->data['status'])->toBe('still_running')
+        ->and($result->content)->toContain('task_id=task-slow')
+        ->and($result->content)->toContain('still running on MiniMax');
+});
+
+it('resume polls only — does not re-submit', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn([
+        'api_key'               => 'k',
+        'poll_interval_seconds' => '1',
+        'poll_timeout_seconds'  => '5',
+    ]);
+
+    $http = Mockery::mock(HttpClientInterface::class);
+    // Resume must NOT call POST /v2/video_generation.
+    $http->shouldNotReceive('request')
+        ->with('POST', Mockery::any(), Mockery::any());
+
+    $http->allows('request')
+        ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
+        ->andReturn(h3Response(200, json_encode(h3SuccessTask('task-resume', 'https://minimax.example/resumed.mp4'))));
+
+    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $result = $tool->execute(['action' => 'resume', 'task_id' => 'task-resume'], 1);
+
+    expect($result->success)->toBeTrue()
+        ->and($result->data['task_id'])->toBe('task-resume');
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 4. enhance_prompt (H3-Context-IR)
+// ───────────────────────────────────────────────────────────────────────────
+
+it('enhance_prompt submits to /v2/h3_context_ir and returns enhanced_prompt in data', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn([
+        'api_key'               => 'k',
+        'poll_interval_seconds' => '1',
+        'poll_timeout_seconds'  => '5',
+    ]);
+
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->expects('request')
+        ->with('POST', 'https://api.minimax.io/v2/h3_context_ir', Mockery::on(
+            fn($opts) => is_array($opts['json']['content'] ?? null)
+                && ($opts['json']['content'][0]['type'] ?? null) === 'text',
+        ))
+        ->andReturn(h3Response(200, json_encode(['task_id' => 'task-ir'])));
+
+    $http->allows('request')
+        ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
+        ->andReturn(h3Response(200, json_encode([
+            'task' => [
+                'id'         => 'task-ir',
+                'status'     => 'succeeded',
+                'task_type'  => 'h3_context_ir',
+                'modality'   => 'text',
+                'content'    => ['prompt' => '[Shot 1] Cinematic close-up of a red fox in a snowy forest, breath fogging in cold air.'],
+                'usage'      => ['total_tokens' => 100, 'prompt_tokens' => 50, 'completion_tokens' => 50],
+            ],
+        ])));
+
+    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $result = $tool->execute([
+        'action' => 'enhance_prompt',
+        'prompt' => 'a red fox in snow',
+    ], 1);
+
+    expect($result->success)->toBeTrue()
+        ->and($result->data['task_id'])->toBe('task-ir')
+        ->and($result->data['task_type'])->toBe('h3_context_ir')
+        ->and($result->data['enhanced_prompt'])->toContain('Cinematic');
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 5. regenerate (no DB lookup — replays args + base_video_url)
+// ───────────────────────────────────────────────────────────────────────────
+
+it('regenerate rebuilds content[] from arguments and appends base_video at resolution=2K', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn([
+        'api_key'               => 'k',
+        'poll_interval_seconds' => '1',
+        'poll_timeout_seconds'  => '5',
+    ]);
+
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->expects('request')
+        ->with('POST', 'https://api.minimax.io/v2/video_regeneration', Mockery::on(
+            fn($opts) => h3BodyMatches($opts, [
+                'model'      => 'MiniMax-H3',
+                'resolution' => '2K',
+            ])
+            && h3ContentHas($opts, 'text', null)
+            && h3ContentHas($opts, 'image_url', 'first_frame')
+            && h3ContentHas($opts, 'video_url', 'base_video'),
+        ))
+        ->andReturn(h3Response(200, json_encode(['task_id' => 'task-regen'])));
+
+    $http->allows('request')
+        ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
+        ->andReturn(h3Response(200, json_encode(h3SuccessTask('task-regen', 'https://minimax.example/regen-2k.mp4', [
+            'task' => [
+                'id'         => 'task-regen',
+                'model'      => 'MiniMax-H3',
+                'status'     => 'succeeded',
+                'task_type'  => 'regeneration',
+                'modality'   => 'video',
+                'content'    => ['url' => 'https://minimax.example/regen-2k.mp4'],
+                'resolution' => '2K',
+            ],
+        ]))));
+
+    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $result = $tool->execute([
+        'action'           => 'regenerate',
+        'task_id'          => 'task-original',
+        'base_video_url'   => 'https://minimax.example/source-768p.mp4',
+        'prompt'           => '[Push in] the fox looks up',
+        'first_frame_image' => 'https://cdn.example.com/fox.png',
+        'aspect_ratio'     => 'adaptive',
+    ], 1);
+
+    expect($result->success)->toBeTrue()
+        ->and($result->data['task_id'])->toBe('task-regen')
+        ->and($result->data['download_url'])->toBe('https://minimax.example/regen-2k.mp4')
+        ->and($result->data['task_type'])->toBe('regeneration');
+});
+
+it('regenerate accepts a data: URI for base_video_url (under the size cap)', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn([
+        'api_key'               => 'k',
+        'poll_interval_seconds' => '1',
+        'poll_timeout_seconds'  => '5',
+    ]);
+
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->allows('request')
+        ->with('POST', 'https://api.minimax.io/v2/video_regeneration', Mockery::any())
+        ->andReturn(h3Response(200, json_encode(['task_id' => 'task-regen-data'])));
+    $http->allows('request')
+        ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
+        ->andReturn(h3Response(200, json_encode(['task' => ['id' => 'task-regen-data', 'status' => 'running']])));
+
+    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $result = $tool->execute([
+        'action'         => 'regenerate',
+        'task_id'        => 'task-original',
+        // Small data: URI (well under the 50 MB cap) — accepted for regenerate.
+        'base_video_url' => 'data:video/mp4;base64,AAA=',
+        'prompt'         => 'a forest',
+    ], 1);
+
+    // Reaches the submit + poll loop; poll never terminates → timed_out.
+    expect($result->data['timed_out'] ?? false)->toBeTrue();
+});
+
+it('regenerate rejects a data: URI over the size cap for base_video_url', function () {
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
+
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $result = $tool->execute([
+        'action'         => 'regenerate',
+        'task_id'        => 'task-original',
+        // > 50 MB data: URI — rejected client-side.
+        'base_video_url' => 'data:video/mp4;base64,' . str_repeat('A', 51 * 1024 * 1024),
+        'prompt'         => 'a forest',
+    ], 1);
+
+    expect($result->success)->toBeFalse()
+        ->and($result->content)->toContain('base_video_url');
 });

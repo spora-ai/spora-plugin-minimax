@@ -74,6 +74,75 @@ it('throws MiniMaxApiException on HTTP 4xx', function () {
         ->toThrow(MiniMaxApiException::class, 'HTTP 401');
 });
 
+it('surfaces the upstream error.message in the exception on HTTP 4xx (Anthropic-style envelope)', function () {
+    // The v2 video endpoints return Anthropic-style error envelopes:
+    //   {"type":"error","error":{"type":"...","message":"...","code":2013}}
+    // The LLM must see the actual upstream message — not just
+    // "HTTP 400" — so it can pivot to a different model / plan
+    // instead of guessing. Concrete bug-fix payload (taken from
+    // spora-local/storage/spora.log after the H3 migration).
+    $body = json_encode([
+        'type'  => 'error',
+        'error' => [
+            'type'    => 'bad_request_error',
+            'message' => 'invalid params, TokenPlan or Credit does not currently support MiniMax-H3 series models',
+            'code'    => 2013,
+        ],
+    ]);
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->expects('request')
+        ->andReturn(minimaxMockResponse(400, $body));
+
+    $client = new MiniMaxHttpClient($http, 'k', MiniMaxHttpClientTestLiterals::BASE_URL, 30);
+
+    $caught = null;
+    try {
+        $client->postJson(MiniMaxHttpClientTestLiterals::PATH_X, []);
+    } catch (MiniMaxApiException $e) {
+        $caught = $e;
+    }
+
+    expect($caught)->not->toBeNull()
+        ->and($caught->statusCode)->toBe(400)
+        ->and($caught->getMessage())->toContain('HTTP 400')
+        ->and($caught->getMessage())->toContain('[2013]')
+        ->and($caught->getMessage())->toContain('TokenPlan or Credit does not currently support MiniMax-H3 series models')
+        ->and($caught->baseResp['error']['code'])->toBe(2013);
+});
+
+it('surfaces the upstream error.message in the exception on HTTP 4xx (v1 base_resp-style envelope)', function () {
+    // The v1 endpoints return MiniMax-style error envelopes:
+    //   {"base_resp":{"status_code":2013,"status_msg":"..."}}
+    $body = json_encode([
+        'base_resp' => [
+            'status_code' => 2013,
+            'status_msg'  => 'Invalid input parameters, please check if the parameters are filled in as required',
+        ],
+    ]);
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->expects('request')
+        ->andReturn(minimaxMockResponse(400, $body));
+
+    $client = new MiniMaxHttpClient($http, 'k', MiniMaxHttpClientTestLiterals::BASE_URL, 30);
+
+    expect(fn() => $client->postJson(MiniMaxHttpClientTestLiterals::PATH_X, []))
+        ->toThrow(MiniMaxApiException::class, '[2013] Invalid input parameters');
+});
+
+it('falls back to the generic HTTP message when the 4xx body is non-JSON', function () {
+    // Defensive: if the upstream returns a non-JSON body (network
+    // blip, load balancer error page), the client must still raise
+    // a meaningful exception — "" / "HTTP 400" alone is unhelpful.
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->expects('request')
+        ->andReturn(minimaxMockResponse(400, '<!DOCTYPE html>Bad Request</html>'));
+
+    $client = new MiniMaxHttpClient($http, 'k', MiniMaxHttpClientTestLiterals::BASE_URL, 30);
+
+    expect(fn() => $client->postJson(MiniMaxHttpClientTestLiterals::PATH_X, []))
+        ->toThrow(MiniMaxApiException::class, 'HTTP 400');
+});
+
 it('throws MiniMaxApiException on HTTP 5xx after retries are exhausted', function () {
     $http = Mockery::mock(HttpClientInterface::class);
     // 3 attempts (initial + 2 retries) — all 500
