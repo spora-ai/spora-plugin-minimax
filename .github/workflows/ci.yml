@@ -40,7 +40,7 @@ jobs:
         with:
           repository: spora-ai/spora-core
           ref: main
-          path: ../spora-core
+          path: spora-core
 
       # pcov is ~3-5x faster than xdebug for coverage. The trade-off is
       # that branch/path coverage is not reported (statement + line only),
@@ -82,7 +82,7 @@ jobs:
         with:
           repository: spora-ai/spora-core
           ref: main
-          path: ../spora-core
+          path: spora-core
 
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
@@ -109,7 +109,7 @@ jobs:
         with:
           repository: spora-ai/spora-core
           ref: main
-          path: ../spora-core
+          path: spora-core
 
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
@@ -136,7 +136,7 @@ jobs:
         with:
           repository: spora-ai/spora-core
           ref: main
-          path: ../spora-core
+          path: spora-core
 
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
