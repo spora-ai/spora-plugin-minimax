@@ -61,7 +61,10 @@ jobs:
         run: composer config --unset repositories.spora-core 2>/dev/null; composer config repositories.spora-core path spora-core
 
       - name: Composer install
-        run: composer install --no-interaction --prefer-dist
+        # `composer update spora-ai/spora-core` is needed because the
+        # path repo URL is re-registered at runtime (CI layout differs
+        # from local), and the lock file still references the original URL.
+        run: composer update spora-ai/spora-core --no-interaction --with-all-dependencies
 
       - name: Run Pest (parallel, with coverage)
         run: composer test:coverage:clover
@@ -105,7 +108,10 @@ jobs:
         run: composer config --unset repositories.spora-core 2>/dev/null; composer config repositories.spora-core path spora-core
 
       - name: Composer install
-        run: composer install --no-interaction --prefer-dist
+        # `composer update spora-ai/spora-core` is needed because the
+        # path repo URL is re-registered at runtime (CI layout differs
+        # from local), and the lock file still references the original URL.
+        run: composer update spora-ai/spora-core --no-interaction --with-all-dependencies
 
       - name: Run Pest (parallel)
         run: composer test:parallel
@@ -138,7 +144,10 @@ jobs:
         run: composer config --unset repositories.spora-core 2>/dev/null; composer config repositories.spora-core path spora-core
 
       - name: Composer install
-        run: composer install --no-interaction --prefer-dist
+        # `composer update spora-ai/spora-core` is needed because the
+        # path repo URL is re-registered at runtime (CI layout differs
+        # from local), and the lock file still references the original URL.
+        run: composer update spora-ai/spora-core --no-interaction --with-all-dependencies
 
       - name: Run PHPStan
         run: composer analyse
@@ -171,7 +180,10 @@ jobs:
         run: composer config --unset repositories.spora-core 2>/dev/null; composer config repositories.spora-core path spora-core
 
       - name: Composer install
-        run: composer install --no-interaction --prefer-dist
+        # `composer update spora-ai/spora-core` is needed because the
+        # path repo URL is re-registered at runtime (CI layout differs
+        # from local), and the lock file still references the original URL.
+        run: composer update spora-ai/spora-core --no-interaction --with-all-dependencies
 
       - name: Check code style
         # Dry-run (--dry-run) reports violations without rewriting files.
