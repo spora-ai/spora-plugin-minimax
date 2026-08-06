@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Spora\Plugins\MiniMax\Tools;
 
 /**
- * Stateless helpers for the `minimax_speech` `voices` operation:
+ * Stateless helpers for the `minimax_speech_minimax` `voices` operation:
  * upstream response parsing, client-side filtering, and rendering.
  *
  * Extracted out of {@see MiniMaxSpeechTool} so the main tool stays
@@ -201,7 +201,7 @@ final class MiniMaxSpeechVoiceLibrary
 
         return $heading . "\n\n"
             . implode("\n", $lines) . "\n\n"
-            . "Pick one whose language matches `text`, then call `minimax_speech(text: \"<text>\", voice_id: \"<voice_id>\")` "
+            . "Pick one whose language matches `text`, then call `minimax_speech_minimax(text: \"<text>\", voice_id: \"<voice_id>\")` "
             . '(omit `action` — `synthesize` is the default).';
     }
 
@@ -231,7 +231,7 @@ final class MiniMaxSpeechVoiceLibrary
         if ($voiceId !== '' && $allVoices !== [] && $filteredVoices === []) {
             return "No voices matched your filter.\n\n"
                 . "voice_id=\"{$voiceId}\" did not match any voice in voice_type=\"{$voiceType}\" on this MiniMax account. "
-                . "Run `minimax_speech(action: \"voices\")` to enumerate the available ids — the voice library changes over time.";
+                . "Run `minimax_speech_minimax(action: \"voices\")` to enumerate the available ids — the voice library changes over time.";
         }
 
         // Case 1: bucket empty on this account. `voice_cloning` and
@@ -255,7 +255,7 @@ final class MiniMaxSpeechVoiceLibrary
         // Case 2: bucket had voices, filter excluded all of them.
         $filterNote = $filters === ''
             ? 'No filter was supplied, so the bucket content is unexpected here — check the `voice_type` value.'
-            : 'Drop the filter (or broaden it) and call `minimax_speech(action: "voices")` again. Filters are case-insensitive substring matches against `voice_name` + `description[]` — try a shorter needle (e.g. "ger" instead of "german").';
+            : 'Drop the filter (or broaden it) and call `minimax_speech_minimax(action: "voices")` again. Filters are case-insensitive substring matches against `voice_name` + `description[]` — try a shorter needle (e.g. "ger" instead of "german").';
 
         return "No voices matched your filter.\n\n"
             . "MiniMax returned " . count($allVoices) . " voice(s) for voice_type=\"{$voiceType}\"; none matched {$filters}.\n\n"

@@ -148,7 +148,7 @@ final class MiniMaxVideoV1Matrix
 
         if (!in_array($model, self::IMPLEMENTED_MODELS, true)) {
             return sprintf(
-                'model "%s" is recognised by the v1 matrix but the submit code path is not yet shipped in minimax:video_v1. '
+                'model "%s" is recognised by the v1 matrix but the submit code path is not yet shipped in minimax:video_v1_minimax. '
                 . 'Implemented models in this build: %s.',
                 $model,
                 implode(', ', self::IMPLEMENTED_MODELS),

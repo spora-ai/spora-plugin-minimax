@@ -76,7 +76,7 @@ final class MiniMaxVideoUrlPolicy
         return "Media Archive URL '{$url}' is not reachable from MiniMax's servers. "
             . 'In production the resolver (Path D of the minimax-image-to-video skill) rewrites /api/v1/assets/<uuid>.<ext> to a `data:` URI before this check; '
             . "if you're seeing this, the resolver wasn't wired for the calling tool. "
-            . 'For an uploaded image without a working resolver, fall back to `minimax_image` (Path B — generates a fresh still) and pass the generated `image_urls[0]` as `first_frame_image`. '
+            . 'For an uploaded image without a working resolver, fall back to `minimax_image_minimax` (Path B — generates a fresh still) and pass the generated `image_urls[0]` as `first_frame_image`. '
             . 'For an externally-hosted image, paste the public URL directly.';
     }
 

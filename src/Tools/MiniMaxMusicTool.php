@@ -28,7 +28,7 @@ use Throwable;
  * (24h expiry) when `output_format=url`; hex otherwise.
  */
 #[Tool(
-    name: 'music',
+    name: 'music_minimax',
     description: 'Generate music (instrumental or with lyrics) or write/edit song lyrics. The "action" argument selects the operation.',
     displayName: 'MiniMax Music',
     category: 'generation',

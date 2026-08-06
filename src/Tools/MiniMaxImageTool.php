@@ -28,7 +28,7 @@ use Throwable;
  * operator audit while `asset_url` stays opaque.
  */
 #[Tool(
-    name: 'image',
+    name: 'image_minimax',
     description: 'Generate an image from a text prompt.',
     displayName: 'MiniMax Image',
     category: 'generation',

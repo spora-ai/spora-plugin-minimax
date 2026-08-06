@@ -16,7 +16,7 @@ One tool, one `generate` operation. Returns a list of generated image URLs (typi
 ## Calling
 
 ```
-minimax_image(prompt: "<subject + style + lighting>", aspect_ratio: "16:9", filename: "hero-banner")
+minimax_image_minimax(prompt: "<subject + style + lighting>", aspect_ratio: "16:9", filename: "hero-banner")
 ```
 
 | Parameter      | Required | Default | Notes |

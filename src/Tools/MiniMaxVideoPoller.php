@@ -190,7 +190,7 @@ final class MiniMaxVideoPoller
                 'timed_out' => true,
                 'content'   => sprintf(
                     'H3 task did not finish within %ds (task_id=%s). The task is still running on MiniMax\'s side and is billable. '
-                    . 'Increase `poll_timeout_seconds` and call `minimax_video(action: "resume", task_id: "%s")` to keep waiting, '
+                    . 'Increase `poll_timeout_seconds` and call `minimax_video_minimax(action: "resume", task_id: "%s")` to keep waiting, '
                     . 'or abandon it and accept the billed quota.',
                     $pollTimeout,
                     $taskId,

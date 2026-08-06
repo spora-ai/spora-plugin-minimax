@@ -27,10 +27,10 @@ allowed-tools: Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool
 **Default path (always discover first):** for any non-default voice (a non-English `voice_id`, a non-default English character, or a custom clone), call `voices` first to discover the right `voice_id`, then pass it to `synthesize`:
 
 ```
-1. minimax_speech(action: "voices", language: "<target>")
+1. minimax_speech_minimax(action: "voices", language: "<target>")
    → read the returned bullets; pick a voice_id whose description
      names the target language or character
-2. minimax_speech(text: "<text>", voice_id: "<chosen voice_id>")
+2. minimax_speech_minimax(text: "<text>", voice_id: "<chosen voice_id>")
    → omit `action`; default is `synthesize`
 ```
 
@@ -41,12 +41,12 @@ The MiniMax voice library changes over time, the snapshot at the bottom of this 
 Some MiniMax accounts only ship a subset of the catalogue for English + Chinese (Mandarin), with no German / Italian / Korean / etc. voices reachable. If `voices(language: "<X>")` returns the empty-result hint (`"No voices matched."`), **don't give up — fall back to a multilingual-capable English voice**:
 
 ```
-1. minimax_speech(action: "voices", language: "<X>")
+1. minimax_speech_minimax(action: "voices", language: "<X>")
    → if "No voices matched." then ↓
-2. minimax_speech(action: "voices")
+2. minimax_speech_minimax(action: "voices")
    → returns the full library the account has access to
    → typically English (and sometimes Chinese Mandarin)
-3. minimax_speech(text: "<text>", voice_id: "<English voice_id>")
+3. minimax_speech_minimax(text: "<text>", voice_id: "<English voice_id>")
    → MiniMax's English voices render many languages with reasonable
      pronunciation. The cadence is English-accented but the words
      come out intelligible — fine for narration, less so for
@@ -62,20 +62,20 @@ Tell the user explicitly: *"No native <language> voice on this MiniMax account; 
 | `synthesize` | `POST /v1/t2a_v2`                                       | `MiniMaxHttpClient::postJson()` |
 | `voices`    | `POST /v1/get_voice` ([reference](https://platform.minimax.io/docs/api-reference/voice-management-get)) — body `{"voice_type": "<bucket>"}` | `MiniMaxHttpClient::postJson()` |
 
-**Note**: `voices` is a `POST`, not a `GET`. MiniMax's `/v1/get_voice` endpoint accepts exactly one body field — `voice_type` — and returns up to three buckets (`system_voice[]`, `voice_cloning[]`, `voice_generation[]`). The `language` / `gender` / `voice_id` / `limit` filters you can pass to `minimax_speech(action: "voices")` are applied **client-side** over `voice_name` + flattened `description[]`, because MiniMax's upstream API does not expose server-side filters for those fields.
+**Note**: `voices` is a `POST`, not a `GET`. MiniMax's `/v1/get_voice` endpoint accepts exactly one body field — `voice_type` — and returns up to three buckets (`system_voice[]`, `voice_cloning[]`, `voice_generation[]`). The `language` / `gender` / `voice_id` / `limit` filters you can pass to `minimax_speech_minimax(action: "voices")` are applied **client-side** over `voice_name` + flattened `description[]`, because MiniMax's upstream API does not expose server-side filters for those fields.
 
 ## Calling
 
 ### `synthesize` (default)
 
 ```
-minimax_speech(text: "<script>", voice_id: "English_PassionateWarrior", speed: 1.0, filename: "intro-greeting")
+minimax_speech_minimax(text: "<script>", voice_id: "English_PassionateWarrior", speed: 1.0, filename: "intro-greeting")
 ```
 
 Or with the discriminator explicit (same call):
 
 ```
-minimax_speech(action: "synthesize", text: "<script>", voice_id: "English_PassionateWarrior", speed: 1.0)
+minimax_speech_minimax(action: "synthesize", text: "<script>", voice_id: "English_PassionateWarrior", speed: 1.0)
 ```
 
 | Parameter   | Required when…                 | Default                       | Notes |
@@ -89,10 +89,10 @@ minimax_speech(action: "synthesize", text: "<script>", voice_id: "English_Passio
 ### `voices`
 
 ```
-minimax_speech(action: "voices")                                              # full built-in library
-minimax_speech(action: "voices", language: "German", gender: "male")          # client-side filter
-minimax_speech(action: "voices", voice_type: "all", limit: 25)                # across every bucket, capped
-minimax_speech(action: "voices", voice_id: "German_FriendlyMan")              # exact-match check
+minimax_speech_minimax(action: "voices")                                              # full built-in library
+minimax_speech_minimax(action: "voices", language: "German", gender: "male")          # client-side filter
+minimax_speech_minimax(action: "voices", voice_type: "all", limit: 25)                # across every bucket, capped
+minimax_speech_minimax(action: "voices", voice_id: "German_FriendlyMan")              # exact-match check
 ```
 
 | Parameter   | Required when…          | Default  | Notes |
@@ -103,7 +103,7 @@ minimax_speech(action: "voices", voice_id: "German_FriendlyMan")              # 
 | `gender`    | never                  | —        | Client-side case-insensitive substring match against `description[]`. MiniMax tags gender inside the free-text description (e.g. `"...male executive voice..."`), not as a separate field. Common needles: `"male"`, `"female"`. |
 | `limit`     | never                  | `50`     | Client-side cap on the rendered bullet count. Hard-capped at **500** to keep the response bounded. |
 
-**None of the `voices` parameters are required.** A bare call (`minimax_speech(action: "voices")`) returns the full built-in library so the LLM can iterate. The filter parameters exist purely to narrow that list client-side.
+**None of the `voices` parameters are required.** A bare call (`minimax_speech_minimax(action: "voices")`) returns the full built-in library so the LLM can iterate. The filter parameters exist purely to narrow that list client-side.
 
 ### Per-operation parameter requirements
 
@@ -143,10 +143,10 @@ Pick a voice that matches the language of `text` — MiniMax's multilingual voic
 The full MiniMax catalogue spans many languages, but **what your account has access to is decided by your MiniMax plan and region, not by this skill**. Some accounts ship only English (and sometimes Chinese Mandarin); others include Korean, Portuguese, Spanish, etc. **The only safe source of truth is the live `voices` call**, not a catalogue copy-pasted into the skill.
 
 ```
-minimax_speech(action: "voices")        # everything this account has
-minimax_speech(action: "voices", voice_type: "all")
+minimax_speech_minimax(action: "voices")        # everything this account has
+minimax_speech_minimax(action: "voices", voice_type: "all")
                                         # also includes voice-cloning + voice-generation buckets
-minimax_speech(action: "voices", language: "<X>")
+minimax_speech_minimax(action: "voices", language: "<X>")
                                         # filter; empty result = no native voice for X on this account
 ```
 
@@ -239,7 +239,7 @@ Available MiniMax voices (3 matching language contains "en"):
 - `English_Graceful_Lady` — Graceful Lady — A calm, mature female narrator in standard English.
 - `English_Lively_Youth` — Lively Youth — A bright, energetic male voice in standard English.
 
-Pick one whose language matches `text`, then call `minimax_speech(text: "<text>", voice_id: "<voice_id>")` (omit `action` — `synthesize` is the default).
+Pick one whose language matches `text`, then call `minimax_speech_minimax(text: "<text>", voice_id: "<voice_id>")` (omit `action` — `synthesize` is the default).
 ```
 
 Each bullet has the `voice_id` (backtick-quoted, copy-paste ready), then the `voice_name`, then the first `description` line. The description is what carries the language / gender / character cues — read it carefully.
@@ -261,7 +261,7 @@ No voices matched your filter.
 
 MiniMax returned 47 voice(s) for voice_type="system"; none matched language contains "german".
 
-Drop the filter (or broaden it) and call `minimax_speech(action: "voices")` again. Filters are case-insensitive substring matches against `voice_name` + `description[]` — try a shorter needle (e.g. "ger" instead of "german").
+Drop the filter (or broaden it) and call `minimax_speech_minimax(action: "voices")` again. Filters are case-insensitive substring matches against `voice_name` + `description[]` — try a shorter needle (e.g. "ger" instead of "german").
 ```
 
 The leading line differs between the two cases (`"No voices available."` vs `"No voices matched your filter."`) so the LLM can tell whether the issue is "this bucket is empty on your account" or "your filter is too tight" without parsing the body. Both are `success: true` — they're hints, not errors.
