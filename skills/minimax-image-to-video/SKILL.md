@@ -1,21 +1,24 @@
 ---
 name: minimax-image-to-video
-description: "Animate a still image into a short video clip via MiniMax H3 image-to-video. Use when the user asks to 'animate this', 'bring this image to life', 'turn this into a video', 'make a clip of this picture', or any motion-from-still workflow. Chains `minimax_image` (or an externally-hosted image URL) → `minimax_video` with `first_frame_image` + `aspect_ratio: \"adaptive\"`. For uploaded chat attachments, Path B (regenerate via `minimax_image`) is the only working path — Spora Media Archive URLs aren't reachable from MiniMax's servers."
+description: "Animate a still image into a short video clip via MiniMax H3 image-to-video. Use when the user asks to 'animate this', 'bring this image to life', 'turn this into a video', 'make a clip of this picture', or any motion-from-still workflow. For uploaded chat attachments, pass the `asset_id` surfaced inline above the image block to `minimax_video` — the plugin's resolver fetches the bytes server-side (Path D, no re-encoding, no fidelity loss). Fall back to generating a fresh still via `minimax_image` (Path B) only when no asset_id is in context."
 license: MIT
-compatibility: spora>=0.7 spora-plugin-minimax>=1.2
+compatibility: spora>=0.16 spora-plugin-minimax>=1.2
 metadata:
   author: spora-ai
-  version: "1.1"
+  version: "1.2"
 allowed-tools: Spora\Plugins\MiniMax\Tools\MiniMaxImageTool, Spora\Plugins\MiniMax\Tools\MiniMaxVideoTool
 ---
 
 # MiniMax image-to-video workflow
 
-H3 supports first-frame image-to-video: the model takes a still image and animates it according to a text prompt describing the desired motion. This skill documents the three paths to feed an image into `minimax_video(first_frame_image: ...)`:
+H3 supports first-frame image-to-video: the model takes a still image and animates it according to a text prompt describing the desired motion. This skill documents the four paths to feed an image into `minimax_video(first_frame_image: ...)`:
 
-1. **Externally-hosted image** — the user pasted or referenced a public URL. Pass it directly to `minimax_video`.
-2. **Generated image** — the user wants a video of a freshly generated image. Call `minimax_image` first, then take its output URL.
-3. **Uploaded chat attachment** — the user attached a picture to the chat. Its Media Archive URL is in the LLM's context, but it's NOT reachable from MiniMax's servers. Use Path B (regenerate via `minimax_image`) instead.
+1. **Externally-hosted image** — user pasted a public URL. Pass directly.
+2. **Generated image** — user wants a video of a freshly generated still. Chain `minimax_image` → `minimax_video`.
+3. **Uploaded chat attachment** — pass the surfaced `asset_id`; the plugin resolves bytes server-side (Path D, see below).
+4. **Multimodal first/last frame** — supply both URLs for start-end-frame animation.
+
+The plugin accepts `first_frame_image` as either a UUID, a `/api/v1/assets/<uuid>.<ext>` opaque URL, a `data:` URI, or an `http(s)://` / `mm_file://` URL. UUIDs and opaque URLs are resolved server-side before the URL validator runs.
 
 ## When to load
 
@@ -33,7 +36,7 @@ If the user just wants a plain text-to-video (no still anchor), don't load this 
 
 ### Path A — externally-hosted image (the user pasted a public URL)
 
-If the user already provided a publicly-reachable image URL, pass it directly. This is the highest-fidelity path — no re-encoding, no regeneration loss.
+If the user already provided a publicly-reachable image URL, pass it directly. This is the highest-fidelity path — no re-encoding, no resolver round-trip.
 
 ```
 minimax_video(
@@ -47,11 +50,51 @@ minimax_video(
 
 The `aspect_ratio: "adaptive"` is critical — H3 derives the output ratio from the input image for image-to-video mode. Setting a concrete ratio like `16:9` is silently ignored.
 
-URL hygiene: only `http://`, `https://`, and `mm_file://` are accepted (plus `data:` URIs up to ~50 MB for tools that can supply inline bytes). Relative paths, Spora Media Archive URLs (`/api/v1/assets/...`), and `data:` URIs above the size cap are rejected with an actionable error message.
+URL hygiene: only `http://`, `https://`, and `mm_file://` are accepted as raw URLs. The plugin also accepts `data:` URIs (≤ ~50 MB after base64) for inline bytes. Media Archive UUIDs and `/api/v1/assets/<uuid>.<ext>` paths are resolved to data URIs server-side via Path D — the resolver runs before the URL validator, so you don't need to translate them yourself.
 
-### Path B — generated image (the user wants a video of a fresh image OR uploaded an attachment)
+### Path D — uploaded chat attachment (asset_id surfaced inline)
 
-Use this when the user has uploaded a chat attachment OR wants a fresh still generated from a description. Two-step chain — `minimax_image` returns absolute `image_urls` that `minimax_video` accepts directly:
+**This is the primary path for user uploads.** When the user attaches an image to chat, spora-core's `MessageHistoryBuilder` (≥0.16) injects an identity prefix above the image block in your context:
+
+```
+[Attached asset_id=01928e9d-…-… (filename: fox.png, type: image/png, size: 2.3 MB) — local URL: /api/v1/assets/01928e9d-….png]
+```
+
+Pass that asset_id (or the local URL — both forms resolve identically) to `minimax_video`. The plugin's resolver fetches the bytes through spora-core's `MediaAssetReader`, base64-encodes them, and forwards the resulting `data:` URI to H3. No re-encoding, no fidelity loss, no public URL exposure.
+
+```
+minimax_video(
+  prompt: "[Push in] The fox lifts its head and looks into the camera",
+  first_frame_image: "01928e9d-…-…",
+  duration_seconds: 6,
+  resolution: "768P",
+  aspect_ratio: "adaptive",
+)
+```
+
+The two acceptable reference forms:
+
+- Bare UUID (preferred) — `first_frame_image: "01928e9d-…-…"`
+- Opaque URL — `first_frame_image: "/api/v1/assets/01928e9d-….png"`
+
+Both resolve to the same `data:` URI before the URL validator runs. Use the bare UUID form when grepping from the inline prefix; the opaque URL form works too and is equivalent.
+
+Resolution mechanics (for context, not action):
+
+- `data_url` storage (DB BLOB) → `data:<mime>;base64,<payload>` (inlined)
+- `local` storage (disk) → `data:<mime>;base64,<payload>` (loaded + encoded)
+- `external` storage (CDN-backed) → the original source URL is forwarded as-is (MiniMax fetches it directly)
+- 50 MB hard cap on the resulting `data:` URI; oversized payloads fail with an actionable error (downscale the image or upload a smaller version)
+- Resolution is logged at debug level (`minimax.media-archive-resolved` / `minimax.media-archive-source-forwarded`) — never echoed back to the LLM
+
+When to skip Path D:
+
+- The user didn't upload an image AND didn't paste a URL — generate a fresh still with Path B.
+- The attachment metadata in the prefix says the image is unusually large (>~37 MB raw, the maxBytesUnderCap threshold); resize or recompress before retrying, or fall back to a public URL (Path A).
+
+### Path B — generated image (no asset_id in context)
+
+Use this when the user wants a video of a freshly generated still. Path D requires an uploaded asset_id; if the user describes a subject instead of uploading (e.g. "animate a red fox"), there's no UUID to resolve, so chain `minimax_image` → `minimax_video`:
 
 ```
 # Step 1 — generate the still
@@ -69,11 +112,11 @@ minimax_video(
 
 If `minimax_image` returned multiple images, pick the one the user wanted (usually `[0]` unless the user asked for variations). When in doubt, ask before generating — the still is the foundation of the clip.
 
-**Uploaded attachments and Path B**: when the user attaches a picture to chat, you see `<media src="/api/v1/assets/<token>.<ext>">` in the message. Don't pass that path to `minimax_video` — it's served by Spora's local HTTP controller and MiniMax can't reach it. Use Path B (regenerate a similar still via `minimax_image`) instead. This loses the user's exact image; if fidelity matters, ask the user to paste a public URL (Path A) or describe the image so Path B can closely approximate it.
+Do not use Path B to substitute for Path D when an attachment is present. Path B regenerates a similar still, which loses the user's exact image. If Path D fails (oversized asset, asset not found), surface the error to the user instead of silently regenerating.
 
 ### Path C — multimodal first/last frame
 
-For start-end-frame animation (specifying both an opening and closing still), supply both URLs. Both must pass the URL hygiene rules above.
+For start-end-frame animation (specifying both an opening and closing still), supply both URLs. Both must pass the URL hygiene rules above (or be Path D UUIDs / opaque URLs).
 
 ```
 minimax_video(
@@ -105,27 +148,28 @@ Useful camera tags: `[Push in]`, `[Pull out]`, `[Pan left]`, `[Pan right]`, `[Tr
 
 ## Limits (H3 input caps for first_frame_image / last_frame_image)
 
-- Single-file size: ≤30 MB.
+- Single-file size: ≤30 MB (H3 upstream). The plugin's Path D resolver caps at ~37.5 MB raw bytes to keep the resulting `data:` URI under the 50 MB request-body ceiling.
 - Width / height: [256, 5760] px.
 - Aspect ratio (w/h): [0.4, 2.5] — outside this range H3 rejects upstream.
 - Format: JPG, JPEG, PNG, WEBP, HEIC, HEIF.
 
-If the user supplied an image outside these bounds (e.g. a tall screenshot), downscale or convert before passing to `minimax_video`. The chat UI's Media Archive may already enforce sane defaults — check the attachment metadata.
+If the user supplied an image outside these bounds (e.g. a tall screenshot), downscale or convert before passing to `minimax_video`. The chat UI's Media Archive may already enforce sane defaults — check the attachment metadata in the inline `[Attached asset_id=…]` prefix.
 
 ## Don'ts
 
-- **Don't pass a Spora Media Archive URL** (`/api/v1/assets/<token>.<ext>`) — it's served by the local HTTP controller, not externally reachable. MiniMax will return 4xx when trying to fetch it. Use Path A (public URL) or Path B (regenerate via `minimax_image`).
-- **Don't inline-base64-encode an uploaded attachment** — you don't have the raw bytes in context; the LLM message carries only the URL. Generating a similar still via Path B is the only practical way to animate an uploaded image.
+- **Don't pass a Spora Media Archive URL** (`/api/v1/assets/<token>.<ext>`) raw without letting the resolver run. The plugin DOES accept the opaque URL form and resolves it via Path D — just don't try to base64-encode it manually or `curl` the local server. The resolver handles the round-trip.
+- **Don't substitute Path B for Path D when the user uploads an image** — Path B regenerates a similar still, losing the user's exact image. Use the asset_id from the inline prefix; only fall back to Path B if the user describes a subject without uploading.
 - **Don't set `aspect_ratio` to anything other than `adaptive` for i2v** — H3 forces `adaptive` server-side; sending `16:9` doesn't error but is silently ignored, wasting a request parameter that could trip up future migrations.
 - **Don't pass `reference_*` alongside `first_frame_image`** — i2v and r2v are mutually exclusive. If you need a style/character anchor on top of the input image, fall back to plain t2v with the references.
 - **Don't use a CDN URL that might expire** — MiniMax may fetch the image asynchronously. Use a stable URL (S3 / GCS public object, a CDN with long-lived URLs). For short-lived URLs from `minimax_image`, prefer the `image_urls[0]` returned in the same session.
 - **Don't add a `last_frame_image` without a matching `first_frame_image`** — H3 requires them paired; the tool rejects mismatches.
 - **Don't claim "done" before the tool returns** — H3 generation takes 30 s to several minutes; the user sees a spinner. Tell them what you're doing ("generating… usually 30–120 s") and only claim success after `minimax_video` returns.
-- **Don't skip Path B for attachments** — when an attachment is present and the user wants the exact image animated, Path B is the only option. If fidelity matters, surface this to the user explicitly.
+- **Don't try to parse the asset bytes yourself** — the `[Attached asset_id=…]` prefix is the LLM-facing pointer. The resolver fetches the bytes; you never see them in your context.
 
 ## Failure modes
 
-- `Media Archive URL '/api/v1/assets/...' is not reachable from MiniMax's servers. …` — you passed a Spora Media Archive path. Use Path A (public URL) or Path B (regenerate via `minimax_image`).
+- `Media asset <uuid> not found in the Spora Media Archive.` — the resolver couldn't read the asset (wrong UUID, asset deleted, or per-user scope mismatch via the `media` scope setting). Verify the asset_id from the inline `[Attached asset_id=…]` prefix, or call `media:search` to discover the right UUID, or paste a public URL (Path A).
+- `Media asset <uuid> is <N> MB, exceeds the 50 MB data URI cap. Use a downscaled image or paste a public URL.` — the attachment is too large for Path D's inline resolver. Resize / recompress, or paste a public URL (Path A).
 - `media URL must be http(s)://, mm_file://, or a data: URI (got: ...)` — you passed a URL with an unsupported scheme (ftp://, file://, etc.) or an empty string. Re-check the URL.
 - `MiniMax H3 task failed (code=1026): video description contains sensitive content` — your prompt tripped the safety filter. Rephrase (replace specific violence / brand references with cinematic abstractions) and retry.
 - `H3 task did not finish within <N>s` — the generation didn't finish in time. Call `minimax_video(action: "resume", task_id: ...)` on the next turn to keep waiting.
