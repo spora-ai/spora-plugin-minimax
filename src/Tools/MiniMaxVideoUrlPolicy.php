@@ -46,11 +46,14 @@ final class MiniMaxVideoUrlPolicy
 
     /**
      * Match Spora Media Archive relative paths (`/api/v1/assets/<uuid>.<ext>`).
-     * These can't be passed to MiniMax: they're served by the Spora HTTP
+     * These can't be passed raw to MiniMax: they're served by the Spora HTTP
      * controller, not externally reachable, and H3 doesn't recognise the
-     * opaque URL form. Callers must either generate a fresh image via
-     * `minimax_image` (Path B in `minimax-image-to-video`) or supply a
-     * public URL.
+     * opaque URL form. In production the resolver
+     * ({@see MiniMaxMediaArchiveResolver})
+     * rewrites them to `data:` URIs before this check ever sees the
+     * argument — so this method is a defence-in-depth last resort for
+     * paths that bypass the resolver (test rigs without DI wiring, or
+     * future call sites that forget to invoke `runWithValidation()`).
      */
     public static function isMediaArchivePath(string $url): bool
     {
@@ -59,13 +62,21 @@ final class MiniMaxVideoUrlPolicy
 
     /**
      * Produce an operator- and LLM-friendly rejection for a Media Archive
-     * path. Surfaces both the validation error and the recovery recipe so
-     * the LLM can self-correct without a retry round-trip.
+     * path that escaped the resolver. Surfaces both the validation
+     * error and the recovery recipe so the LLM can self-correct without
+     * a retry round-trip.
+     *
+     * Note: in production the resolver runs first (see
+     * {@see \Spora\Plugins\MiniMax\Support\MiniMaxTool::runWithValidation()}),
+     * so this message is only seen when the resolver wasn't wired —
+     * usually a test rig or a tool that skips `runWithValidation()`.
      */
     public static function mediaArchiveRejectionMessage(string $url): string
     {
         return "Media Archive URL '{$url}' is not reachable from MiniMax's servers. "
-            . 'For an uploaded image, generate a fresh image with `minimax_image` (Path B of the minimax-image-to-video skill) and pass the generated `image_urls[0]` as `first_frame_image`. '
+            . 'In production the resolver (Path D of the minimax-image-to-video skill) rewrites /api/v1/assets/<uuid>.<ext> to a `data:` URI before this check; '
+            . "if you're seeing this, the resolver wasn't wired for the calling tool. "
+            . 'For an uploaded image without a working resolver, fall back to `minimax_image` (Path B — generates a fresh still) and pass the generated `image_urls[0]` as `first_frame_image`. '
             . 'For an externally-hosted image, paste the public URL directly.';
     }
 
