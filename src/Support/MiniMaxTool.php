@@ -51,6 +51,38 @@ abstract class MiniMaxTool extends AbstractTool
      */
     protected ?MiniMaxMediaArchiveResolver $mediaArchiveResolver = null;
 
+    /**
+     * Resolve Media Archive references in `$arguments` before any
+     * operation method runs. Returns either the rewritten argument
+     * array or a {@see ToolResult} to short-circuit on resolver
+     * failure (asset not found, over the 50 MB data URI cap, etc.).
+     *
+     * The resolver MUST be invoked at the top of every multi-operation
+     * tool's {@see execute()} override — *before* dispatching to
+     * per-operation methods (`generate()`, `resume()`, ...). The
+     * per-operation methods build a `fn()` closure that captures
+     * `$arguments` by value at definition time, so rebinding it
+     * later (e.g. inside `runWithValidation()`) leaves the closure
+     * holding the *original* URL. Resolving at the entry point
+     * means each per-operation closure captures already-resolved
+     * arguments and `doGenerate()` (and friends) hand the resolver's
+     * `data:` URI — or a forwarded external URL — to the H3 submit.
+     *
+     * @param  array<string, mixed>   $arguments
+     * @return array<string, mixed>|ToolResult
+     */
+    protected function resolveMediaArchiveReferences(array $arguments, ?int $userId): array|ToolResult
+    {
+        if ($this->mediaArchiveResolver === null) {
+            return $arguments;
+        }
+        $resolution = $this->mediaArchiveResolver->resolve($arguments, $userId);
+        if (isset($resolution['failed'])) {
+            return $resolution['failed'];
+        }
+        return $resolution['resolved'];
+    }
+
     public function __construct(
         ToolConfigService   $configService,
         HttpClientInterface $httpClient,
@@ -84,11 +116,19 @@ abstract class MiniMaxTool extends AbstractTool
 
     public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
     {
-        // Resolve the timeout from per-tool settings before runWithValidation
-        // so the value isn't baked into the constant. Settings are not yet
-        // available here (they live on the context), so the safe default is
-        // the class constant; per-tool overrides apply inside doWork via
-        // MiniMaxSettings::timeoutSeconds().
+        // Resolve Media Archive references BEFORE building the work
+        // closure so `doWork()` receives the rewritten argument array
+        // (data: URI, forwarded external URL, or resolver failure).
+        // See {@see resolveMediaArchiveReferences()} for the rationale
+        // — `fn()` closures capture `$arguments` by value at definition
+        // time, so any rebinding inside `runWithValidation()` would
+        // never reach `doWork()`.
+        $resolved = $this->resolveMediaArchiveReferences($arguments, $userId);
+        if ($resolved instanceof ToolResult) {
+            return $resolved;
+        }
+        $arguments = $resolved;
+
         return $this->runWithValidation(
             $arguments,
             $agentId,
@@ -266,21 +306,16 @@ abstract class MiniMaxTool extends AbstractTool
         callable $work,
         ?callable $validate = null,
     ): ToolResult {
-        // Media Archive UUID resolution runs BEFORE the URL policy so a
-        // bare UUID (or opaque `/api/v1/assets/<uuid>.<ext>`) flowing
-        // from `media:search` lands as a forwardable `data:` URI by
-        // the time {@see MiniMaxVideoValidator::collectUrlErrors()}
-        // sees it. The resolver is optional — tools without it (e.g.
-        // the image / speech / music tools, or any test that doesn't
-        // wire a reader) skip this step entirely.
-        if ($this->mediaArchiveResolver !== null) {
-            $resolution = $this->mediaArchiveResolver->resolve($arguments, $userId);
-            if (isset($resolution['failed'])) {
-                return $resolution['failed'];
-            }
-            $arguments = $resolution['resolved'];
-        }
-
+        // Media Archive UUID resolution runs at the top of the calling
+        // tool's {@see execute()} override (see
+        // {@see resolveMediaArchiveReferences()}) — *before* dispatch
+        // to per-operation methods. It cannot live here: per-operation
+        // methods (`generate()`, `resume()`, ...) build their work as
+        // an `fn()` closure that captures `$arguments` by value at
+        // definition time, so rebinding it inside this method would
+        // leave the closure holding the unresolved original URL and
+        // `doGenerate()` would forward `/api/v1/assets/<uuid>.<ext>`
+        // raw to MiniMax's API.
         $ctx = $this->prepareContextOrFail($arguments, $validate, $agentId, $userId, $timeoutSeconds);
         if ($ctx instanceof ToolResult) {
             return $ctx;
