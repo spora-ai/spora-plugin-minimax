@@ -281,14 +281,35 @@ abstract class MiniMaxTool extends AbstractTool
             $arguments = $resolution['resolved'];
         }
 
+        $ctx = $this->prepareContextOrFail($arguments, $validate, $agentId, $userId, $timeoutSeconds);
+        if ($ctx instanceof ToolResult) {
+            return $ctx;
+        }
+
+        return $this->support->run($ctx, $toolLabel, fn(MiniMaxToolContext $c) => $work($c, $arguments));
+    }
+
+    /**
+     * Run the per-operation validator (if any) and prepare the tool
+     * context. Returns a {@see ToolResult} on either failure path —
+     * validation error from the validator callback, or a context
+     * preparation error from {@see MiniMaxToolSupport::prepare()}.
+     * Returns the prepared context on the happy path.
+     */
+    private function prepareContextOrFail(
+        array $arguments,
+        ?callable $validate,
+        int $agentId,
+        ?int $userId,
+        int $timeoutSeconds,
+    ): MiniMaxToolContext|ToolResult {
         if ($validate !== null) {
             $validation = $validate($arguments);
             if ($validation !== null) {
                 return $validation;
             }
         }
-
-        $ctx = $this->support->prepare(
+        return $this->support->prepare(
             toolClass: static::class,
             provider: static::PROVIDER,
             qualifiedName: static::QUALIFIED_NAME,
@@ -297,11 +318,6 @@ abstract class MiniMaxTool extends AbstractTool
             userId: $userId,
             timeoutSeconds: $timeoutSeconds,
         );
-        if ($ctx instanceof ToolResult) {
-            return $ctx;
-        }
-
-        return $this->support->run($ctx, $toolLabel, fn(MiniMaxToolContext $c) => $work($c, $arguments));
     }
 
     /** @param array<string, mixed> $arguments */

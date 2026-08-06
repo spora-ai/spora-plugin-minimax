@@ -121,7 +121,7 @@ final class MiniMaxMediaArchiveResolver
 
         $result = ($this->reader)($uuid, $userId);
         if ($result === null) {
-            return ['failed' => $this->notFoundFailure($uuid, $url)];
+            return ['failed' => $this->notFoundFailure($uuid)];
         }
 
         $this->logger?->debug('minimax.media-archive-resolved', [
@@ -131,10 +131,10 @@ final class MiniMaxMediaArchiveResolver
         ]);
 
         return match ($result['status']) {
-            'data_url' => $this->wrapAsDataUri($uuid, $result['bytes'], $result['mime'], $url),
-            'local'    => $this->wrapAsDataUri($uuid, $result['bytes'], $result['mime'], $url),
-            'external' => $this->forwardExternal($uuid, $result['sourceUrl'], $url),
-            default    => ['failed' => $this->notFoundFailure($uuid, $url)],
+            'data_url' => $this->wrapAsDataUri($uuid, $result['bytes'], $result['mime']),
+            'local'    => $this->wrapAsDataUri($uuid, $result['bytes'], $result['mime']),
+            'external' => $this->forwardExternal($uuid, $result['sourceUrl']),
+            default    => ['failed' => $this->notFoundFailure($uuid)],
         };
     }
 
@@ -157,7 +157,7 @@ final class MiniMaxMediaArchiveResolver
     /**
      * @return array{resolved: string}|array{failed: ToolResult}
      */
-    private function wrapAsDataUri(string $uuid, string $bytes, string $mime, string $originalUrl): array
+    private function wrapAsDataUri(string $uuid, string $bytes, string $mime): array
     {
         // Short-circuit on the raw byte size before encoding. base64 of
         // 50 MB of bytes is ~67 MB, so a raw payload over 37.5 MB always
@@ -206,7 +206,7 @@ final class MiniMaxMediaArchiveResolver
     /**
      * @return array{resolved: string}
      */
-    private function forwardExternal(string $uuid, string $sourceUrl, string $originalUrl): array
+    private function forwardExternal(string $uuid, string $sourceUrl): array
     {
         $this->logger?->debug('minimax.media-archive-source-forwarded', [
             'uuid'       => $uuid,
@@ -215,7 +215,7 @@ final class MiniMaxMediaArchiveResolver
         return ['resolved' => $sourceUrl];
     }
 
-    private function notFoundFailure(string $uuid, string $originalUrl): ToolResult
+    private function notFoundFailure(string $uuid): ToolResult
     {
         return new ToolResult(false, sprintf(
             "Media asset %s not found in the Spora Media Archive. "
