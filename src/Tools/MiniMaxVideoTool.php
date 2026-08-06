@@ -240,6 +240,19 @@ final class MiniMaxVideoTool extends MiniMaxTool
      */
     public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
     {
+        // Resolve Media Archive references BEFORE dispatching. Each
+        // per-operation method (`generate()`, `resume()`, ...) builds
+        // an `fn()` work closure that captures `$arguments` by value
+        // at definition time — resolving here (instead of inside
+        // `runWithValidation()`) ensures `doGenerate()`, `doResume()`
+        // etc. see the rewritten `data:` URI or forwarded external
+        // URL. See {@see MiniMaxTool::resolveMediaArchiveReferences()}.
+        $resolved = $this->resolveMediaArchiveReferences($arguments, $userId);
+        if ($resolved instanceof ToolResult) {
+            return $resolved;
+        }
+        $arguments = $resolved;
+
         $operation = (string) ($arguments['action'] ?? 'generate');
         return match ($operation) {
             'generate'       => $this->generate($arguments, $agentId, $userId),
