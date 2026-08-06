@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "256f093326e74c628865795611ba0c72",
+    "content-hash": "1cf9ddc415b0b9e08453f9db3ba9a056",
     "packages": [
         {
             "name": "brick/math",
@@ -460,6 +460,81 @@
             "time": "2025-08-04T10:06:20+00:00"
         },
         {
+            "name": "dflydev/dot-access-data",
+            "version": "v3.0.3",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/dflydev/dflydev-dot-access-data.git",
+                "reference": "a23a2bf4f31d3518f3ecb38660c95715dfead60f"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/dflydev/dflydev-dot-access-data/zipball/a23a2bf4f31d3518f3ecb38660c95715dfead60f",
+                "reference": "a23a2bf4f31d3518f3ecb38660c95715dfead60f",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^7.1 || ^8.0"
+            },
+            "require-dev": {
+                "phpstan/phpstan": "^0.12.42",
+                "phpunit/phpunit": "^7.5 || ^8.5 || ^9.3",
+                "scrutinizer/ocular": "1.6.0",
+                "squizlabs/php_codesniffer": "^3.5",
+                "vimeo/psalm": "^4.0.0"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "3.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Dflydev\\DotAccessData\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Dragonfly Development Inc.",
+                    "email": "info@dflydev.com",
+                    "homepage": "http://dflydev.com"
+                },
+                {
+                    "name": "Beau Simensen",
+                    "email": "beau@dflydev.com",
+                    "homepage": "http://beausimensen.com"
+                },
+                {
+                    "name": "Carlos Frutos",
+                    "email": "carlos@kiwing.it",
+                    "homepage": "https://github.com/cfrutos"
+                },
+                {
+                    "name": "Colin O'Dell",
+                    "email": "colinodell@gmail.com",
+                    "homepage": "https://www.colinodell.com"
+                }
+            ],
+            "description": "Given a deep data structure, access data by dot notation.",
+            "homepage": "https://github.com/dflydev/dflydev-dot-access-data",
+            "keywords": [
+                "access",
+                "data",
+                "dot",
+                "notation"
+            ],
+            "support": {
+                "issues": "https://github.com/dflydev/dflydev-dot-access-data/issues",
+                "source": "https://github.com/dflydev/dflydev-dot-access-data/tree/v3.0.3"
+            },
+            "time": "2024-07-08T12:26:09+00:00"
+        },
+        {
             "name": "doctrine/inflector",
             "version": "2.1.0",
             "source": {
@@ -881,16 +956,16 @@
         },
         {
             "name": "illuminate/collections",
-            "version": "v13.23.0",
+            "version": "v13.24.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/collections.git",
-                "reference": "79b5d04507a255e35ce34cec621696aca84ee242"
+                "reference": "3292b1aee53fd650ebb64723f0f577f761f35e23"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/illuminate/collections/zipball/79b5d04507a255e35ce34cec621696aca84ee242",
-                "reference": "79b5d04507a255e35ce34cec621696aca84ee242",
+                "url": "https://api.github.com/repos/illuminate/collections/zipball/3292b1aee53fd650ebb64723f0f577f761f35e23",
+                "reference": "3292b1aee53fd650ebb64723f0f577f761f35e23",
                 "shasum": ""
             },
             "require": {
@@ -937,11 +1012,11 @@
                 "issues": "https://github.com/laravel/framework/issues",
                 "source": "https://github.com/laravel/framework"
             },
-            "time": "2026-07-26T13:07:32+00:00"
+            "time": "2026-08-02T21:18:17+00:00"
         },
         {
             "name": "illuminate/conditionable",
-            "version": "v13.23.0",
+            "version": "v13.24.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/conditionable.git",
@@ -987,16 +1062,16 @@
         },
         {
             "name": "illuminate/container",
-            "version": "v13.23.0",
+            "version": "v13.24.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/container.git",
-                "reference": "1f268e02fd0c8e4c32fc896c229f9023da735a83"
+                "reference": "841e8ede44c77c6f4c36029cd3685bf602b0ab66"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/illuminate/container/zipball/1f268e02fd0c8e4c32fc896c229f9023da735a83",
-                "reference": "1f268e02fd0c8e4c32fc896c229f9023da735a83",
+                "url": "https://api.github.com/repos/illuminate/container/zipball/841e8ede44c77c6f4c36029cd3685bf602b0ab66",
+                "reference": "841e8ede44c77c6f4c36029cd3685bf602b0ab66",
                 "shasum": ""
             },
             "require": {
@@ -1045,20 +1120,20 @@
                 "issues": "https://github.com/laravel/framework/issues",
                 "source": "https://github.com/laravel/framework"
             },
-            "time": "2026-07-23T15:58:38+00:00"
+            "time": "2026-08-02T20:40:15+00:00"
         },
         {
             "name": "illuminate/contracts",
-            "version": "v13.23.0",
+            "version": "v13.24.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/contracts.git",
-                "reference": "98179ca5d07025c2fe4c5c70e0b57b5284fa0071"
+                "reference": "171ebb6907923d0000757b941638c6209b9bdcb4"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/illuminate/contracts/zipball/98179ca5d07025c2fe4c5c70e0b57b5284fa0071",
-                "reference": "98179ca5d07025c2fe4c5c70e0b57b5284fa0071",
+                "url": "https://api.github.com/repos/illuminate/contracts/zipball/171ebb6907923d0000757b941638c6209b9bdcb4",
+                "reference": "171ebb6907923d0000757b941638c6209b9bdcb4",
                 "shasum": ""
             },
             "require": {
@@ -1093,26 +1168,27 @@
                 "issues": "https://github.com/laravel/framework/issues",
                 "source": "https://github.com/laravel/framework"
             },
-            "time": "2026-07-15T15:50:17+00:00"
+            "time": "2026-07-30T21:42:13+00:00"
         },
         {
             "name": "illuminate/database",
-            "version": "v13.23.0",
+            "version": "v13.24.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/database.git",
-                "reference": "2a42f0341a99c6958e67328992233409562bff81"
+                "reference": "e99c7f9607255cff918c16600321310424fc5317"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/illuminate/database/zipball/2a42f0341a99c6958e67328992233409562bff81",
-                "reference": "2a42f0341a99c6958e67328992233409562bff81",
+                "url": "https://api.github.com/repos/illuminate/database/zipball/e99c7f9607255cff918c16600321310424fc5317",
+                "reference": "e99c7f9607255cff918c16600321310424fc5317",
                 "shasum": ""
             },
             "require": {
                 "brick/math": "^0.14.2 || ^0.15 || ^0.16 || ^0.17 || ^0.18",
                 "ext-pdo": "*",
                 "illuminate/collections": "^13.0",
+                "illuminate/conditionable": "^13.0",
                 "illuminate/container": "^13.0",
                 "illuminate/contracts": "^13.0",
                 "illuminate/macroable": "^13.0",
@@ -1166,24 +1242,25 @@
                 "issues": "https://github.com/laravel/framework/issues",
                 "source": "https://github.com/laravel/framework"
             },
-            "time": "2026-07-24T14:36:26+00:00"
+            "time": "2026-08-03T17:55:40+00:00"
         },
         {
             "name": "illuminate/filesystem",
-            "version": "v13.23.0",
+            "version": "v13.24.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/filesystem.git",
-                "reference": "ec05f5dfb2858e1a7ca9c1e22ad46323afdb6615"
+                "reference": "bf1c7d94349912a416c6c2056e9f8067ea9cba75"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/illuminate/filesystem/zipball/ec05f5dfb2858e1a7ca9c1e22ad46323afdb6615",
-                "reference": "ec05f5dfb2858e1a7ca9c1e22ad46323afdb6615",
+                "url": "https://api.github.com/repos/illuminate/filesystem/zipball/bf1c7d94349912a416c6c2056e9f8067ea9cba75",
+                "reference": "bf1c7d94349912a416c6c2056e9f8067ea9cba75",
                 "shasum": ""
             },
             "require": {
                 "illuminate/collections": "^13.0",
+                "illuminate/conditionable": "^13.0",
                 "illuminate/contracts": "^13.0",
                 "illuminate/macroable": "^13.0",
                 "illuminate/support": "^13.0",
@@ -1234,11 +1311,11 @@
                 "issues": "https://github.com/laravel/framework/issues",
                 "source": "https://github.com/laravel/framework"
             },
-            "time": "2026-07-13T16:05:22+00:00"
+            "time": "2026-08-03T17:50:23+00:00"
         },
         {
             "name": "illuminate/macroable",
-            "version": "v13.23.0",
+            "version": "v13.24.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/macroable.git",
@@ -1284,16 +1361,16 @@
         },
         {
             "name": "illuminate/pagination",
-            "version": "v13.23.0",
+            "version": "v13.24.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/pagination.git",
-                "reference": "20f10920affbea754c374c0eea99b17256c41573"
+                "reference": "0847cb3408d2ac92b96793e6e308a90973cb7fd2"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/illuminate/pagination/zipball/20f10920affbea754c374c0eea99b17256c41573",
-                "reference": "20f10920affbea754c374c0eea99b17256c41573",
+                "url": "https://api.github.com/repos/illuminate/pagination/zipball/0847cb3408d2ac92b96793e6e308a90973cb7fd2",
+                "reference": "0847cb3408d2ac92b96793e6e308a90973cb7fd2",
                 "shasum": ""
             },
             "require": {
@@ -1330,20 +1407,20 @@
                 "issues": "https://github.com/laravel/framework/issues",
                 "source": "https://github.com/laravel/framework"
             },
-            "time": "2026-06-25T16:46:05+00:00"
+            "time": "2026-08-02T20:48:08+00:00"
         },
         {
             "name": "illuminate/reflection",
-            "version": "v13.23.0",
+            "version": "v13.24.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/reflection.git",
-                "reference": "83788072c0f11f504c0a3dccfe9c15f5156d8b90"
+                "reference": "2b6ba33970dd84849322a6a9857647ca96c1bb66"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/illuminate/reflection/zipball/83788072c0f11f504c0a3dccfe9c15f5156d8b90",
-                "reference": "83788072c0f11f504c0a3dccfe9c15f5156d8b90",
+                "url": "https://api.github.com/repos/illuminate/reflection/zipball/2b6ba33970dd84849322a6a9857647ca96c1bb66",
+                "reference": "2b6ba33970dd84849322a6a9857647ca96c1bb66",
                 "shasum": ""
             },
             "require": {
@@ -1381,20 +1458,20 @@
                 "issues": "https://github.com/laravel/framework/issues",
                 "source": "https://github.com/laravel/framework"
             },
-            "time": "2026-07-16T14:41:30+00:00"
+            "time": "2026-08-03T17:56:24+00:00"
         },
         {
             "name": "illuminate/support",
-            "version": "v13.23.0",
+            "version": "v13.24.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/support.git",
-                "reference": "c44c62550a18912175966ba340345ffd800ac54f"
+                "reference": "4c92e0fb7a672051a4a99916d4f64ba60997e48e"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/illuminate/support/zipball/c44c62550a18912175966ba340345ffd800ac54f",
-                "reference": "c44c62550a18912175966ba340345ffd800ac54f",
+                "url": "https://api.github.com/repos/illuminate/support/zipball/4c92e0fb7a672051a4a99916d4f64ba60997e48e",
+                "reference": "4c92e0fb7a672051a4a99916d4f64ba60997e48e",
                 "shasum": ""
             },
             "require": {
@@ -1460,7 +1537,7 @@
                 "issues": "https://github.com/laravel/framework/issues",
                 "source": "https://github.com/laravel/framework"
             },
-            "time": "2026-07-26T13:08:33+00:00"
+            "time": "2026-08-03T17:55:12+00:00"
         },
         {
             "name": "laravel/serializable-closure",
@@ -1522,6 +1599,195 @@
                 "source": "https://github.com/laravel/serializable-closure"
             },
             "time": "2026-07-21T16:49:22+00:00"
+        },
+        {
+            "name": "league/commonmark",
+            "version": "2.9.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/thephpleague/commonmark.git",
+                "reference": "5703d83ba3da3b2e356a5fedc848ed6d8ffb6529"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/thephpleague/commonmark/zipball/5703d83ba3da3b2e356a5fedc848ed6d8ffb6529",
+                "reference": "5703d83ba3da3b2e356a5fedc848ed6d8ffb6529",
+                "shasum": ""
+            },
+            "require": {
+                "ext-mbstring": "*",
+                "league/config": "^1.1.1",
+                "php": "^7.4 || ^8.0",
+                "psr/event-dispatcher": "^1.0",
+                "symfony/deprecation-contracts": "^2.1 || ^3.0",
+                "symfony/polyfill-php80": "^1.16"
+            },
+            "require-dev": {
+                "cebe/markdown": "^1.0",
+                "commonmark/cmark": "0.31.1",
+                "commonmark/commonmark.js": "0.31.1",
+                "composer/package-versions-deprecated": "^1.8",
+                "embed/embed": "^4.4",
+                "erusev/parsedown": "^1.0",
+                "ext-json": "*",
+                "github/gfm": "0.29.0",
+                "michelf/php-markdown": "^1.4 || ^2.0",
+                "nyholm/psr7": "^1.5",
+                "phpstan/phpstan": "^2.0.0",
+                "phpunit/phpunit": "^9.5.21 || ^10.5.9 || ^11.0.0 || ^12.0.0 || ^13.0.0",
+                "scrutinizer/ocular": "^1.8.1",
+                "symfony/finder": "^5.3 | ^6.0 | ^7.0 || ^8.0",
+                "symfony/process": "^5.4 | ^6.0 | ^7.0 || ^8.0",
+                "symfony/yaml": "^2.3 | ^3.0 | ^4.0 | ^5.0 | ^6.0 | ^7.0 || ^8.0",
+                "unleashedtech/php-coding-standard": "^3.1.1",
+                "vimeo/psalm": "^4.24.0 || ^5.0.0 || ^6.0.0"
+            },
+            "suggest": {
+                "symfony/yaml": "v2.3+ required if using the Front Matter extension"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "2.10-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "League\\CommonMark\\": "src"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Colin O'Dell",
+                    "email": "colinodell@gmail.com",
+                    "homepage": "https://www.colinodell.com",
+                    "role": "Lead Developer"
+                }
+            ],
+            "description": "Highly-extensible PHP Markdown parser which fully supports the CommonMark spec and GitHub-Flavored Markdown (GFM)",
+            "homepage": "https://commonmark.thephpleague.com",
+            "keywords": [
+                "commonmark",
+                "flavored",
+                "gfm",
+                "github",
+                "github-flavored",
+                "markdown",
+                "md",
+                "parser"
+            ],
+            "support": {
+                "docs": "https://commonmark.thephpleague.com/",
+                "forum": "https://github.com/thephpleague/commonmark/discussions",
+                "issues": "https://github.com/thephpleague/commonmark/issues",
+                "rss": "https://github.com/thephpleague/commonmark/releases.atom",
+                "source": "https://github.com/thephpleague/commonmark"
+            },
+            "funding": [
+                {
+                    "url": "https://www.colinodell.com/sponsor",
+                    "type": "custom"
+                },
+                {
+                    "url": "https://www.paypal.me/colinpodell/10.00",
+                    "type": "custom"
+                },
+                {
+                    "url": "https://github.com/colinodell",
+                    "type": "github"
+                },
+                {
+                    "url": "https://tidelift.com/funding/github/packagist/league/commonmark",
+                    "type": "tidelift"
+                }
+            ],
+            "time": "2026-08-03T13:42:31+00:00"
+        },
+        {
+            "name": "league/config",
+            "version": "v1.2.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/thephpleague/config.git",
+                "reference": "754b3604fb2984c71f4af4a9cbe7b57f346ec1f3"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/thephpleague/config/zipball/754b3604fb2984c71f4af4a9cbe7b57f346ec1f3",
+                "reference": "754b3604fb2984c71f4af4a9cbe7b57f346ec1f3",
+                "shasum": ""
+            },
+            "require": {
+                "dflydev/dot-access-data": "^3.0.1",
+                "nette/schema": "^1.2",
+                "php": "^7.4 || ^8.0"
+            },
+            "require-dev": {
+                "phpstan/phpstan": "^1.8.2",
+                "phpunit/phpunit": "^9.5.5",
+                "scrutinizer/ocular": "^1.8.1",
+                "unleashedtech/php-coding-standard": "^3.1",
+                "vimeo/psalm": "^4.7.3"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "1.2-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "League\\Config\\": "src"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Colin O'Dell",
+                    "email": "colinodell@gmail.com",
+                    "homepage": "https://www.colinodell.com",
+                    "role": "Lead Developer"
+                }
+            ],
+            "description": "Define configuration arrays with strict schemas and access values with dot notation",
+            "homepage": "https://config.thephpleague.com",
+            "keywords": [
+                "array",
+                "config",
+                "configuration",
+                "dot",
+                "dot-access",
+                "nested",
+                "schema"
+            ],
+            "support": {
+                "docs": "https://config.thephpleague.com/",
+                "issues": "https://github.com/thephpleague/config/issues",
+                "rss": "https://github.com/thephpleague/config/releases.atom",
+                "source": "https://github.com/thephpleague/config"
+            },
+            "funding": [
+                {
+                    "url": "https://www.colinodell.com/sponsor",
+                    "type": "custom"
+                },
+                {
+                    "url": "https://www.paypal.me/colinpodell/10.00",
+                    "type": "custom"
+                },
+                {
+                    "url": "https://github.com/colinodell",
+                    "type": "github"
+                }
+            ],
+            "time": "2022-12-11T20:36:23+00:00"
         },
         {
             "name": "league/html-to-markdown",
@@ -1819,6 +2085,164 @@
                 }
             ],
             "time": "2026-07-09T18:23:49+00:00"
+        },
+        {
+            "name": "nette/schema",
+            "version": "v1.3.5",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/nette/schema.git",
+                "reference": "f0ab1a3cda782dbc5da270d28545236aa80c4002"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/nette/schema/zipball/f0ab1a3cda782dbc5da270d28545236aa80c4002",
+                "reference": "f0ab1a3cda782dbc5da270d28545236aa80c4002",
+                "shasum": ""
+            },
+            "require": {
+                "nette/utils": "^4.0",
+                "php": "8.1 - 8.5"
+            },
+            "require-dev": {
+                "nette/phpstan-rules": "^1.0",
+                "nette/tester": "^2.6",
+                "phpstan/extension-installer": "^1.4@stable",
+                "phpstan/phpstan": "^2.1.39@stable",
+                "tracy/tracy": "^2.8"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "1.3-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Nette\\": "src"
+                },
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "BSD-3-Clause",
+                "GPL-2.0-only",
+                "GPL-3.0-only"
+            ],
+            "authors": [
+                {
+                    "name": "David Grudl",
+                    "homepage": "https://davidgrudl.com"
+                },
+                {
+                    "name": "Nette Community",
+                    "homepage": "https://nette.org/contributors"
+                }
+            ],
+            "description": "📐 Nette Schema: validating data structures against a given Schema.",
+            "homepage": "https://nette.org",
+            "keywords": [
+                "config",
+                "nette"
+            ],
+            "support": {
+                "issues": "https://github.com/nette/schema/issues",
+                "source": "https://github.com/nette/schema/tree/v1.3.5"
+            },
+            "time": "2026-02-23T03:47:12+00:00"
+        },
+        {
+            "name": "nette/utils",
+            "version": "v4.1.5",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/nette/utils.git",
+                "reference": "b043439dbdf954e6c28b5ea7e34b0100f83165e0"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/nette/utils/zipball/b043439dbdf954e6c28b5ea7e34b0100f83165e0",
+                "reference": "b043439dbdf954e6c28b5ea7e34b0100f83165e0",
+                "shasum": ""
+            },
+            "require": {
+                "php": "8.2 - 8.5"
+            },
+            "conflict": {
+                "nette/finder": "<3",
+                "nette/schema": "<1.2.2"
+            },
+            "require-dev": {
+                "jetbrains/phpstorm-attributes": "^1.2",
+                "nette/phpstan-rules": "^1.0",
+                "nette/tester": "^2.5",
+                "phpstan/extension-installer": "^1.4@stable",
+                "phpstan/phpstan": "^2.1@stable",
+                "tracy/tracy": "^2.9"
+            },
+            "suggest": {
+                "ext-gd": "to use Image",
+                "ext-iconv": "to use Strings::chr(), ord() and reverse()",
+                "ext-intl": "to use Strings::webalize(), toAscii(), normalize() and compare()",
+                "ext-json": "to use Nette\\Utils\\Json",
+                "ext-mbstring": "to use Strings::lower() etc...",
+                "ext-tokenizer": "to use Nette\\Utils\\Reflection::getUseStatements()"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "4.1-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Nette\\": "src"
+                },
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "BSD-3-Clause",
+                "GPL-2.0-only",
+                "GPL-3.0-only"
+            ],
+            "authors": [
+                {
+                    "name": "David Grudl",
+                    "homepage": "https://davidgrudl.com"
+                },
+                {
+                    "name": "Nette Community",
+                    "homepage": "https://nette.org/contributors"
+                }
+            ],
+            "description": "🛠  Nette Utils: lightweight utilities for string & array manipulation, image handling, safe JSON encoding/decoding, validation, slug or strong password generating etc.",
+            "homepage": "https://nette.org",
+            "keywords": [
+                "array",
+                "core",
+                "datetime",
+                "images",
+                "json",
+                "nette",
+                "paginator",
+                "password",
+                "slugify",
+                "string",
+                "unicode",
+                "utf-8",
+                "utility",
+                "validation"
+            ],
+            "support": {
+                "issues": "https://github.com/nette/utils/issues",
+                "source": "https://github.com/nette/utils/tree/v4.1.5"
+            },
+            "time": "2026-07-17T23:02:45+00:00"
         },
         {
             "name": "nikic/fast-route",
@@ -2488,17 +2912,11 @@
         },
         {
             "name": "spora-ai/spora-core",
-            "version": "v0.13.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/spora-ai/spora-core.git",
-                "reference": "c03f26f14440dc17dc918965960dbe95819b13a1"
-            },
+            "version": "dev-main",
             "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/spora-ai/spora-core/zipball/c03f26f14440dc17dc918965960dbe95819b13a1",
-                "reference": "c03f26f14440dc17dc918965960dbe95819b13a1",
-                "shasum": ""
+                "type": "path",
+                "url": "../spora-core",
+                "reference": "5b9483edc89b1986db2d70af9f3fafc053f804ac"
             },
             "require": {
                 "chriskonnertz/string-calc": "^2.0",
@@ -2521,6 +2939,7 @@
                 "illuminate/database": "^13.0",
                 "illuminate/filesystem": "^13.0",
                 "illuminate/pagination": "^13.0",
+                "league/commonmark": "^2.6",
                 "league/html-to-markdown": "^5.1",
                 "monolog/monolog": "^3.10",
                 "nikic/fast-route": "^1.3",
@@ -2540,7 +2959,7 @@
                 "friendsofphp/php-cs-fixer": "^3.94",
                 "larastan/larastan": "^3.9",
                 "mockery/mockery": "^1.6",
-                "pestphp/pest": "^4.0",
+                "pestphp/pest": "^5.0",
                 "phpstan/phpstan": "^2.1",
                 "phpstan/phpstan-mockery": "^2.0",
                 "zircote/swagger-php": "^6.4"
@@ -2555,16 +2974,78 @@
                     "Spora\\": "app/"
                 }
             },
-            "notification-url": "https://packagist.org/downloads/",
+            "autoload-dev": {
+                "files": [
+                    "tests/Support/CrossFileTestHelpers.php"
+                ],
+                "psr-4": {
+                    "Tests\\": "tests/",
+                    "Tests\\Fixtures\\Plugins\\AppPlugin\\": "tests/Fixtures/plugins_with_app/AppPlugin/",
+                    "Tests\\Fixtures\\Plugins\\ManifestPlugin\\": "tests/Fixtures/plugins_with_manifest/ManifestPlugin/",
+                    "Tests\\Fixtures\\Plugins\\NamedPlugin\\": "tests/Fixtures/plugins_with_custom_file/NamedPlugin/",
+                    "Tests\\Fixtures\\Plugins\\ToolsPlugin\\": "tests/Fixtures/plugins_with_tools/ToolsPlugin/",
+                    "Tests\\Fixtures\\Plugins\\MigratingPlugin\\": "tests/Fixtures/plugins_with_migrations/MigratingPlugin/",
+                    "Tests\\Fixtures\\Plugins\\InventoryPlugin\\": "tests/Fixtures/plugins_inventory/InventoryPlugin/",
+                    "Tests\\Fixtures\\Plugins\\DefaultIconPlugin\\": "tests/Fixtures/plugins_inventory_brain/DefaultIconPlugin/",
+                    "Tests\\Fixtures\\Plugins\\BadPrefixPlugin\\": "tests/Fixtures/plugins_bad_migrations/BadPrefixPlugin/",
+                    "Tests\\Fixtures\\Plugins\\NotAPlugin\\": "tests/Fixtures/plugins_invalid_manifest/NotAPlugin/",
+                    "Tests\\Fixtures\\PluginWithIcon\\IconPlugin\\": "tests/Fixtures/plugin_with_icon/IconPlugin/"
+                },
+                "exclude-from-classmap": [
+                    "tests/Fixtures/plugins_with_migrations/",
+                    "tests/Fixtures/plugins_with_manifest/",
+                    "tests/Fixtures/plugins_bad_migrations/",
+                    "tests/Fixtures/plugins_with_custom_file/",
+                    "tests/Feature/RouterTest.php"
+                ]
+            },
+            "scripts": {
+                "setup": [
+                    "@php bin/spora spora:install",
+                    "@php bin/spora db:seed"
+                ],
+                "reset": [
+                    "@php bin/spora db:reset"
+                ],
+                "install:db": [
+                    "@php bin/spora spora:install"
+                ],
+                "seed": [
+                    "@php bin/spora db:seed"
+                ],
+                "test": [
+                    "./vendor/bin/pest"
+                ],
+                "test:parallel": [
+                    "./vendor/bin/pest --parallel --processes=auto --max-batch-size=50 --fail-on-risky"
+                ],
+                "test:coverage": [
+                    "./vendor/bin/pest --coverage --coverage-html=coverage --fail-on-risky"
+                ],
+                "test:coverage:clover": [
+                    "./vendor/bin/pest --coverage-clover=coverage.xml --fail-on-risky"
+                ],
+                "analyse": [
+                    "./vendor/bin/phpstan analyse --memory-limit=2G"
+                ],
+                "format": [
+                    "./vendor/bin/php-cs-fixer fix"
+                ],
+                "openapi": [
+                    "@php bin/spora-build openapi:generate"
+                ],
+                "openapi:check": [
+                    "@php bin/spora-build openapi:check"
+                ]
+            },
             "license": [
                 "MIT"
             ],
             "description": "A portable, zero-configuration AI agent orchestration platform that runs on any shared host (cPanel/FTP) without system dependencies beyond PHP 8.4+.",
-            "support": {
-                "issues": "https://github.com/spora-ai/spora-core/issues",
-                "source": "https://github.com/spora-ai/spora-core/tree/v0.13.0"
-            },
-            "time": "2026-07-31T11:01:31+00:00"
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
         },
         {
             "name": "symfony/clock",
@@ -9624,8 +10105,10 @@
         }
     ],
     "aliases": [],
-    "minimum-stability": "stable",
-    "stability-flags": {},
+    "minimum-stability": "dev",
+    "stability-flags": {
+        "spora-ai/spora-core": 20
+    },
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {

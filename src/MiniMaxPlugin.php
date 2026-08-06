@@ -8,12 +8,14 @@ use DI\ContainerBuilder;
 use Psr\Log\LoggerInterface;
 use Spora\Plugins\AbstractPlugin;
 use Spora\Plugins\MiniMax\Tools\MiniMaxImageTool;
+use Spora\Plugins\MiniMax\Tools\MiniMaxMediaArchiveResolver;
 use Spora\Plugins\MiniMax\Tools\MiniMaxMusicTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxVideoTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxVideoV1Tool;
 use Spora\Services\LocalAssetStore;
 use Spora\Services\MediaArchive\MediaArchiveService;
+use Spora\Services\MediaArchive\MediaAssetReader;
 
 final class MiniMaxPlugin extends AbstractPlugin
 {
@@ -87,6 +89,22 @@ final class MiniMaxPlugin extends AbstractPlugin
         $logger          = \DI\get(LoggerInterface::class);
 
         $builder->addDefinitions([
+            // Resolver is registered as a DI factory so PHP-DI resolves
+            // the in-container MediaAssetReader + logger before the
+            // constructor runs. Inlining the construction here would
+            // pass unresolved `\DI\get(...)` Reference objects into the
+            // `final` class constructor.
+            MiniMaxMediaArchiveResolver::class => static function (
+                MediaAssetReader $reader,
+                ?LoggerInterface $logger,
+            ): MiniMaxMediaArchiveResolver {
+                return new MiniMaxMediaArchiveResolver(
+                    static fn(string $id, ?int $userId): ?array
+                        => $reader->readAsset($id, $userId),
+                    $logger,
+                );
+            },
+
             MiniMaxImageTool::class  => \DI\autowire()
                 ->method('setMediaArchive', $archiveService)
                 ->method('setLogger', $logger),
@@ -100,10 +118,12 @@ final class MiniMaxPlugin extends AbstractPlugin
                 ->method('setLogger', $logger),
             MiniMaxVideoTool::class  => \DI\autowire()
                 ->method('setMediaArchive', $archiveService)
-                ->method('setLogger', $logger),
+                ->method('setLogger', $logger)
+                ->method('setMediaArchiveResolver', \DI\get(MiniMaxMediaArchiveResolver::class)),
             MiniMaxVideoV1Tool::class => \DI\autowire()
                 ->method('setMediaArchive', $archiveService)
-                ->method('setLogger', $logger),
+                ->method('setLogger', $logger)
+                ->method('setMediaArchiveResolver', \DI\get(MiniMaxMediaArchiveResolver::class)),
         ]);
     }
 }
