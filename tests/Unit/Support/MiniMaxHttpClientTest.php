@@ -143,29 +143,22 @@ it('falls back to the generic HTTP message when the 4xx body is non-JSON', funct
         ->toThrow(MiniMaxApiException::class, 'HTTP 400');
 });
 
-it('throws MiniMaxApiException on HTTP 5xx after retries are exhausted', function () {
+it('throws MiniMaxApiException on HTTP 5xx without retrying', function () {
     $http = Mockery::mock(HttpClientInterface::class);
-    // 3 attempts (initial + 2 retries) — all 500
-    $http->expects('request')->times(3)->andReturn(minimaxMockResponse(500, 'oops'));
+    $http->expects('request')->once()->andReturn(minimaxMockResponse(500, 'oops'));
 
     $client = new MiniMaxHttpClient($http, 'k', MiniMaxHttpClientTestLiterals::BASE_URL, 30);
     expect(fn() => $client->postJson(MiniMaxHttpClientTestLiterals::PATH_X, []))
         ->toThrow(MiniMaxApiException::class, 'HTTP 500');
 });
 
-it('retries on HTTP 429 then succeeds', function () {
+it('throws MiniMaxApiException on HTTP 429 without retrying', function () {
     $http = Mockery::mock(HttpClientInterface::class);
-    $http->expects('request')->twice()->andReturnValues([
-        minimaxMockResponse(429, 'rate'),
-        minimaxMockResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
-            'data'      => ['image_urls' => [MiniMaxHttpClientTestLiterals::CDN_URL_PNG]],
-        ])),
-    ]);
+    $http->expects('request')->once()->andReturn(minimaxMockResponse(429, 'rate'));
 
     $client = new MiniMaxHttpClient($http, 'k', MiniMaxHttpClientTestLiterals::BASE_URL, 30);
-    $result = $client->postJson(MiniMaxHttpClientTestLiterals::PATH_X, []);
-    expect($result['data']['image_urls'][0])->toBe(MiniMaxHttpClientTestLiterals::CDN_URL_PNG);
+    expect(fn() => $client->postJson(MiniMaxHttpClientTestLiterals::PATH_X, []))
+        ->toThrow(MiniMaxApiException::class, 'HTTP 429');
 });
 
 it('throws MiniMaxApiException on non-zero base_resp.status_code and does not retry', function () {
@@ -189,32 +182,22 @@ it('throws MiniMaxApiException on non-zero base_resp.status_code and does not re
         ->and($caught->baseResp['status_msg'])->toBe(MiniMaxHttpClientTestLiterals::ERR_INSUFFICIENT_BALANCE);
 });
 
-it('retries on transport errors then succeeds', function () {
+it('does not retry on transport errors and surfaces them as MiniMaxApiException', function () {
     $http = Mockery::mock(HttpClientInterface::class);
-    $http->expects('request')->twice()->andReturnUsing(function () {
-        static $count = 0;
-        $count++;
-        if ($count === 1) {
-            throw new TestableTransportException('connection reset');
-        }
-        return minimaxMockResponse(200, json_encode([
-            'base_resp' => ['status_code' => 0, 'status_msg' => 'ok'],
-            'data'      => ['image_urls' => [MiniMaxHttpClientTestLiterals::CDN_URL_PNG]],
-        ]));
-    });
-
-    $client = new MiniMaxHttpClient($http, 'k', MiniMaxHttpClientTestLiterals::BASE_URL, 30);
-    $result = $client->postJson(MiniMaxHttpClientTestLiterals::PATH_X, []);
-    expect($result['data']['image_urls'][0])->toBe(MiniMaxHttpClientTestLiterals::CDN_URL_PNG);
-});
-
-it('throws MiniMaxApiException when transport errors exceed the retry budget', function () {
-    $http = Mockery::mock(HttpClientInterface::class);
-    $http->expects('request')->times(3)->andThrow(new TestableTransportException('connection failed'));
+    $http->expects('request')->once()->andThrow(new TestableTransportException('connection failed'));
 
     $client = new MiniMaxHttpClient($http, 'k', MiniMaxHttpClientTestLiterals::BASE_URL, 30);
     expect(fn() => $client->postJson(MiniMaxHttpClientTestLiterals::PATH_X, []))
         ->toThrow(MiniMaxApiException::class, 'MiniMax API request failed');
+});
+
+it('does not retry on 5xx and surfaces the HTTP status', function () {
+    $http = Mockery::mock(HttpClientInterface::class);
+    $http->expects('request')->once()->andReturn(minimaxMockResponse(502, 'bad gateway'));
+
+    $client = new MiniMaxHttpClient($http, 'k', MiniMaxHttpClientTestLiterals::BASE_URL, 30);
+    expect(fn() => $client->postJson(MiniMaxHttpClientTestLiterals::PATH_X, []))
+        ->toThrow(MiniMaxApiException::class, 'HTTP 502');
 });
 
 it('appends query parameters to GET requests', function () {
