@@ -59,15 +59,15 @@ use Throwable;
  * 15 (S3776) threshold.
  */
 #[Tool(
-    name: 'video',
+    name: 'video_minimax',
     description: 'Generate a short video clip via MiniMax H3 (multimodal: text + first/last-frame images + reference images / video clips / audio). Async; download URL valid briefly. Use `enhance_prompt` to enrich the prompt first, `resume` to re-attach to a timed-out task, and `regenerate` to upsample a finished 768P clip to 2K.',
     displayName: 'MiniMax Video',
     category: 'generation',
     icon: 'video',
 )]
-#[ToolOperation(name: 'generate', description: 'Submit a new H3 video task (text + optional image / video / audio references) and archive the result.', enabledByDefault: true, requiresApprovalByDefault: false)]
+#[ToolOperation(name: 'generate', description: 'Submit a new H3 video task (text + optional image / video / audio references) and archive the result.', enabledByDefault: true, requiresApprovalByDefault: true)]
 #[ToolOperation(name: 'resume', description: 'Continue polling a previously submitted task by id. Use when a previous `generate` returned `data.timed_out: true`.', enabledByDefault: true, requiresApprovalByDefault: false)]
-#[ToolOperation(name: 'enhance_prompt', description: 'Send the same multimodal inputs to H3-Context-IR and return an enriched, structured prompt (no video is produced). Pass the returned prompt into a follow-up `generate` call for best results.', enabledByDefault: true, requiresApprovalByDefault: true)]
+#[ToolOperation(name: 'enhance_prompt', description: 'Send the same multimodal inputs to H3-Context-IR and return an enriched, structured prompt (no video is produced). Pass the returned prompt into a follow-up `generate` call for best results.', enabledByDefault: true, requiresApprovalByDefault: false)]
 #[ToolOperation(name: 'regenerate', description: 'Upsample a finished 768P H3 video to 2K by re-submitting the original content[] with the source clip as `base_video`. Requires a `task_id` from a previous `generate` call.', enabledByDefault: true, requiresApprovalByDefault: true)]
 #[ToolSetting(
     key: 'api_key',

@@ -49,7 +49,7 @@ use Throwable;
  * Sister tool to {@see MiniMaxVideoTool} (the H3 / v2 tool).
  */
 #[Tool(
-    name: 'video_v1',
+    name: 'video_v1_minimax',
     description: 'Legacy MiniMax video generation (v1 API). Fall-back for plans that don\'t include MiniMax-H3. Supports text-to-video via `prompt`; image-to-video via `first_frame_image` is accepted by the matrix but routes to the t2v path until the i2v code path lands. Models: MiniMax-Hailuo-2.3 (default), MiniMax-Hailuo-02, T2V-01-Director, T2V-01. Resolutions + durations are validated against the v1 matrix before submit.',
     displayName: 'MiniMax Video (v1 legacy)',
     category: 'generation',
@@ -334,7 +334,7 @@ final class MiniMaxVideoV1Tool extends MiniMaxTool
 
         $firstFrame = trim((string) ($arguments['first_frame_image'] ?? ''));
         if ($firstFrame !== '') {
-            $errors[] = 'first_frame_image is accepted by the v1 matrix but the i2v code path is not yet shipped in minimax:video_v1. Use minimax:video (H3) for image-to-video, or omit the parameter for plain text-to-video.';
+            $errors[] = 'first_frame_image is accepted by the v1 matrix but the i2v code path is not yet shipped in minimax:video_v1_minimax. Use minimax:video_minimax (H3) for image-to-video, or omit the parameter for plain text-to-video.';
         }
 
         return $errors === [] ? null : new ToolResult(false, implode(' ', $errors));
@@ -623,7 +623,7 @@ final class MiniMaxVideoV1Tool extends MiniMaxTool
                         'content'   => sprintf(
                             'MiniMax v1 video generation did not finish within %ds (task_id=%s). '
                             . 'The task is still running on MiniMax\'s side and is billable. '
-                            . 'Increase `poll_timeout_seconds` and call `minimax_video_v1(action: "resume", task_id: "%s", '
+                            . 'Increase `poll_timeout_seconds` and call `minimax_video_v1_minimax(action: "resume", task_id: "%s", '
                             . 'prompt: "<original prompt>", duration_seconds: "<original duration>", '
                             . 'resolution: "<original resolution>")` to keep waiting, '
                             . 'or abandon it and accept the billed quota.',

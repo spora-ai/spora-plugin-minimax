@@ -43,7 +43,7 @@ use Throwable;
  * stays under the SonarQube S1448 (≤20 methods) threshold.
  */
 #[Tool(
-    name: 'speech',
+    name: 'speech_minimax',
     description: 'Synthesize speech from text via MiniMax t2a_v2, or list the MiniMax voice library via POST /v1/get_voice so the LLM can pick a voice_id before synthesizing. Two operations: synthesize (default), voices.',
     displayName: 'MiniMax Speech',
     category: 'generation',

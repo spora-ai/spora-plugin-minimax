@@ -320,7 +320,7 @@ it('voices operation POSTs to /v1/get_voice with the documented envelope', funct
         ->and($result->content)->toContain('female narrator')
         // Hint steers the next call: pass `text` + the chosen voice_id
         // and omit `action` (default is synthesize).
-        ->and($result->content)->toContain('minimax_speech(text:')
+        ->and($result->content)->toContain('minimax_speech_minimax(text:')
         // Structured payload is JSON-serialisable through ToolResult.data.
         ->and($result->data['count'])->toBe(3)
         ->and($result->data['voice_type'])->toBe('system')

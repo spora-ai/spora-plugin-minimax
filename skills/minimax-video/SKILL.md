@@ -24,19 +24,19 @@ Four operations on one tool. They share the same submit → poll → archive pip
 
 ```
 # Text-to-video
-minimax_video(prompt: "a red fox drinking from a forest stream at golden hour, [Push in], slow-motion", duration_seconds: 6, resolution: "768P", aspect_ratio: "16:9")
+minimax_video_minimax(prompt: "a red fox drinking from a forest stream at golden hour, [Push in], slow-motion", duration_seconds: 6, resolution: "768P", aspect_ratio: "16:9")
 
 # Image-to-video (first frame only)
-minimax_video(prompt: "[Push in] The fox lifts its head, water dripping from its whiskers", first_frame_image: "https://your-cdn.example/fox.png")
+minimax_video_minimax(prompt: "[Push in] The fox lifts its head, water dripping from its whiskers", first_frame_image: "https://your-cdn.example/fox.png")
 
 # Image-to-video (first + last frame — controlled transition)
-minimax_video(prompt: "[Time-lapse] The fox ages from cub to adult", first_frame_image: "https://your-cdn.example/fox-cub.png", last_frame_image: "https://your-cdn.example/fox-adult.png")
+minimax_video_minimax(prompt: "[Time-lapse] The fox ages from cub to adult", first_frame_image: "https://your-cdn.example/fox-cub.png", last_frame_image: "https://your-cdn.example/fox-adult.png")
 
 # Reference-to-video (style/character anchors)
-minimax_video(prompt: "The character walks into a foggy alley, neon-lit, cinematic", reference_images: ["https://your-cdn.example/character-ref-1.png", "https://your-cdn.example/character-ref-2.png"])
+minimax_video_minimax(prompt: "The character walks into a foggy alley, neon-lit, cinematic", reference_images: ["https://your-cdn.example/character-ref-1.png", "https://your-cdn.example/character-ref-2.png"])
 
 # Regenerate a previous 768P output as 2K
-minimax_video(action: "regenerate", task_id: "115334141465231360", base_video_url: "https://...output-768p.mp4", prompt: "...", first_frame_image: "...")
+minimax_video_minimax(action: "regenerate", task_id: "115334141465231360", base_video_url: "https://...output-768p.mp4", prompt: "...", first_frame_image: "...")
 ```
 
 | Parameter | Required | Default | Notes |
@@ -81,7 +81,7 @@ The tool picks one of four modes based on the arguments — **no explicit mode f
 
 ### `generate` — submit a new video task
 
-Flow: `POST /v2/video_generation` (with `content[]`, `duration`, `resolution`, `ratio`) → returns `task_id` → poll `GET /v2/query/video_generation/{task_id}` until `status` is `succeeded` or `failed` → archive the MP4 via Media Archive. All three HTTP steps happen inside one `minimax_video(...)` call from the LLM's perspective — there is no need to "poll again later".
+Flow: `POST /v2/video_generation` (with `content[]`, `duration`, `resolution`, `ratio`) → returns `task_id` → poll `GET /v2/query/video_generation/{task_id}` until `status` is `succeeded` or `failed` → archive the MP4 via Media Archive. All three HTTP steps happen inside one `minimax_video_minimax(...)` call from the LLM's perspective — there is no need to "poll again later".
 
 ### `resume` — re-attach to an in-flight task
 
@@ -126,7 +126,7 @@ If the upstream hasn't reported `succeeded` or `failed` before `poll_timeout_sec
 ```json
 {
   "success": false,
-  "content": "H3 task did not finish within 900s (task_id=task-slow). The task is still running on MiniMax's side and is billable. Increase `poll_timeout_seconds` and call `minimax_video(action: \"resume\", task_id: \"task-slow\")` to keep waiting, or abandon it and accept the billed quota.",
+  "content": "H3 task did not finish within 900s (task_id=task-slow). The task is still running on MiniMax's side and is billable. Increase `poll_timeout_seconds` and call `minimax_video_minimax(action: \"resume\", task_id: \"task-slow\")` to keep waiting, or abandon it and accept the billed quota.",
   "data": {
     "task_id": "task-slow",
     "status": "still_running",
@@ -221,7 +221,7 @@ For the raw download URL, read `ToolResult.data.asset_url` — never re-extract 
 - **Don't use lowercase `p`** (`"768p"`, `"2k"`) — MiniMax's enum is uppercase `P` for `768P`; `2K` is mixed-case. The tool rejects lowercase values.
 - **Don't pass `adaptive` for text-only `generate`** — the tool falls back to `16:9` automatically; better to pass the ratio you actually want.
 - **Don't forget to pair `reference_audio` with an image or video** — H3 rejects audio-only `content[]`. The tool rejects it client-side.
-- **Don't poll externally** — the tool polls internally up to `poll_timeout_seconds`. If you're tempted to call `minimax_video(...)` again to "check on it", don't — you've already issued another submit. Use `resume` with the existing `task_id` instead.
+- **Don't poll externally** — the tool polls internally up to `poll_timeout_seconds`. If you're tempted to call `minimax_video_minimax(...)` again to "check on it", don't — you've already issued another submit. Use `resume` with the existing `task_id` instead.
 - **Don't paraphrase the enhanced prompt** — when calling `enhance_prompt` then `generate`, pass the `enhanced_prompt` from the first call verbatim into the second call's `prompt`. H3 is sensitive to small word changes.
 - **Don't promise instant delivery** — generation takes 30 s to several minutes. The user sees a spinner; don't claim "ready" before the tool returns.
 - **Don't abandon a timed-out task silently** — the task is still billable on MiniMax's side. Surface the choice (keep waiting via `resume` vs accept the cost) to the user.

@@ -26,7 +26,7 @@ One **multi-operation tool** — pick the right operation by user intent. Multi-
 ### `compose`
 
 ```
-minimax_music(action: "compose", prompt: "lofi hip-hop, rainy night, warm Rhodes", lyrics: "[Verse]\nCity lights blur past", output_format: "url", filename: "midnight-lofi")
+minimax_music_minimax(action: "compose", prompt: "lofi hip-hop, rainy night, warm Rhodes", lyrics: "[Verse]\nCity lights blur past", output_format: "url", filename: "midnight-lofi")
 ```
 
 - `prompt` — style / mood description (max 2000 chars). **Optional only when `lyrics` is supplied.** Empty prompt + empty lyrics = the tool refuses.
@@ -37,7 +37,7 @@ minimax_music(action: "compose", prompt: "lofi hip-hop, rainy night, warm Rhodes
 ### `write_lyrics`
 
 ```
-minimax_music(action: "write_lyrics", prompt: "song about a late-night coding marathon that turned into a friendship", filename: "midnight-coders")
+minimax_music_minimax(action: "write_lyrics", prompt: "song about a late-night coding marathon that turned into a friendship", filename: "midnight-coders")
 ```
 
 - `prompt` — topic / style description (max 2000 chars). **Required.**
@@ -46,7 +46,7 @@ minimax_music(action: "write_lyrics", prompt: "song about a late-night coding ma
 ### `edit_lyrics`
 
 ```
-minimax_music(action: "edit_lyrics", prompt: "make every other line rhyme and switch to a hopeful tone", lyrics: "[Verse]\nGrey morning\nNo sound…", filename: "tides-rev2")
+minimax_music_minimax(action: "edit_lyrics", prompt: "make every other line rhyme and switch to a hopeful tone", lyrics: "[Verse]\nGrey morning\nNo sound…", filename: "tides-rev2")
 ```
 
 - `prompt` — rewrite instruction (max 2000 chars). **Required.** Specific beats "re-write in another style"; describe the transformation, not the destination.
