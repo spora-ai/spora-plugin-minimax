@@ -14,6 +14,7 @@ use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
 use Spora\Services\AssetStore;
 use Spora\Services\LocalAssetStore;
 use Spora\Services\MediaArchive\MediaIngestRequest;
+use Spora\Services\PrincipalContext;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
@@ -204,8 +205,13 @@ final class MiniMaxSpeechTool extends MiniMaxTool
      *
      * @param array<string, mixed> $arguments
      */
-    public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
-    {
+    public function execute(
+        array $arguments,
+        int $agentId,
+        ?int $userId = null,
+        ?int $taskId = null,
+        ?PrincipalContext $context = null,
+    ): ToolResult {
         $operation = (string) ($arguments['action'] ?? 'synthesize');
         return match ($operation) {
             'voices' => $this->listVoices($arguments, $agentId, $userId),

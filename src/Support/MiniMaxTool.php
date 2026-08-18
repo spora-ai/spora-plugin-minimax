@@ -6,6 +6,7 @@ namespace Spora\Plugins\MiniMax\Support;
 
 use Psr\Log\LoggerInterface;
 use Spora\Plugins\MiniMax\Tools\MiniMaxMediaArchiveResolver;
+use Spora\Services\PrincipalContext;
 use Spora\Services\ToolConfigService;
 use Spora\Tools\AbstractTool;
 use Spora\Tools\ValueObjects\ToolResult;
@@ -114,8 +115,13 @@ abstract class MiniMaxTool extends AbstractTool
         $this->mediaArchiveResolver = $resolver;
     }
 
-    public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
-    {
+    public function execute(
+        array $arguments,
+        int $agentId,
+        ?int $userId = null,
+        ?int $taskId = null,
+        ?PrincipalContext $context = null,
+    ): ToolResult {
         // Resolve Media Archive references BEFORE building the work
         // closure so `doWork()` receives the rewritten argument array
         // (data: URI, forwarded external URL, or resolver failure).
