@@ -80,15 +80,17 @@ function minimaxLoggerArchiveService(): MediaArchiveService
 
     $container = M::mock(Psr\Container\ContainerInterface::class);
 
-    return new MediaArchiveService(
-        $throwingStore,
+    $pipeline = new Spora\Services\MediaArchive\MediaArchiveIngestPipeline(
+        new MediaIngestDecoder(),
         $resolver,
         $sniffer,
         new MetadataExtractor($logger, false),
+        $throwingStore,
         new MediaConverterRegistry($container),
-        new MediaIngestDecoder(),
         $logger,
     );
+
+    return new MediaArchiveService($pipeline);
 }
 
 function minimaxLoggerArchiveResponse(int $status, string $body): Symfony\Contracts\HttpClient\ResponseInterface

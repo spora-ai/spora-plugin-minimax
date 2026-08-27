@@ -356,21 +356,21 @@ it('ingests the audio_url into the MediaArchive and prefers asset_url in the emb
             true,
             1024 * 1024,
         );
-        return new Spora\Services\MediaArchive\MediaArchiveService(
+        return new Spora\Services\MediaArchive\MediaArchiveService(new Spora\Services\MediaArchive\MediaArchiveIngestPipeline(
+            new Spora\Services\MediaArchive\MediaIngestDecoder(),
+            $resolver,
+            $sniffer,
+            new Spora\Services\MediaArchive\MetadataExtractor($logger, false),
             new Spora\Services\LocalAssetStore(
                 new Spora\Core\Paths(sys_get_temp_dir() . '/minimax-music-test'),
                 new Spora\Core\SecurityManager(str_repeat("\0", SODIUM_CRYPTO_SECRETBOX_KEYBYTES)),
                 50 * 1024 * 1024,
             ),
-            $resolver,
-            $sniffer,
-            new Spora\Services\MediaArchive\MetadataExtractor($logger, false),
             new Spora\Services\MediaArchive\MediaConverterRegistry(
                 M::mock(Psr\Container\ContainerInterface::class),
             ),
-            new Spora\Services\MediaArchive\MediaIngestDecoder(),
             $logger,
-        );
+        ));
     })();
 
     $tool = new MiniMaxMusicTool($config, $http, $log, M::mock(Spora\Services\AssetStore::class), null, null, $archive);

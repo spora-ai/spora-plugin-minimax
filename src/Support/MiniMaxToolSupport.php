@@ -68,10 +68,15 @@ final class MiniMaxToolSupport
         string $qualifiedName,
         array  $arguments,
         int    $agentId,
-        ?int   $userId,
+        ?int   $ownerUserId,
+        ?int   $runnerUserId,
         int    $timeoutSeconds,
     ): MiniMaxToolContext|ToolResult {
-        $settings = $this->configService->getEffectiveSettings($toolClass, $agentId, $userId);
+        // The MiniMax API key belongs to the owner — that's whose
+        // settings pay for the call. The runner is who triggered it
+        // and rides along for the row attribution / Media Archive
+        // permission checks downstream.
+        $settings = $this->configService->getEffectiveSettings($toolClass, $agentId, $ownerUserId);
         $apiKey   = MiniMaxSettings::apiKey($provider, $settings);
 
         if ($apiKey === '') {
@@ -92,7 +97,8 @@ final class MiniMaxToolSupport
             client: $client,
             settings: $settings,
             arguments: $arguments,
-            userId: $userId,
+            ownerUserId: $ownerUserId,
+            runnerUserId: $runnerUserId,
             agentId: $agentId,
         );
     }

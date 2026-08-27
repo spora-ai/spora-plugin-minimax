@@ -116,15 +116,15 @@ function minimaxTestArchiveService(?HttpClientInterface $http = null): MediaArch
     // never invoked, but PHPStan still needs a real implementation.
     $container = M::mock(Psr\Container\ContainerInterface::class);
 
-    return new MediaArchiveService(
-        minimaxTestAssetStore(),
+    return new MediaArchiveService(new Spora\Services\MediaArchive\MediaArchiveIngestPipeline(
+        new MediaIngestDecoder(),
         $resolver,
         $sniffer,
         $meta,
+        minimaxTestAssetStore(),
         new MediaConverterRegistry($container),
-        new MediaIngestDecoder(),
         $logger,
-    );
+    ));
 }
 
 it('image tool calls MediaArchive::ingest without breaking the success result', function () {
@@ -393,15 +393,15 @@ function minimaxFilenameCaptureArchiveService(): array
 
     $store = new MinimaxFilenameCapturingStore();
     $container = M::mock(Psr\Container\ContainerInterface::class);
-    $archive = new MediaArchiveService(
-        $store,
+    $archive = new MediaArchiveService(new Spora\Services\MediaArchive\MediaArchiveIngestPipeline(
+        new MediaIngestDecoder(),
         $resolver,
         $sniffer,
         new MetadataExtractor($logger, false),
+        $store,
         new MediaConverterRegistry($container),
-        new MediaIngestDecoder(),
         $logger,
-    );
+    ));
     return [$archive, $store];
 }
 

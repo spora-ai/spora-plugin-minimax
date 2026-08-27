@@ -122,14 +122,24 @@ abstract class MiniMaxTool extends AbstractTool
         ?int $taskId = null,
         ?PrincipalContext $context = null,
     ): ToolResult {
+        // Owner = the user whose MiniMax API key pays for this call
+        // (settings lookup). Runner = the user who triggered it (Media
+        // Archive permission checks + per-row asset attribution). When
+        // the orchestrator didn't pass a PrincipalContext — legacy
+        // dispatch paths, tests — both fall back to the legacy $userId.
+        $ownerId  = ($context !== null && $context->ownerUserId !== null) ? $context->ownerUserId : $userId;
+        $runnerId = ($context !== null && $context->runnerUserId !== null) ? $context->runnerUserId : $userId;
+
         // Resolve Media Archive references BEFORE building the work
         // closure so `doWork()` receives the rewritten argument array
         // (data: URI, forwarded external URL, or resolver failure).
         // See {@see resolveMediaArchiveReferences()} for the rationale
         // — `fn()` closures capture `$arguments` by value at definition
         // time, so any rebinding inside `runWithValidation()` would
-        // never reach `doWork()`.
-        $resolved = $this->resolveMediaArchiveReferences($arguments, $userId);
+        // never reach `doWork()`. Pass the runner id so the resolver's
+        // MediaArchive permission check matches "who is asking", not
+        // "whose key".
+        $resolved = $this->resolveMediaArchiveReferences($arguments, $runnerId);
         if ($resolved instanceof ToolResult) {
             return $resolved;
         }
@@ -138,7 +148,8 @@ abstract class MiniMaxTool extends AbstractTool
         return $this->runWithValidation(
             $arguments,
             $agentId,
-            $userId,
+            $ownerId,
+            $runnerId,
             static::TIMEOUT_SECONDS,
             static::TOOL_LABEL,
             fn(MiniMaxToolContext $ctx) => $this->doWork($ctx, $arguments),
@@ -306,7 +317,8 @@ abstract class MiniMaxTool extends AbstractTool
     protected function runWithValidation(
         array   $arguments,
         int     $agentId,
-        ?int    $userId,
+        ?int    $ownerUserId,
+        ?int    $runnerUserId,
         int     $timeoutSeconds,
         string  $toolLabel,
         callable $work,
@@ -322,7 +334,7 @@ abstract class MiniMaxTool extends AbstractTool
         // leave the closure holding the unresolved original URL and
         // `doGenerate()` would forward `/api/v1/assets/<uuid>.<ext>`
         // raw to MiniMax's API.
-        $ctx = $this->prepareContextOrFail($arguments, $validate, $agentId, $userId, $timeoutSeconds);
+        $ctx = $this->prepareContextOrFail($arguments, $validate, $agentId, $ownerUserId, $runnerUserId, $timeoutSeconds);
         if ($ctx instanceof ToolResult) {
             return $ctx;
         }
@@ -341,7 +353,8 @@ abstract class MiniMaxTool extends AbstractTool
         array $arguments,
         ?callable $validate,
         int $agentId,
-        ?int $userId,
+        ?int $ownerUserId,
+        ?int $runnerUserId,
         int $timeoutSeconds,
     ): MiniMaxToolContext|ToolResult {
         if ($validate !== null) {
@@ -356,7 +369,8 @@ abstract class MiniMaxTool extends AbstractTool
             qualifiedName: static::QUALIFIED_NAME,
             arguments: $arguments,
             agentId: $agentId,
-            userId: $userId,
+            ownerUserId: $ownerUserId,
+            runnerUserId: $runnerUserId,
             timeoutSeconds: $timeoutSeconds,
         );
     }
