@@ -14,6 +14,7 @@ use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
 use Spora\Services\AssetStore;
 use Spora\Services\LocalAssetStore;
 use Spora\Services\MediaArchive\MediaIngestRequest;
+use Spora\Services\PrincipalContext;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
@@ -204,12 +205,19 @@ final class MiniMaxSpeechTool extends MiniMaxTool
      *
      * @param array<string, mixed> $arguments
      */
-    public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
-    {
+    public function execute(
+        array $arguments,
+        int $agentId,
+        ?int $userId = null,
+        ?int $taskId = null,
+        ?PrincipalContext $context = null,
+    ): ToolResult {
+        $ownerId  = ($context !== null && $context->ownerUserId !== null) ? $context->ownerUserId : $userId;
+        $runnerId = ($context !== null && $context->runnerUserId !== null) ? $context->runnerUserId : $userId;
         $operation = (string) ($arguments['action'] ?? 'synthesize');
         return match ($operation) {
-            'voices' => $this->listVoices($arguments, $agentId, $userId),
-            default  => $this->synthesize($arguments, $agentId, $userId),
+            'voices' => $this->listVoices($arguments, $agentId, $ownerId, $runnerId),
+            default  => $this->synthesize($arguments, $agentId, $ownerId, $runnerId),
         };
     }
 
@@ -452,6 +460,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
             // invariant.
             $request = new MediaIngestRequest(
                 ...$base,
+                userId: $ctx->runnerUserId,
                 url: $audioUrl,
                 hex: $audioUrl === null ? $hexAudio : null,
             );
@@ -489,12 +498,13 @@ final class MiniMaxSpeechTool extends MiniMaxTool
      *
      * @param array<string, mixed> $arguments
      */
-    public function synthesize(array $arguments, int $agentId, ?int $userId): ToolResult
+    public function synthesize(array $arguments, int $agentId, ?int $ownerUserId, ?int $runnerUserId): ToolResult
     {
         return $this->runWithValidation(
             $arguments,
             $agentId,
-            $userId,
+            $ownerUserId,
+            $runnerUserId,
             self::TIMEOUT_SECONDS,
             self::TOOL_LABEL,
             fn(MiniMaxToolContext $c) => $this->doWork($c, $arguments),
@@ -510,12 +520,13 @@ final class MiniMaxSpeechTool extends MiniMaxTool
      *
      * @param array<string, mixed> $arguments
      */
-    public function listVoices(array $arguments, int $agentId, ?int $userId): ToolResult
+    public function listVoices(array $arguments, int $agentId, ?int $ownerUserId, ?int $runnerUserId): ToolResult
     {
         return $this->runWithValidation(
             $arguments,
             $agentId,
-            $userId,
+            $ownerUserId,
+            $runnerUserId,
             self::TIMEOUT_SECONDS_VOICES,
             self::TOOL_LABEL_VOICES,
             fn(MiniMaxToolContext $c) => $this->doFetchVoices($c, $arguments),

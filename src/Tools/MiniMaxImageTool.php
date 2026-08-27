@@ -242,6 +242,7 @@ final class MiniMaxImageTool extends MiniMaxTool
             $asset = $this->mediaArchive()->ingest(new MediaIngestRequest(
                 url: $cdnUrl,
                 agentId: $ctx->agentId,
+                userId: $ctx->runnerUserId,
                 pluginSlug: 'minimax',
                 toolName: 'image',
                 prompt: $prompt,

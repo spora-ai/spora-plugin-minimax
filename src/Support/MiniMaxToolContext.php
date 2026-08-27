@@ -17,8 +17,11 @@ namespace Spora\Plugins\MiniMax\Support;
 final readonly class MiniMaxToolContext
 {
     /**
-     * @param array<string, mixed> $settings  Effective tool settings (already merged across scopes).
-     * @param array<string, mixed> $arguments Original tool-call arguments as the LLM supplied them.
+     * @param array<string, mixed> $settings     Effective tool settings (already merged across scopes).
+     * @param array<string, mixed> $arguments    Original tool-call arguments as the LLM supplied them.
+     * @param ?int                 $ownerUserId  Who pays for this agent — used to resolve the MiniMax API key.
+     * @param ?int                 $runnerUserId Who triggered the call — used for Media Archive permission
+     *                                           checks and per-row attribution of generated assets.
      */
     public function __construct(
         public string          $provider,
@@ -26,7 +29,8 @@ final readonly class MiniMaxToolContext
         public MiniMaxHttpClient $client,
         public array           $settings,
         public array           $arguments,
-        public ?int            $userId,
+        public ?int            $ownerUserId,
+        public ?int            $runnerUserId,
         public int             $agentId,
     ) {}
 }

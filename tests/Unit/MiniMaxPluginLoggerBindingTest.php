@@ -20,38 +20,41 @@ it('register() binds LoggerInterface to every MiniMax tool', function () {
 
     $logger = new Psr\Log\NullLogger();
     $sniffer = new Spora\Services\MediaArchive\MimeSniffer();
-    $archive = new MediaArchiveService(
-        new Spora\Services\AutoAssetStore(
-            new Spora\Services\DataUrlAssetStore(50 * 1024 * 1024),
-            new Spora\Services\LocalAssetStore(
-                new Spora\Core\Paths(sys_get_temp_dir() . '/minimax-plugin-logger-test'),
-                new Spora\Core\SecurityManager(str_repeat("\0", SODIUM_CRYPTO_SECRETBOX_KEYBYTES)),
-                50 * 1024 * 1024,
-            ),
-            1_048_576,
+    $assetStore = new Spora\Services\AutoAssetStore(
+        new Spora\Services\DataUrlAssetStore(50 * 1024 * 1024),
+        new Spora\Services\LocalAssetStore(
+            new Spora\Core\Paths(sys_get_temp_dir() . '/minimax-plugin-logger-test'),
+            new Spora\Core\SecurityManager(str_repeat("\0", SODIUM_CRYPTO_SECRETBOX_KEYBYTES)),
+            50 * 1024 * 1024,
         ),
-        new Spora\Services\MediaArchive\MediaArchiveUrlResolver(
-            new Spora\Services\MediaArchive\RemoteMediaFetcher(
-                new Symfony\Component\HttpClient\MockHttpClient([
-                    new Symfony\Component\HttpClient\Response\MockResponse('', ['response_headers' => ['content-type: application/octet-stream']]),
-                ]),
-                $logger,
-                30,
-                1024 * 1024,
-            ),
-            $sniffer,
+        1_048_576,
+    );
+    $urlResolver = new Spora\Services\MediaArchive\MediaArchiveUrlResolver(
+        new Spora\Services\MediaArchive\RemoteMediaFetcher(
+            new Symfony\Component\HttpClient\MockHttpClient([
+                new Symfony\Component\HttpClient\Response\MockResponse('', ['response_headers' => ['content-type: application/octet-stream']]),
+            ]),
             $logger,
-            true,
+            30,
             1024 * 1024,
         ),
         $sniffer,
+        $logger,
+        true,
+        1024 * 1024,
+    );
+    $pipeline = new Spora\Services\MediaArchive\MediaArchiveIngestPipeline(
+        new Spora\Services\MediaArchive\MediaIngestDecoder(),
+        $urlResolver,
+        $sniffer,
         new Spora\Services\MediaArchive\MetadataExtractor($logger, false),
+        $assetStore,
         new Spora\Services\MediaArchive\MediaConverterRegistry(
             Mockery::mock(Psr\Container\ContainerInterface::class),
         ),
-        new Spora\Services\MediaArchive\MediaIngestDecoder(),
         $logger,
     );
+    $archive = new MediaArchiveService($pipeline);
 
     $builder->addDefinitions([
         MediaArchiveService::class => $archive,

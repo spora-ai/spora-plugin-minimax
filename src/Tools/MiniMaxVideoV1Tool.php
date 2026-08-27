@@ -12,6 +12,7 @@ use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 use Spora\Plugins\MiniMax\Support\MiniMaxTool;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
 use Spora\Services\MediaArchive\MediaIngestRequest;
+use Spora\Services\PrincipalContext;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
@@ -204,15 +205,24 @@ final class MiniMaxVideoV1Tool extends MiniMaxTool
      *
      * @param array<string, mixed> $arguments
      */
-    public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
-    {
+    public function execute(
+        array $arguments,
+        int $agentId,
+        ?int $userId = null,
+        ?int $taskId = null,
+        ?PrincipalContext $context = null,
+    ): ToolResult {
+        $ownerId  = ($context !== null && $context->ownerUserId !== null) ? $context->ownerUserId : $userId;
+        $runnerId = ($context !== null && $context->runnerUserId !== null) ? $context->runnerUserId : $userId;
+
         // Resolve Media Archive references BEFORE dispatching — each
         // per-operation method (`generate()`, `resume()`) builds an
         // `fn()` work closure that captures `$arguments` by value at
         // definition time, so rebinding it inside `runWithValidation()`
         // never reaches `doGenerate()`/`doResume()`. See
-        // {@see MiniMaxTool::resolveMediaArchiveReferences()}.
-        $resolved = $this->resolveMediaArchiveReferences($arguments, $userId);
+        // {@see MiniMaxTool::resolveMediaArchiveReferences()}. The
+        // permission check uses the runner id (who is asking).
+        $resolved = $this->resolveMediaArchiveReferences($arguments, $runnerId);
         if ($resolved instanceof ToolResult) {
             return $resolved;
         }
@@ -220,8 +230,8 @@ final class MiniMaxVideoV1Tool extends MiniMaxTool
 
         $operation = (string) ($arguments['action'] ?? 'generate');
         return match ($operation) {
-            'generate' => $this->generate($arguments, $agentId, $userId),
-            'resume'   => $this->resume($arguments, $agentId, $userId),
+            'generate' => $this->generate($arguments, $agentId, $ownerId, $runnerId),
+            'resume'   => $this->resume($arguments, $agentId, $ownerId, $runnerId),
             default    => new ToolResult(false, "Unknown video operation: {$operation}. Expected 'generate' or 'resume'."),
         };
     }
@@ -262,12 +272,13 @@ final class MiniMaxVideoV1Tool extends MiniMaxTool
     }
 
     /** @param array<string, mixed> $arguments */
-    public function generate(array $arguments, int $agentId, ?int $userId): ToolResult
+    public function generate(array $arguments, int $agentId, ?int $ownerUserId, ?int $runnerUserId): ToolResult
     {
         return $this->runWithValidation(
             $arguments,
             $agentId,
-            $userId,
+            $ownerUserId,
+            $runnerUserId,
             static::TIMEOUT_SECONDS,
             static::TOOL_LABEL,
             fn(MiniMaxToolContext $c) => $this->doGenerate($c, $arguments),
@@ -276,12 +287,13 @@ final class MiniMaxVideoV1Tool extends MiniMaxTool
     }
 
     /** @param array<string, mixed> $arguments */
-    public function resume(array $arguments, int $agentId, ?int $userId): ToolResult
+    public function resume(array $arguments, int $agentId, ?int $ownerUserId, ?int $runnerUserId): ToolResult
     {
         return $this->runWithValidation(
             $arguments,
             $agentId,
-            $userId,
+            $ownerUserId,
+            $runnerUserId,
             static::TIMEOUT_SECONDS,
             static::TOOL_LABEL,
             fn(MiniMaxToolContext $c) => $this->doResume($c, $arguments),
@@ -718,6 +730,7 @@ final class MiniMaxVideoV1Tool extends MiniMaxTool
             $archiveAsset = $this->mediaArchive()->ingest(new MediaIngestRequest(
                 url: $downloadUrl,
                 agentId: $ctx->agentId,
+                userId: $ctx->runnerUserId,
                 pluginSlug: 'minimax',
                 toolName: 'video_v1',
                 prompt: $prompt,

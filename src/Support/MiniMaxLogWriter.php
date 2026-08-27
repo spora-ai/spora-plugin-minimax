@@ -45,7 +45,7 @@ final class MiniMaxLogWriter
     {
         try {
             Capsule::table('minimax_generation_log')->insert([
-                'user_id'          => $ctx->userId,
+                'user_id'          => $ctx->runnerUserId,
                 'agent_id'         => $ctx->agentId,
                 'tool_name'        => $ctx->qualifiedToolName,
                 'provider'         => $ctx->provider,
@@ -78,7 +78,7 @@ final class MiniMaxLogWriter
             request: $ctx->arguments,
             response: $response,
             success: true,
-            userId: $ctx->userId,
+            runnerUserId: $ctx->runnerUserId,
             agentId: $ctx->agentId,
         ));
     }
@@ -99,7 +99,7 @@ final class MiniMaxLogWriter
             response: $response,
             success: false,
             error: $error,
-            userId: $ctx->userId,
+            runnerUserId: $ctx->runnerUserId,
             agentId: $ctx->agentId,
         ));
     }

@@ -14,6 +14,7 @@ use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
 use Spora\Services\AssetStore;
 use Spora\Services\LocalAssetStore;
 use Spora\Services\MediaArchive\MediaIngestRequest;
+use Spora\Services\PrincipalContext;
 use Spora\Tools\Attributes\Tool;
 use Spora\Tools\Attributes\ToolOperation;
 use Spora\Tools\Attributes\ToolParameter;
@@ -150,14 +151,21 @@ final class MiniMaxMusicTool extends MiniMaxTool
     /**
      * Multi-operation tool: dispatch on the `action` argument.
      */
-    public function execute(array $arguments, int $agentId, ?int $userId = null, ?int $taskId = null): ToolResult
-    {
+    public function execute(
+        array $arguments,
+        int $agentId,
+        ?int $userId = null,
+        ?int $taskId = null,
+        ?PrincipalContext $context = null,
+    ): ToolResult {
+        $ownerId  = ($context !== null && $context->ownerUserId !== null) ? $context->ownerUserId : $userId;
+        $runnerId = ($context !== null && $context->runnerUserId !== null) ? $context->runnerUserId : $userId;
         $operation = $this->getOperationName($arguments);
 
         return match ($operation) {
-            'compose'      => $this->compose($arguments, $agentId, $userId),
-            'write_lyrics' => $this->writeLyrics($arguments, $agentId, $userId),
-            'edit_lyrics'  => $this->editLyrics($arguments, $agentId, $userId),
+            'compose'      => $this->compose($arguments, $agentId, $ownerId, $runnerId),
+            'write_lyrics' => $this->writeLyrics($arguments, $agentId, $ownerId, $runnerId),
+            'edit_lyrics'  => $this->editLyrics($arguments, $agentId, $ownerId, $runnerId),
             default        => new ToolResult(false, "Unknown music operation: {$operation}"),
         };
     }
@@ -175,12 +183,13 @@ final class MiniMaxMusicTool extends MiniMaxTool
     }
 
     /** @param array<string, mixed> $arguments */
-    public function compose(array $arguments, int $agentId, ?int $userId): ToolResult
+    public function compose(array $arguments, int $agentId, ?int $ownerUserId, ?int $runnerUserId): ToolResult
     {
         return $this->runWithValidation(
             $arguments,
             $agentId,
-            $userId,
+            $ownerUserId,
+            $runnerUserId,
             self::TIMEOUT_SECONDS_COMPOSE,
             'Music generation',
             fn(MiniMaxToolContext $c) => $this->doCompose($c, $arguments),
@@ -189,24 +198,25 @@ final class MiniMaxMusicTool extends MiniMaxTool
     }
 
     /** @param array<string, mixed> $arguments */
-    public function writeLyrics(array $arguments, int $agentId, ?int $userId): ToolResult
+    public function writeLyrics(array $arguments, int $agentId, ?int $ownerUserId, ?int $runnerUserId): ToolResult
     {
-        return $this->lyrics('write_full_song', $arguments, $agentId, $userId);
+        return $this->lyrics('write_full_song', $arguments, $agentId, $ownerUserId, $runnerUserId);
     }
 
     /** @param array<string, mixed> $arguments */
-    public function editLyrics(array $arguments, int $agentId, ?int $userId): ToolResult
+    public function editLyrics(array $arguments, int $agentId, ?int $ownerUserId, ?int $runnerUserId): ToolResult
     {
-        return $this->lyrics('edit', $arguments, $agentId, $userId);
+        return $this->lyrics('edit', $arguments, $agentId, $ownerUserId, $runnerUserId);
     }
 
     /** @param array<string, mixed> $arguments */
-    private function lyrics(string $mode, array $arguments, int $agentId, ?int $userId): ToolResult
+    private function lyrics(string $mode, array $arguments, int $agentId, ?int $ownerUserId, ?int $runnerUserId): ToolResult
     {
         return $this->runWithValidation(
             $arguments,
             $agentId,
-            $userId,
+            $ownerUserId,
+            $runnerUserId,
             self::TIMEOUT_SECONDS_LYRICS,
             'Lyrics generation',
             fn(MiniMaxToolContext $c) => $this->doLyrics($c, $arguments, $mode),
@@ -435,6 +445,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
                 url: $audioUrl,
                 hex: $audioUrl === null ? $hexAudio : null,
                 agentId: $ctx->agentId,
+                userId: $ctx->runnerUserId,
                 pluginSlug: 'minimax',
                 toolName: 'music',
                 mime: self::AUDIO_MIME,

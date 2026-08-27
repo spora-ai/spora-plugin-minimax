@@ -14,8 +14,10 @@ namespace Spora\Plugins\MiniMax\Support;
 final readonly class MiniMaxLogContext
 {
     /**
-     * @param array<string, mixed> $request  Tool-call argument payload (post-redaction).
-     * @param array<string, mixed> $response Decoded API response (post-redaction), or empty on error.
+     * @param array<string, mixed> $request       Tool-call argument payload (post-redaction).
+     * @param array<string, mixed> $response      Decoded API response (post-redaction), or empty on error.
+     * @param ?int                 $runnerUserId  Who triggered the call — the audit log records the
+     *                                            runner, not the owner (whose settings paid for the call).
      */
     public function __construct(
         public string   $provider,
@@ -24,7 +26,7 @@ final readonly class MiniMaxLogContext
         public array    $response,
         public bool     $success,
         public ?string  $error = null,
-        public ?int     $userId = null,
+        public ?int     $runnerUserId = null,
         public ?int     $agentId = null,
     ) {}
 }

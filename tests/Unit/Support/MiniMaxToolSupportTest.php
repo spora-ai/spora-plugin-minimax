@@ -31,7 +31,8 @@ it('returns a failure ToolResult from prepare() when the API key setting is miss
         qualifiedName: 'minimax:image',
         arguments: ['prompt' => 'a fox'],
         agentId: 1,
-        userId: null,
+        ownerUserId: null,
+        runnerUserId: null,
         timeoutSeconds: 30,
     );
 
@@ -54,7 +55,8 @@ it('returns a failure ToolResult from run() when the work callable throws MiniMa
         client: new MiniMaxHttpClient($http, 'k', 'https://api.minimax.io', 30),
         settings: ['api_key' => 'k'],
         arguments: ['prompt' => 'a fox'],
-        userId: 7,
+        ownerUserId: 7,
+        runnerUserId: 7,
         agentId: 1,
     );
 
@@ -83,7 +85,8 @@ it('returns a failure ToolResult from run() when the work callable throws an arb
         client: new MiniMaxHttpClient($http, 'k', 'https://api.minimax.io', 30),
         settings: ['api_key' => 'k'],
         arguments: ['prompt' => 'a fox'],
-        userId: 7,
+        ownerUserId: 7,
+        runnerUserId: 7,
         agentId: 1,
     );
 
@@ -109,7 +112,8 @@ it('returns the work callable result from run() on the happy path', function () 
         client: new MiniMaxHttpClient($http, 'k', 'https://api.minimax.io', 30),
         settings: ['api_key' => 'k'],
         arguments: ['prompt' => 'a fox'],
-        userId: 7,
+        ownerUserId: 7,
+        runnerUserId: 7,
         agentId: 1,
     );
 
