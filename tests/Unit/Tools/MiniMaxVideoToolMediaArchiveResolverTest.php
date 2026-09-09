@@ -27,7 +27,6 @@ function makeVideoToolWithResolver(MiniMaxMediaArchiveResolver $resolver): MiniM
     $tool = new MiniMaxVideoTool(
         $config,
         Mockery::mock(HttpClientInterface::class),
-        new Spora\Plugins\MiniMax\Support\MiniMaxLogWriter(),
     );
     $tool->setMediaArchiveResolver($resolver);
     return $tool;
@@ -40,7 +39,6 @@ function makeVideoV1ToolWithResolver(MiniMaxMediaArchiveResolver $resolver): Min
     $tool = new MiniMaxVideoV1Tool(
         $config,
         Mockery::mock(HttpClientInterface::class),
-        new Spora\Plugins\MiniMax\Support\MiniMaxLogWriter(),
     );
     $tool->setMediaArchiveResolver($resolver);
     return $tool;
@@ -206,7 +204,6 @@ describe('Media Archive resolver: closure-capture regression (doGenerate must se
         $tool = new MiniMaxVideoTool(
             $config,
             $http,
-            new Spora\Plugins\MiniMax\Support\MiniMaxLogWriter(),
         );
         $tool->setMediaArchiveResolver($resolver);
 
@@ -245,7 +242,6 @@ describe('Media Archive resolver: closure-capture regression (doGenerate must se
         $tool = new MiniMaxVideoTool(
             $config,
             $http,
-            new Spora\Plugins\MiniMax\Support\MiniMaxLogWriter(),
         );
         $tool->setMediaArchiveResolver($resolver);
 

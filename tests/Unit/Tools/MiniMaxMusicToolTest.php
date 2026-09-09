@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use Mockery as M;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Tools\MiniMaxMusicTool;
 use Spora\Services\ToolConfigService;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -31,9 +30,7 @@ it('returns an error when the API key is missing', function () {
     $config->allows('getEffectiveSettings')->andReturn([]);
 
     $http = M::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxMusicTool($config, $http, $log, M::mock(Spora\Services\AssetStore::class));
+    $tool = new MiniMaxMusicTool($config, $http, M::mock(Spora\Services\AssetStore::class));
 
     $result = $tool->execute(['prompt' => MiniMaxMusicToolTestLiterals::PROMPT_SUNNY_DAY], 1);
     expect($result->success)->toBeFalse()
@@ -45,9 +42,7 @@ it('returns an error when neither prompt nor lyrics is supplied for compose', fu
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxMusicTool($config, $http, $log, M::mock(Spora\Services\AssetStore::class));
+    $tool = new MiniMaxMusicTool($config, $http, M::mock(Spora\Services\AssetStore::class));
 
     $result = $tool->execute(['action' => 'compose'], 1);
     expect($result->success)->toBeFalse()
@@ -59,8 +54,6 @@ it('parses the music response and returns the audio URL for compose', function (
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
     $http->expects('request')
         ->with('POST', 'https://api.minimax.io/v1/music_generation', M::on(function ($opts) {
             // Per-call timeout MUST be passed through; previously this
@@ -77,7 +70,7 @@ it('parses the music response and returns the audio URL for compose', function (
             'data'      => ['audio' => MiniMaxMusicToolTestLiterals::CDN_URL_SONG],
         ])));
 
-    $tool = new MiniMaxMusicTool($config, $http, $log, M::mock(Spora\Services\AssetStore::class));
+    $tool = new MiniMaxMusicTool($config, $http, M::mock(Spora\Services\AssetStore::class));
     $result = $tool->execute(['action' => 'compose', 'prompt' => MiniMaxMusicToolTestLiterals::PROMPT_SUNNY_DAY], 1);
 
     expect($result->success)->toBeTrue()
@@ -113,16 +106,13 @@ it('routes a data.audio URL (MiniMax output_format=url shape) through the URL br
             'data'       => ['audio' => 'https://cdn.example/song.mp3', 'status' => 2],
             'extra_info' => ['music_duration' => 80065, 'music_size' => 2566674],
         ])));
-
-    $log = new MiniMaxLogWriter();
-
     // `AssetStore::store` MUST NOT be called when the response is a URL.
     // If the bug regresses, the tool will treat the URL as hex and call
     // store() with the hex-decoded payload (32 bytes of garbage).
     $assetStore = M::mock(Spora\Services\AssetStore::class);
     $assetStore->shouldNotReceive('store');
 
-    $tool = new MiniMaxMusicTool($config, $http, $log, $assetStore);
+    $tool = new MiniMaxMusicTool($config, $http, $assetStore);
     $result = $tool->execute(['action' => 'compose', 'prompt' => MiniMaxMusicToolTestLiterals::PROMPT_SUNNY_DAY], 1);
 
     expect($result->success)->toBeTrue()
@@ -139,9 +129,7 @@ it('returns an error when write_lyrics is missing prompt and lyrics', function (
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxMusicTool($config, $http, $log, M::mock(Spora\Services\AssetStore::class));
+    $tool = new MiniMaxMusicTool($config, $http, M::mock(Spora\Services\AssetStore::class));
 
     $result = $tool->execute(['action' => 'write_lyrics'], 1);
     expect($result->success)->toBeFalse()
@@ -153,8 +141,6 @@ it('parses the lyrics response and returns the song title for write_lyrics', fun
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
     $http->expects('request')
         ->with('POST', 'https://api.minimax.io/v1/lyrics_generation', M::on(function ($opts) {
             return ($opts['json']['mode'] ?? null) === 'write_full_song'
@@ -171,7 +157,7 @@ it('parses the lyrics response and returns the song title for write_lyrics', fun
             'style_tags' => 'dream pop, ethereal',
         ])));
 
-    $tool = new MiniMaxMusicTool($config, $http, $log, M::mock(Spora\Services\AssetStore::class));
+    $tool = new MiniMaxMusicTool($config, $http, M::mock(Spora\Services\AssetStore::class));
     $result = $tool->execute(['action' => 'write_lyrics', 'prompt' => 'a song about the sea'], 1);
 
     expect($result->success)->toBeTrue()
@@ -188,9 +174,7 @@ it('returns an error when edit_lyrics is missing lyrics', function () {
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxMusicTool($config, $http, $log, M::mock(Spora\Services\AssetStore::class));
+    $tool = new MiniMaxMusicTool($config, $http, M::mock(Spora\Services\AssetStore::class));
 
     $result = $tool->execute(['action' => 'edit_lyrics', 'prompt' => MiniMaxMusicToolTestLiterals::EDIT_PROMPT_SADDER], 1);
     expect($result->success)->toBeFalse()
@@ -202,8 +186,6 @@ it('parses the lyrics response for edit_lyrics with mode=edit', function () {
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
     $existingLyrics = "[Verse]\nBright morning\n[Chorus]\nSun on the waves";
 
     $http->expects('request')
@@ -218,7 +200,7 @@ it('parses the lyrics response for edit_lyrics with mode=edit', function () {
             'lyrics'     => "[Verse]\nGrey morning\n[Chorus]\nRain on the waves",
         ])));
 
-    $tool = new MiniMaxMusicTool($config, $http, $log, M::mock(Spora\Services\AssetStore::class));
+    $tool = new MiniMaxMusicTool($config, $http, M::mock(Spora\Services\AssetStore::class));
     $result = $tool->execute([
         'action'  => 'edit_lyrics',
         'prompt'  => MiniMaxMusicToolTestLiterals::EDIT_PROMPT_SADDER,
@@ -238,8 +220,6 @@ it('falls back to the first declared operation when action is absent', function 
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
     // No `action` argument — should dispatch to `compose` and hit /v1/music_generation.
     $http->expects('request')
         ->with('POST', 'https://api.minimax.io/v1/music_generation', M::any())
@@ -248,7 +228,7 @@ it('falls back to the first declared operation when action is absent', function 
             'data'      => ['audio' => MiniMaxMusicToolTestLiterals::CDN_URL_SONG],
         ])));
 
-    $tool = new MiniMaxMusicTool($config, $http, $log, M::mock(Spora\Services\AssetStore::class));
+    $tool = new MiniMaxMusicTool($config, $http, M::mock(Spora\Services\AssetStore::class));
     $result = $tool->execute(['prompt' => 'lo-fi beat'], 1);
 
     expect($result->success)->toBeTrue()
@@ -260,9 +240,7 @@ it('returns an error for an unknown action', function () {
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxMusicTool($config, $http, $log, M::mock(Spora\Services\AssetStore::class));
+    $tool = new MiniMaxMusicTool($config, $http, M::mock(Spora\Services\AssetStore::class));
     $result = $tool->execute(['action' => 'karaoke', 'prompt' => 'something'], 1);
 
     expect($result->success)->toBeFalse()
@@ -278,9 +256,6 @@ it('ingests the audio_url into the MediaArchive and prefers asset_url in the emb
         'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
         'data'      => ['audio' => 'https://cdn.example/song.mp3'],
     ])));
-
-    $log = new MiniMaxLogWriter();
-
     // Wire Eloquent to an in-memory SQLite database so the archive's
     // `MediaAsset::save()` call actually persists a row. Without this,
     // the archive throws "Call to a member function connection() on null"
@@ -316,6 +291,42 @@ it('ingests the audio_url into the MediaArchive and prefers asset_url in the emb
         $table->string('source_url', 512)->nullable();
         $table->string('storage_mode', 16);
         $table->timestamps();
+    });
+    $capsule->schema()->create('users', function (Illuminate\Database\Schema\Blueprint $table): void {
+        $table->bigIncrements('id');
+        $table->string('email', 249)->unique();
+        $table->string('password', 255);
+        $table->string('username', 100)->nullable();
+        $table->tinyInteger('status')->default(0);
+        $table->tinyInteger('verified')->default(0);
+        $table->tinyInteger('resettable')->default(1);
+        $table->unsignedInteger('roles_mask')->default(0);
+        $table->unsignedInteger('registered');
+        $table->unsignedInteger('last_login')->nullable();
+        $table->unsignedMediumInteger('force_logout')->default(0);
+        $table->timestamp('created_at')->nullable();
+        $table->timestamp('updated_at')->nullable();
+    });
+    $capsule->schema()->create('principals', function (Illuminate\Database\Schema\Blueprint $table): void {
+        $table->bigIncrements('id');
+        $table->enum('type', ['user', 'group']);
+        $table->unsignedBigInteger('user_id')->nullable();
+        $table->unsignedBigInteger('group_id')->nullable();
+        $table->timestamps();
+    });
+    $capsule->schema()->create('agents', function (Illuminate\Database\Schema\Blueprint $table): void {
+        $table->bigIncrements('id');
+        $table->unsignedBigInteger('principal_id')->nullable();
+        $table->string('name', 100)->default('My Assistant');
+        $table->text('description')->nullable();
+        $table->string('recipe_id', 100)->nullable();
+        $table->string('llm_provider', 50)->default('openai_compatible');
+        $table->string('llm_model', 100)->default('gpt-4o');
+        $table->string('llm_base_url', 255)->nullable();
+        $table->unsignedTinyInteger('max_steps')->default(10);
+        $table->tinyInteger('is_active')->default(1);
+        $table->timestamp('created_at')->nullable();
+        $table->timestamp('updated_at')->nullable();
     });
 
     // Build a real MediaArchiveService backed by a LocalAssetStore ONLY —
@@ -369,11 +380,12 @@ it('ingests the audio_url into the MediaArchive and prefers asset_url in the emb
             new Spora\Services\MediaArchive\MediaConverterRegistry(
                 M::mock(Psr\Container\ContainerInterface::class),
             ),
+            new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
             $logger,
         ));
     })();
 
-    $tool = new MiniMaxMusicTool($config, $http, $log, M::mock(Spora\Services\AssetStore::class), null, null, $archive);
+    $tool = new MiniMaxMusicTool($config, $http, M::mock(Spora\Services\AssetStore::class), null, null, $archive);
     $result = $tool->execute(['action' => 'compose', 'prompt' => 'lofi piano'], 1);
 
     expect($result->success)->toBeTrue()

@@ -33,7 +33,6 @@ final class MiniMaxToolSupport
     public function __construct(
         private readonly ToolConfigService   $configService,
         private readonly HttpClientInterface $httpClient,
-        private readonly MiniMaxLogWriter    $logWriter,
         ?LoggerInterface                     $logger = null,
     ) {
         $this->logger = $logger;
@@ -65,7 +64,6 @@ final class MiniMaxToolSupport
     public function prepare(
         string $toolClass,
         string $provider,
-        string $qualifiedName,
         array  $arguments,
         int    $agentId,
         ?int   $ownerUserId,
@@ -92,8 +90,6 @@ final class MiniMaxToolSupport
         );
 
         return new MiniMaxToolContext(
-            provider: $provider,
-            qualifiedName: $qualifiedName,
             client: $client,
             settings: $settings,
             arguments: $arguments,
@@ -117,12 +113,10 @@ final class MiniMaxToolSupport
         try {
             return $work($ctx);
         } catch (MiniMaxApiException $e) {
-            $this->logWriter->logFailure($ctx, ['error' => $e->getMessage()], $e->getMessage());
             return new ToolResult(false, $e->getMessage());
         } catch (Throwable $e) {
             $this->logger?->error("MiniMax{$toolLabel}: unexpected exception", ['exception' => $e]);
             $message = "{$toolLabel} failed: " . $e->getMessage();
-            $this->logWriter->logFailure($ctx, ['error' => $e->getMessage()], $message);
             return new ToolResult(false, $message);
         }
     }
@@ -136,18 +130,6 @@ final class MiniMaxToolSupport
             'video'  => 'Video',
             default  => ucfirst($provider),
         };
-    }
-
-    /** @param array<string, mixed> $response */
-    public function logSuccess(MiniMaxToolContext $ctx, array $response): void
-    {
-        $this->logWriter->logSuccess($ctx, $response);
-    }
-
-    /** @param array<string, mixed> $response */
-    public function logFailure(MiniMaxToolContext $ctx, array $response, string $error): void
-    {
-        $this->logWriter->logFailure($ctx, $response, $error);
     }
 
     /**

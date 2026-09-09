@@ -37,11 +37,6 @@ final class MiniMaxPlugin extends AbstractPlugin implements EventSubscriberInter
         ];
     }
 
-    public function schemaVersion(): int
-    {
-        return 1;
-    }
-
     /**
      * Subscribe to the framework's boot-time events.
      *

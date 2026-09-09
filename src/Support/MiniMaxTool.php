@@ -87,13 +87,12 @@ abstract class MiniMaxTool extends AbstractTool
     public function __construct(
         ToolConfigService   $configService,
         HttpClientInterface $httpClient,
-        MiniMaxLogWriter    $logWriter,
         ?LoggerInterface    $logger = null,
         ?MiniMaxToolSupport $support = null,
     ) {
         // Constructor params are consumed once to build the support and then
         // go out of scope. The support owns the long-lived references.
-        $this->support = $support ?? new MiniMaxToolSupport($configService, $httpClient, $logWriter, $logger);
+        $this->support = $support ?? new MiniMaxToolSupport($configService, $httpClient, $logger);
     }
 
     /**
@@ -366,7 +365,6 @@ abstract class MiniMaxTool extends AbstractTool
         return $this->support->prepare(
             toolClass: static::class,
             provider: static::PROVIDER,
-            qualifiedName: static::QUALIFIED_NAME,
             arguments: $arguments,
             agentId: $agentId,
             ownerUserId: $ownerUserId,

@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Tools\MiniMaxVideoTool;
 use Spora\Services\ToolConfigService;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -128,7 +127,6 @@ it('rejects out-of-spec content[] combinations', function (array $args, string $
     $tool = new MiniMaxVideoTool(
         $config,
         Mockery::mock(HttpClientInterface::class),
-        new MiniMaxLogWriter(),
     );
 
     $result = $tool->execute($args, 1);
@@ -161,7 +159,7 @@ it('accepts mm_file:// URLs as image inputs', function (): void {
         ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
         ->andReturn(h3Response(200, json_encode(['task' => ['id' => 'task-mm', 'status' => 'running']])));
 
-    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, $http);
     $result = $tool->execute([
         'prompt'            => 'cinematic scene',
         'first_frame_image' => 'mm_file://abc123',
@@ -192,7 +190,7 @@ it('accepts data: URIs under the size cap as image inputs', function (): void {
     // Small data: URI (well under the 50 MB cap) — accepted.
     $dataUri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
-    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, $http);
     $result = $tool->execute([
         'prompt'            => 'cinematic scene',
         'first_frame_image' => $dataUri,
@@ -212,7 +210,6 @@ it('rejects data: URIs over the size cap', function (): void {
     $tool = new MiniMaxVideoTool(
         $config,
         Mockery::mock(HttpClientInterface::class),
-        new MiniMaxLogWriter(),
     );
     $result = $tool->execute([
         'prompt'            => 'cinematic scene',

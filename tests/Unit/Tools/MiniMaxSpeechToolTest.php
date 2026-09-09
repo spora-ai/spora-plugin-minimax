@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use Mockery as M;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Tests\Support\MinimaxFixtures;
 use Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool;
 use Spora\Services\AssetReference;
@@ -38,12 +37,10 @@ it('embeds a CDN URL directly when audio_url is present', function () {
             'extra_info' => ['audio_length' => 1000, 'audio_size' => 12345, 'usage_characters' => 50, 'audio_format' => 'mp3'],
             'base_resp'  => ['status_code' => 0, 'status_msg' => 'success'],
         ])));
-
-    $log = new MiniMaxLogWriter();
     $assetStore = M::mock(AssetStore::class);
     $assetStore->shouldNotReceive('store');
 
-    $tool = new MiniMaxSpeechTool($config, $http, $log, $assetStore);
+    $tool = new MiniMaxSpeechTool($config, $http, $assetStore);
     $result = $tool->execute(['text' => 'Hello world'], 1);
 
     expect($result->success)->toBeTrue()
@@ -72,13 +69,11 @@ it('decodes a hex payload and routes it through the AssetStore', function () {
     $http = M::mock(HttpClientInterface::class);
     $http->allows('request')
         ->andReturn(minimaxMockResponse(200, json_encode($fixture['response'])));
-
-    $log = new MiniMaxLogWriter();
     $assetStore = M::mock(AssetStore::class);
     $assetStore->allows('store')
         ->andReturn(new AssetReference('data:audio/mpeg;base64,AAA', 'data_url'));
 
-    $tool = new MiniMaxSpeechTool($config, $http, $log, $assetStore);
+    $tool = new MiniMaxSpeechTool($config, $http, $assetStore);
     $result = $tool->execute($fixture['request'], 1);
 
     expect($result->success)->toBeFalse()
@@ -94,14 +89,12 @@ it('routes the hex payload to the local store when over the auto threshold', fun
 
     $http = M::mock(HttpClientInterface::class);
     $http->expects('request')->andReturn(minimaxMockResponse(200, json_encode($fixture['response'])));
-
-    $log = new MiniMaxLogWriter();
     $assetStore = M::mock(AssetStore::class);
     $assetStore->expects('store')
         ->once()
         ->andReturn(new AssetReference('/api/v1/assets/abc123def456.mp3', 'local'));
 
-    $tool = new MiniMaxSpeechTool($config, $http, $log, $assetStore);
+    $tool = new MiniMaxSpeechTool($config, $http, $assetStore);
     $result = $tool->execute($fixture['request'], 1);
 
     expect($result->success)->toBeTrue()
@@ -126,9 +119,6 @@ it('routes the hex payload through the injected LocalAssetStore regardless of pa
     $http->expects('request')
         ->with('POST', 'https://api.minimax.io/v1/t2a_v2', M::any())
         ->andReturn(minimaxMockResponse(200, json_encode($fixture['response'])));
-
-    $log = new MiniMaxLogWriter();
-
     $tmp = sys_get_temp_dir() . '/minimax-speech-local-asset-' . bin2hex(random_bytes(4));
     $local = new Spora\Services\LocalAssetStore(
         new Spora\Core\Paths($tmp),
@@ -142,7 +132,7 @@ it('routes the hex payload through the injected LocalAssetStore regardless of pa
     $assetStore = M::mock(AssetStore::class);
     $assetStore->shouldNotReceive('store');
 
-    $tool = new MiniMaxSpeechTool($config, $http, $log, $assetStore);
+    $tool = new MiniMaxSpeechTool($config, $http, $assetStore);
     $tool->setLocalAssetStore($local);
     $result = $tool->execute($fixture['request'], 1);
 
@@ -183,13 +173,11 @@ it('fails loudly (success=false) when a `data:` URL leaks through (LocalAssetSto
 
     $http = M::mock(HttpClientInterface::class);
     $http->allows('request')->andReturn(minimaxMockResponse(200, json_encode($fixture['response'])));
-
-    $log = new MiniMaxLogWriter();
     $assetStore = M::mock(AssetStore::class);
     $assetStore->allows('store')
         ->andReturn(new AssetReference('data:audio/mpeg;base64,LEAK', 'data_url'));
 
-    $tool = new MiniMaxSpeechTool($config, $http, $log, $assetStore);
+    $tool = new MiniMaxSpeechTool($config, $http, $assetStore);
     $result = $tool->execute($fixture['request'], 1);
 
     expect($result->success)->toBeFalse()
@@ -212,12 +200,10 @@ it('routes a CDN URL through the short-lived-URL instruction (no archive rewrite
         'extra_info' => ['audio_length' => 1000, 'audio_size' => 12_345, 'usage_characters' => 50, 'audio_format' => 'mp3'],
         'base_resp'  => ['status_code' => 0, 'status_msg' => 'success'],
     ])));
-
-    $log = new MiniMaxLogWriter();
     $assetStore = M::mock(AssetStore::class);
     $assetStore->shouldNotReceive('store');
 
-    $tool = new MiniMaxSpeechTool($config, $http, $log, $assetStore);
+    $tool = new MiniMaxSpeechTool($config, $http, $assetStore);
     $result = $tool->execute(['text' => 'Hello world'], 1);
 
     expect($result->success)->toBeTrue()
@@ -237,12 +223,10 @@ it('returns a clear failure on odd-length hex payload', function () {
         'extra_info' => ['audio_length' => 100, 'audio_size' => 1, 'usage_characters' => 1, 'audio_format' => 'mp3'],
         'base_resp'  => ['status_code' => 0, 'status_msg' => 'success'],
     ])));
-
-    $log = new MiniMaxLogWriter();
     $assetStore = M::mock(AssetStore::class);
     $assetStore->shouldNotReceive('store');
 
-    $tool = new MiniMaxSpeechTool($config, $http, $log, $assetStore);
+    $tool = new MiniMaxSpeechTool($config, $http, $assetStore);
     $result = $tool->execute(['text' => 'Hello world'], 1);
 
     expect($result->success)->toBeFalse()
@@ -300,10 +284,7 @@ it('voices operation POSTs to /v1/get_voice with the documented envelope', funct
                 ],
             ],
         ])));
-
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $tool = new MiniMaxSpeechTool($config, $http, M::mock(AssetStore::class));
     $result = $tool->execute(['action' => 'voices'], 1);
 
     expect($result->success)->toBeTrue()
@@ -350,10 +331,7 @@ it('voices operation forwards voice_type: "all" to upstream and merges buckets',
                 ['voice_id' => 'ttv-2025', 'voice_name' => 'Generated', 'description' => ['Voice generated from text prompt.']],
             ],
         ])));
-
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $tool = new MiniMaxSpeechTool($config, $http, M::mock(AssetStore::class));
     $result = $tool->execute(['action' => 'voices', 'voice_type' => 'all'], 1);
 
     expect($result->success)->toBeTrue()
@@ -399,10 +377,7 @@ it('voices operation filters by language client-side (substring match over descr
                 ['voice_id' => 'Japanese_Lively_Youth',     'voice_name' => 'Lively Youth',        'description' => ['A bright young male voice in standard Japanese.']],
             ],
         ])));
-
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $tool = new MiniMaxSpeechTool($config, $http, M::mock(AssetStore::class));
     $result = $tool->execute(['action' => 'voices', 'language' => 'German'], 1);
 
     expect($result->success)->toBeTrue()
@@ -430,10 +405,7 @@ it('voices operation filters by gender client-side (substring match over descrip
                 ['voice_id' => 'English_Soft_Girl',          'voice_name' => 'SG', 'description' => ['young female, English.']],
             ],
         ])));
-
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $tool = new MiniMaxSpeechTool($config, $http, M::mock(AssetStore::class));
     $result = $tool->execute(['action' => 'voices', 'gender' => 'female'], 1);
 
     expect($result->success)->toBeTrue()
@@ -463,10 +435,7 @@ it('voices operation applies limit as a client-side cap', function () {
             'base_resp'    => ['status_code' => 0, 'status_msg' => 'success'],
             'system_voice' => $upstream,
         ])));
-
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $tool = new MiniMaxSpeechTool($config, $http, M::mock(AssetStore::class));
     $result = $tool->execute(['action' => 'voices', 'limit' => 3], 1);
 
     expect($result->success)->toBeTrue()
@@ -490,10 +459,7 @@ it('voices operation with no filters returns the full library', function () {
                 ['voice_id' => 'B', 'voice_name' => 'B', 'description' => ['German.']],
             ],
         ])));
-
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $tool = new MiniMaxSpeechTool($config, $http, M::mock(AssetStore::class));
     $result = $tool->execute(['action' => 'voices'], 1);
 
     // The whole point of "no filters" being allowed: the LLM can call
@@ -515,10 +481,7 @@ it('voices operation with filters that match nothing returns a "narrow your filt
                 ['voice_id' => 'A', 'voice_name' => 'A', 'description' => ['English.']],
             ],
         ])));
-
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $tool = new MiniMaxSpeechTool($config, $http, M::mock(AssetStore::class));
     $result = $tool->execute([
         'action'   => 'voices',
         'language' => 'Klingon',
@@ -552,10 +515,7 @@ it('voices operation with an empty upstream bucket renders the "No voices availa
             'voice_cloning'    => [],   // user hasn't cloned anything yet
             'voice_generation' => [],
         ])));
-
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $tool = new MiniMaxSpeechTool($config, $http, M::mock(AssetStore::class));
     $result = $tool->execute(['action' => 'voices'], 1);
 
     expect($result->success)->toBeTrue()
@@ -587,10 +547,7 @@ it('voices operation with an empty voice_cloning bucket explains the bucket sema
             'voice_cloning'    => [],   // empty
             'voice_generation' => [],
         ])));
-
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $tool = new MiniMaxSpeechTool($config, $http, M::mock(AssetStore::class));
     $result = $tool->execute(['action' => 'voices', 'voice_type' => 'voice_cloning'], 1);
 
     expect($result->success)->toBeTrue()
@@ -615,10 +572,7 @@ it('voices operation accepts voice_id exact match against a single upstream entr
                 ['voice_id' => 'Italian_Narrator',          'voice_name' => 'IN', 'description' => ['Italian, male.']],
             ],
         ])));
-
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $tool = new MiniMaxSpeechTool($config, $http, M::mock(AssetStore::class));
     $result = $tool->execute(['action' => 'voices', 'voice_id' => 'Italian_Narrator'], 1);
 
     expect($result->success)->toBeTrue()
@@ -646,10 +600,7 @@ it('voice_id short-circuits language / gender filters (other filters ignored whe
                 ['voice_id' => 'English_PassionateWarrior', 'voice_name' => 'PW', 'description' => ['English, male.']],
             ],
         ])));
-
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $tool = new MiniMaxSpeechTool($config, $http, M::mock(AssetStore::class));
     // voice_id matches Italian_Narrator, but language="English" would
     // (under AND semantics) exclude it. The contract is "other
     // filters ignored when voice_id is set" — short-circuit applies.
@@ -680,10 +631,7 @@ it('omitting action falls back to synthesize (backward compat)', function () {
             'data'       => ['audio_url' => 'https://cdn.example.com/speech.mp3'],
             'extra_info' => ['audio_size' => 12_345],
         ])));
-
-    $log = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxSpeechTool($config, $http, $log, M::mock(AssetStore::class));
+    $tool = new MiniMaxSpeechTool($config, $http, M::mock(AssetStore::class));
     $result = $tool->execute(['text' => 'Hello world'], 1);
 
     expect($result->success)->toBeTrue()
@@ -708,7 +656,6 @@ it('synthesize parameter schema accepts a bare `{text}` call (no speed, filename
     $tool = new MiniMaxSpeechTool(
         M::mock(ToolConfigService::class),
         M::mock(HttpClientInterface::class),
-        new MiniMaxLogWriter(),
         M::mock(AssetStore::class),
     );
 

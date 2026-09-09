@@ -130,13 +130,12 @@ final class MiniMaxMusicTool extends MiniMaxTool
     public function __construct(
         \Spora\Services\ToolConfigService $configService,
         \Symfony\Contracts\HttpClient\HttpClientInterface $httpClient,
-        \Spora\Plugins\MiniMax\Support\MiniMaxLogWriter $logWriter,
         AssetStore $assetStore,
         ?\Psr\Log\LoggerInterface $logger = null,
         ?\Spora\Plugins\MiniMax\Support\MiniMaxToolSupport $support = null,
         ?\Spora\Services\MediaArchive\MediaArchiveService $mediaArchive = null,
     ) {
-        parent::__construct($configService, $httpClient, $logWriter, $logger, $support);
+        parent::__construct($configService, $httpClient, $logger, $support);
         $this->setAssetStore($assetStore);
         $this->attachMusicMediaArchive($mediaArchive);
     }
@@ -341,11 +340,8 @@ final class MiniMaxMusicTool extends MiniMaxTool
         }
 
         if ($hexAudio === null && $audioUrl === null) {
-            $this->support->logFailure($ctx, $response, 'No audio in response');
             return new ToolResult(false, 'MiniMax returned no audio data.');
         }
-
-        $this->support->logSuccess($ctx, $response);
 
         $resolved = $this->resolveComposePlayback($audioUrl, $hexAudio);
         if ($resolved === null) {
@@ -503,11 +499,8 @@ final class MiniMaxMusicTool extends MiniMaxTool
         $styleTags = $response['style_tags'] ?? null;
 
         if (!is_string($generated) || $generated === '') {
-            $this->support->logFailure($ctx, $response, 'No lyrics in response');
             return new ToolResult(false, 'MiniMax returned no lyrics.');
         }
-
-        $this->support->logSuccess($ctx, $response);
 
         $header = $mode === 'edit' ? 'Edited lyrics' : 'Lyrics';
         if (is_string($songTitle) && $songTitle !== '') {

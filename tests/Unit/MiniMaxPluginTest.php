@@ -27,16 +27,6 @@ it('contributes all five MiniMax tools', function () {
     ]);
 });
 
-it('declares schema version 1', function () {
-    $plugin = new MiniMaxPlugin();
-    expect($plugin->schemaVersion())->toBe(1);
-});
-
-// Note: the plugin previously exposed a `database/migrations/` directory
-// with an audit-log table. The table was unused (write-only, no SELECTs),
-// so it was removed in the H3 migration. `migrationsPath()` was deleted
-// alongside it; if a future migration is added, restore the method + test.
-
 it('subscribes to ContainerBuildingEvent', function () {
     $events = MiniMaxPlugin::getSubscribedEvents();
 
@@ -94,6 +84,7 @@ it('onContainerBuilding binds each MiniMax tool with a setMediaArchive resolver'
         new Spora\Services\MediaArchive\MediaConverterRegistry(
             Mockery::mock(Psr\Container\ContainerInterface::class),
         ),
+        new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
         $logger,
     );
     $archive = new MediaArchiveService($pipeline);

@@ -9,7 +9,6 @@ use Psr\Log\LoggerInterface;
 use RuntimeException;
 use Spora\Plugins\MiniMax\Support\Exceptions\MiniMaxApiException;
 use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolContext;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolSupport;
 use Spora\Plugins\MiniMax\Tools\MiniMaxImageTool;
@@ -22,13 +21,11 @@ it('returns a failure ToolResult from prepare() when the API key setting is miss
     $config->allows('getEffectiveSettings')->andReturn([]);
 
     $http   = Mockery::mock(HttpClientInterface::class);
-    $writer = new MiniMaxLogWriter();
-    $support = new MiniMaxToolSupport($config, $http, $writer);
+    $support = new MiniMaxToolSupport($config, $http);
 
     $result = $support->prepare(
         toolClass: MiniMaxImageTool::class,
         provider: 'image',
-        qualifiedName: 'minimax:image',
         arguments: ['prompt' => 'a fox'],
         agentId: 1,
         ownerUserId: null,
@@ -47,11 +44,8 @@ it('returns a failure ToolResult from run() when the work callable throws MiniMa
 
     // Real (non-mockable) dependencies — only the result matters here.
     $http   = Mockery::mock(HttpClientInterface::class);
-    $writer = new MiniMaxLogWriter();
-    $support = new MiniMaxToolSupport($config, $http, $writer);
+    $support = new MiniMaxToolSupport($config, $http);
     $ctx = new MiniMaxToolContext(
-        provider: 'image',
-        qualifiedName: 'minimax:image',
         client: new MiniMaxHttpClient($http, 'k', 'https://api.minimax.io', 30),
         settings: ['api_key' => 'k'],
         arguments: ['prompt' => 'a fox'],
@@ -77,11 +71,8 @@ it('returns a failure ToolResult from run() when the work callable throws an arb
     $logger->shouldReceive('error')->once();
 
     $http   = Mockery::mock(HttpClientInterface::class);
-    $writer = new MiniMaxLogWriter();
-    $support = new MiniMaxToolSupport($config, $http, $writer, $logger);
+    $support = new MiniMaxToolSupport($config, $http, $logger);
     $ctx = new MiniMaxToolContext(
-        provider: 'image',
-        qualifiedName: 'minimax:image',
         client: new MiniMaxHttpClient($http, 'k', 'https://api.minimax.io', 30),
         settings: ['api_key' => 'k'],
         arguments: ['prompt' => 'a fox'],
@@ -104,11 +95,8 @@ it('returns the work callable result from run() on the happy path', function () 
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http   = Mockery::mock(HttpClientInterface::class);
-    $writer = new MiniMaxLogWriter();
-    $support = new MiniMaxToolSupport($config, $http, $writer);
+    $support = new MiniMaxToolSupport($config, $http);
     $ctx = new MiniMaxToolContext(
-        provider: 'image',
-        qualifiedName: 'minimax:image',
         client: new MiniMaxHttpClient($http, 'k', 'https://api.minimax.io', 30),
         settings: ['api_key' => 'k'],
         arguments: ['prompt' => 'a fox'],

@@ -52,6 +52,7 @@ it('onContainerBuilding binds LoggerInterface to every MiniMax tool', function (
         new Spora\Services\MediaArchive\MediaConverterRegistry(
             Mockery::mock(Psr\Container\ContainerInterface::class),
         ),
+        new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
         $logger,
     );
     $archive = new MediaArchiveService($pipeline);

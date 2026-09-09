@@ -6,7 +6,6 @@ namespace Spora\Plugins\MiniMax\Tests\Unit\Support;
 
 use Mockery;
 use Psr\Log\LoggerInterface;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Support\MiniMaxToolSupport;
 use Spora\Services\ToolConfigService;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -18,10 +17,9 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 it('exposes the logger passed to the constructor through logger()', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $http   = Mockery::mock(HttpClientInterface::class);
-    $writer = new MiniMaxLogWriter();
     $logger = Mockery::mock(LoggerInterface::class);
 
-    $support = new MiniMaxToolSupport($config, $http, $writer, $logger);
+    $support = new MiniMaxToolSupport($config, $http, $logger);
 
     expect($support->logger())->toBe($logger);
 });
@@ -29,9 +27,8 @@ it('exposes the logger passed to the constructor through logger()', function () 
 it('exposes the logger set via setLogger() through logger()', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $http   = Mockery::mock(HttpClientInterface::class);
-    $writer = new MiniMaxLogWriter();
 
-    $support = new MiniMaxToolSupport($config, $http, $writer);
+    $support = new MiniMaxToolSupport($config, $http);
     expect($support->logger())->toBeNull();
 
     $logger = Mockery::mock(LoggerInterface::class);
@@ -43,12 +40,11 @@ it('exposes the logger set via setLogger() through logger()', function () {
 it('setLogger() overwrites a logger passed to the constructor', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $http   = Mockery::mock(HttpClientInterface::class);
-    $writer = new MiniMaxLogWriter();
 
     $first  = Mockery::mock(LoggerInterface::class);
     $second = Mockery::mock(LoggerInterface::class);
 
-    $support = new MiniMaxToolSupport($config, $http, $writer, $first);
+    $support = new MiniMaxToolSupport($config, $http, $first);
     $support->setLogger($second);
 
     expect($support->logger())->toBe($second);
