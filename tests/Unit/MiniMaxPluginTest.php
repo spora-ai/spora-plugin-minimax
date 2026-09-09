@@ -37,7 +37,15 @@ it('declares schema version 1', function () {
 // so it was removed in the H3 migration. `migrationsPath()` was deleted
 // alongside it; if a future migration is added, restore the method + test.
 
-it('register() binds each MiniMax tool with a setMediaArchive resolver', function () {
+it('subscribes to ContainerBuildingEvent', function () {
+    $events = MiniMaxPlugin::getSubscribedEvents();
+
+    expect($events)->toBe([
+        Spora\Events\ContainerBuildingEvent::class => 'onContainerBuilding',
+    ]);
+});
+
+it('onContainerBuilding binds each MiniMax tool with a setMediaArchive resolver', function () {
     $plugin = new MiniMaxPlugin();
     $builder = new ContainerBuilder();
     $builder->useAutowiring(true);
@@ -46,9 +54,9 @@ it('register() binds each MiniMax tool with a setMediaArchive resolver', functio
     // Mockery can't stub it: MediaArchiveService is `final` and has no
     // no-arg ctor, so partial mocks aren't available. A real instance with
     // a stub URL resolver is enough to prove the `\DI\get(...)` resolver
-    // inside the plugin's `register()` actually resolves to a usable
-    // object at container-build time. We don't `$container->get()` the
-    // tool classes because their constructors pull in
+    // inside the plugin's `onContainerBuilding()` actually resolves to a
+    // usable object at container-build time. We don't `$container->get()`
+    // the tool classes because their constructors pull in
     // `Spora\Services\ToolConfigService`, which depends on
     // `SecurityManagerInterface` (abstract) — outside the unit-test scope
     // of this plugin. The integration suite covers full container builds.
@@ -93,7 +101,9 @@ it('register() binds each MiniMax tool with a setMediaArchive resolver', functio
         MediaArchiveService::class => $archive,
     ]);
 
-    $plugin->register($builder);
+    $dispatcher = new Symfony\Component\EventDispatcher\EventDispatcher();
+    $dispatcher->addSubscriber($plugin);
+    $dispatcher->dispatch(new Spora\Events\ContainerBuildingEvent($builder));
 
     // Build the container so PHP-DI validates the definitions. This
     // surfaces a runtime error if any tool's autowire()->method() binding

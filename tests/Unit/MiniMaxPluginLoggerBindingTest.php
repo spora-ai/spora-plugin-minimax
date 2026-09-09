@@ -9,11 +9,11 @@ use Spora\Services\MediaArchive\MediaArchiveService;
 
 /**
  * Boots a real ContainerBuilder with PSR-3 + MediaArchive wired in,
- * then asserts the plugin's register() produced a container where
+ * then asserts the plugin's onContainerBuilding produced a container where
  * LoggerInterface resolves to the bound instance.
  */
 
-it('register() binds LoggerInterface to every MiniMax tool', function () {
+it('onContainerBuilding binds LoggerInterface to every MiniMax tool', function () {
     $plugin = new MiniMaxPlugin();
     $builder = new ContainerBuilder();
     $builder->useAutowiring(true);
@@ -68,7 +68,9 @@ it('register() binds LoggerInterface to every MiniMax tool', function () {
         ),
     ]);
 
-    $plugin->register($builder);
+    $dispatcher = new Symfony\Component\EventDispatcher\EventDispatcher();
+    $dispatcher->addSubscriber($plugin);
+    $dispatcher->dispatch(new Spora\Events\ContainerBuildingEvent($builder));
 
     // Build the container — surfaces any malformed autowire()->method()
     // binding at registration time.
