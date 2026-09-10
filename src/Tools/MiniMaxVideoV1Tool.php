@@ -178,12 +178,11 @@ final class MiniMaxVideoV1Tool extends MiniMaxTool
     public function __construct(
         \Spora\Services\ToolConfigService $configService,
         \Symfony\Contracts\HttpClient\HttpClientInterface $httpClient,
-        \Spora\Plugins\MiniMax\Support\MiniMaxLogWriter $logWriter,
         ?\Psr\Log\LoggerInterface $logger = null,
         ?\Spora\Plugins\MiniMax\Support\MiniMaxToolSupport $support = null,
         ?\Spora\Services\MediaArchive\MediaArchiveService $mediaArchive = null,
     ) {
-        parent::__construct($configService, $httpClient, $logWriter, $logger, $support);
+        parent::__construct($configService, $httpClient, $logger, $support);
         $this->attachVideoMediaArchive($mediaArchive);
     }
 
@@ -532,8 +531,6 @@ final class MiniMaxVideoV1Tool extends MiniMaxTool
             ]);
         }
         $finalResponse = $pollResult['data'];
-
-        $this->support->logSuccess($ctx, $finalResponse);
 
         return $this->archiveAndRender(
             $ctx,

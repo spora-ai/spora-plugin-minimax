@@ -98,12 +98,11 @@ final class MiniMaxImageTool extends MiniMaxTool
     public function __construct(
         \Spora\Services\ToolConfigService $configService,
         \Symfony\Contracts\HttpClient\HttpClientInterface $httpClient,
-        \Spora\Plugins\MiniMax\Support\MiniMaxLogWriter $logWriter,
         ?\Psr\Log\LoggerInterface $logger = null,
         ?\Spora\Plugins\MiniMax\Support\MiniMaxToolSupport $support = null,
         ?\Spora\Services\MediaArchive\MediaArchiveService $mediaArchive = null,
     ) {
-        parent::__construct($configService, $httpClient, $logWriter, $logger, $support);
+        parent::__construct($configService, $httpClient, $logger, $support);
         $this->attachImageMediaArchive($mediaArchive);
     }
 
@@ -154,16 +153,13 @@ final class MiniMaxImageTool extends MiniMaxTool
             timeoutSeconds: $timeout,
         );
 
-        $cleanUrls = $this->extractImageUrls($ctx, $response);
+        $cleanUrls = $this->extractImageUrls($response);
         if ($cleanUrls === null) {
             return new ToolResult(false, 'MiniMax returned no image URLs.');
         }
         if ($cleanUrls === []) {
-            $this->support->logFailure($ctx, $response, 'Image URLs were non-string or empty');
             return new ToolResult(false, 'MiniMax returned image URLs that are not strings.');
         }
-
-        $this->support->logSuccess($ctx, $response);
 
         $archiveUrls   = [];
         $anyArchived   = false;
@@ -204,11 +200,10 @@ final class MiniMaxImageTool extends MiniMaxTool
      * @return list<string>|null  Null signals "API didn't return image_urls at all";
      *                         empty list signals "every entry was filtered out".
      */
-    private function extractImageUrls(MiniMaxToolContext $ctx, array $response): ?array
+    private function extractImageUrls(array $response): ?array
     {
         $urls = $response['data']['image_urls'] ?? [];
         if (!is_array($urls) || $urls === []) {
-            $this->support->logFailure($ctx, $response, 'No image URLs returned');
             return null;
         }
         $clean = [];

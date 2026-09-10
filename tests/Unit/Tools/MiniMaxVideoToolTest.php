@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Tools\MiniMaxVideoTool;
 use Spora\Services\ToolConfigService;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -98,9 +97,7 @@ it('returns an error when the API key is missing', function () {
     $config->allows('getEffectiveSettings')->andReturn([]);
 
     $http  = Mockery::mock(HttpClientInterface::class);
-    $log   = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxVideoTool($config, $http, $log);
+    $tool = new MiniMaxVideoTool($config, $http);
     $result = $tool->execute(['prompt' => 'a forest'], 1);
 
     expect($result->success)->toBeFalse()
@@ -112,9 +109,7 @@ it('returns an error for an unknown action', function () {
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http  = Mockery::mock(HttpClientInterface::class);
-    $log   = new MiniMaxLogWriter();
-
-    $tool = new MiniMaxVideoTool($config, $http, $log);
+    $tool = new MiniMaxVideoTool($config, $http);
     $result = $tool->execute(['action' => 'party', 'prompt' => 'a forest'], 1);
 
     expect($result->success)->toBeFalse()
@@ -142,7 +137,7 @@ it('falls back to generate when action is absent (backward compat)', function ()
         ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
         ->andReturn(h3Response(200, json_encode(['task' => ['id' => 'task-xyz', 'status' => 'running']])));
 
-    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, $http);
     $result = $tool->execute(['prompt' => 'a forest'], 1);
 
     expect($result->success)->toBeFalse()             // poll timed out
@@ -155,7 +150,7 @@ it('rejects duration_seconds below 4', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class));
     $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => 3], 1);
 
     expect($result->success)->toBeFalse()
@@ -166,7 +161,7 @@ it('rejects duration_seconds above 15', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class));
     $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => 16], 1);
 
     expect($result->success)->toBeFalse()
@@ -177,7 +172,7 @@ it('rejects fractional duration_seconds (string with decimal)', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class));
     // A string like "4.5" would have been silently cast to (int) 4 — reject instead.
     $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => '4.5'], 1);
 
@@ -190,7 +185,7 @@ it('rejects non-numeric duration_seconds', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class));
     $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => 'forever'], 1);
 
     expect($result->success)->toBeFalse()
@@ -214,7 +209,7 @@ it('accepts integer-like duration_seconds strings (digit-only)', function () {
         ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
         ->andReturn(h3Response(200, json_encode(['task' => ['id' => 'task-dur-str', 'status' => 'running']])));
 
-    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, $http);
     // "6" as a string is acceptable — LLM tooling often sends numbers as strings.
     $result = $tool->execute(['prompt' => 'a forest', 'duration_seconds' => '6'], 1);
 
@@ -225,7 +220,7 @@ it('rejects an unknown resolution value', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class));
     $result = $tool->execute(['prompt' => 'a forest', 'resolution' => '4K'], 1);
 
     expect($result->success)->toBeFalse()
@@ -237,7 +232,7 @@ it('rejects resume without task_id', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class));
     $result = $tool->execute(['action' => 'resume'], 1);
 
     expect($result->success)->toBeFalse()
@@ -248,7 +243,7 @@ it('rejects regenerate without task_id', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class));
     $result = $tool->execute(['action' => 'regenerate'], 1);
 
     expect($result->success)->toBeFalse()
@@ -259,7 +254,7 @@ it('rejects regenerate without base_video_url', function () {
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class));
     $result = $tool->execute([
         'action'  => 'regenerate',
         'task_id' => 'task-abc',
@@ -302,7 +297,7 @@ it('generate submits content[] with a single text item and ratio=16:9 for text-o
         ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
         ->andReturn(h3Response(200, json_encode(h3SuccessTask('task-1', 'https://minimax.example/output.mp4'))));
 
-    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, $http);
     $result = $tool->execute(['prompt' => 'a forest at dawn'], 1);
 
     expect($result->success)->toBeTrue()
@@ -330,7 +325,7 @@ it('generate with first_frame_image submits content[]=[text, image_url: first_fr
         ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
         ->andReturn(h3Response(200, json_encode(h3SuccessTask('task-2', 'https://minimax.example/i2v.mp4'))));
 
-    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, $http);
     $result = $tool->execute([
         'prompt'            => '[Push in] the fox looks up',
         'first_frame_image' => 'https://cdn.example.com/fox.png',
@@ -360,7 +355,7 @@ it('generate with reference_images submits content[]=[text, image_url: reference
         ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
         ->andReturn(h3Response(200, json_encode(h3SuccessTask('task-3', 'https://minimax.example/r2v.mp4'))));
 
-    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, $http);
     $result = $tool->execute([
         'prompt'           => 'cinematic alley scene',
         'reference_images' => ['https://cdn.example.com/char-a.png', 'https://cdn.example.com/char-b.png'],
@@ -389,7 +384,7 @@ it('text-only generate falls back to 16:9 when LLM supplies aspect_ratio=adaptiv
         ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
         ->andReturn(h3Response(200, json_encode(h3SuccessTask('task-adaptive', 'https://minimax.example/output.mp4'))));
 
-    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, $http);
     $result = $tool->execute(['prompt' => 'a forest', 'aspect_ratio' => 'adaptive'], 1);
 
     expect($result->success)->toBeTrue();
@@ -414,7 +409,7 @@ it('generate defaults resolution to 768P when the LLM omits resolution', functio
         ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
         ->andReturn(h3Response(200, json_encode(['task' => ['id' => 'task-4', 'status' => 'running']])));
 
-    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, $http);
     $tool->execute(['prompt' => 'a forest'], 1);
 
     expect(true)->toBeTrue();
@@ -452,7 +447,7 @@ it('returns success with download_url on poll=succeeded', function () {
             ],
         ]))));
 
-    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, $http);
     $result = $tool->execute(['prompt' => 'a forest', 'resolution' => '2K'], 1);
 
     expect($result->success)->toBeTrue()
@@ -484,7 +479,7 @@ it('returns a failed ToolResult when the upstream reports task=failed', function
             ],
         ])));
 
-    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, $http);
     $result = $tool->execute(['prompt' => 'unsafe prompt'], 1);
 
     expect($result->success)->toBeFalse()
@@ -509,7 +504,7 @@ it('returns success=false with task_id and timed_out=true when poll_timeout elap
         ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
         ->andReturn(h3Response(200, json_encode(['task' => ['id' => 'task-slow', 'status' => 'running']])));
 
-    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, $http);
     $result = $tool->execute(['prompt' => 'a slow forest'], 1);
 
     expect($result->success)->toBeFalse()
@@ -537,7 +532,7 @@ it('resume polls only — does not re-submit', function () {
         ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
         ->andReturn(h3Response(200, json_encode(h3SuccessTask('task-resume', 'https://minimax.example/resumed.mp4'))));
 
-    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, $http);
     $result = $tool->execute(['action' => 'resume', 'task_id' => 'task-resume'], 1);
 
     expect($result->success)->toBeTrue()
@@ -577,7 +572,7 @@ it('enhance_prompt submits to /v2/h3_context_ir and returns enhanced_prompt in d
             ],
         ])));
 
-    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, $http);
     $result = $tool->execute([
         'action' => 'enhance_prompt',
         'prompt' => 'a red fox in snow',
@@ -628,7 +623,7 @@ it('regenerate rebuilds content[] from arguments and appends base_video at resol
             ],
         ]))));
 
-    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, $http);
     $result = $tool->execute([
         'action'           => 'regenerate',
         'task_id'          => 'task-original',
@@ -660,7 +655,7 @@ it('regenerate accepts a data: URI for base_video_url (under the size cap)', fun
         ->with('GET', Mockery::pattern('#^https://api\\.minimax\\.io/v2/query/video_generation/.+$#'), Mockery::any())
         ->andReturn(h3Response(200, json_encode(['task' => ['id' => 'task-regen-data', 'status' => 'running']])));
 
-    $tool = new MiniMaxVideoTool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, $http);
     $result = $tool->execute([
         'action'         => 'regenerate',
         'task_id'        => 'task-original',
@@ -677,7 +672,7 @@ it('regenerate rejects a data: URI over the size cap for base_video_url', functi
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoTool($config, Mockery::mock(HttpClientInterface::class));
     $result = $tool->execute([
         'action'         => 'regenerate',
         'task_id'        => 'task-original',

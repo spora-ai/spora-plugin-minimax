@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use Mockery as M;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Tools\MiniMaxVideoV1Tool;
 use Spora\Services\ToolConfigService;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -75,7 +74,7 @@ it('submits the v1 video_generation body with model, prompt, duration and resolu
             'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
         ])));
 
-    $tool = new MiniMaxVideoV1Tool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoV1Tool($config, $http);
     $result = $tool->execute([
         'prompt'           => 'a forest at dusk',
         'duration_seconds' => '6',
@@ -94,7 +93,7 @@ it('rejects duration_seconds outside the v1 enum', function (): void {
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class));
     $result = $tool->execute(['prompt' => 'hi', 'duration_seconds' => '30'], 1);
 
     expect($result->success)->toBeFalse()
@@ -105,7 +104,7 @@ it('rejects resolution outside the v1 enum', function (): void {
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class));
     $result = $tool->execute(['prompt' => 'hi', 'resolution' => '144P'], 1);
 
     expect($result->success)->toBeFalse()
@@ -116,7 +115,7 @@ it('rejects first_frame_image with a clear "i2v code path not yet shipped" messa
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class));
     $result = $tool->execute([
         'prompt'            => 'animate this',
         'first_frame_image' => 'https://cdn.example.com/frame.png',
@@ -130,7 +129,7 @@ it('rejects empty prompt', function (): void {
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class));
     $result = $tool->execute(['prompt' => '   '], 1);
 
     expect($result->success)->toBeFalse()
@@ -141,7 +140,7 @@ it('rejects oversized prompt', function (): void {
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class));
     $result = $tool->execute(['prompt' => str_repeat('x', 2001)], 1);
 
     expect($result->success)->toBeFalse()
@@ -155,7 +154,7 @@ it('rejects the (1080P, 10s) combo with the actionable At-10s hint', function ()
         'model'   => 'MiniMax-Hailuo-2.3',
     ]);
 
-    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class));
     $result = $tool->execute([
         'prompt'           => 'orange sunset',
         'duration_seconds' => '10',
@@ -173,7 +172,7 @@ it('rejects unknown model setting with the supported-models list', function (): 
         'model'   => 'MiniMax-Nonsense',
     ]);
 
-    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class));
     $result = $tool->execute(['prompt' => 'a sunset'], 1);
 
     expect($result->success)->toBeFalse()
@@ -188,7 +187,7 @@ it('rejects an i2v matrix-only model with a clear "not yet shipped" message', fu
         'model'   => 'I2V-01-live',
     ]);
 
-    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class));
     $result = $tool->execute(['prompt' => 'a sunset'], 1);
 
     expect($result->success)->toBeFalse()
@@ -219,7 +218,7 @@ it('resume polls only — does not re-submit', function (): void {
             'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
         ])));
 
-    $tool = new MiniMaxVideoV1Tool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoV1Tool($config, $http);
     $result = $tool->execute(['action' => 'resume', 'task_id' => 'task-resume'], 1);
 
     expect($result->success)->toBeTrue()
@@ -230,7 +229,7 @@ it('resume returns an error when task_id is missing', function (): void {
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class));
     $result = $tool->execute(['action' => 'resume'], 1);
 
     expect($result->success)->toBeFalse()
@@ -261,7 +260,7 @@ it('returns a timed-out envelope with the task_id intact when poll_timeout elaps
             'base_resp' => ['status_code' => 0, 'status_msg' => 'in progress'],
         ])));
 
-    $tool = new MiniMaxVideoV1Tool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoV1Tool($config, $http);
     $result = $tool->execute(['prompt' => 'a slow forest'], 1);
 
     expect($result->success)->toBeFalse()
@@ -293,7 +292,7 @@ it('surfaces the upstream 400 error.message verbatim when MiniMax rejects the su
             ],
         ])));
 
-    $tool = new MiniMaxVideoV1Tool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoV1Tool($config, $http);
     $result = $tool->execute(['prompt' => 'a sunset'], 1);
 
     expect($result->success)->toBeFalse()
@@ -317,7 +316,7 @@ it('throws MiniMaxApiException with the upstream error.message when the submit b
             'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
         ])));
 
-    $tool = new MiniMaxVideoV1Tool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoV1Tool($config, $http);
     $result = $tool->execute(['prompt' => 'a sunset'], 1);
 
     expect($result->success)->toBeFalse()
@@ -353,7 +352,7 @@ it('uses MiniMax-Hailuo-2.3 as default when no model setting is configured', fun
             'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
         ])));
 
-    $tool = new MiniMaxVideoV1Tool($config, $http, new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoV1Tool($config, $http);
     $result = $tool->execute(['prompt' => 'a sunset'], 1);
 
     expect($result->success)->toBeTrue();
@@ -363,7 +362,7 @@ it('routes malformed action through the dispatcher with a clear "Unknown video o
     $config = M::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
-    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class), new MiniMaxLogWriter());
+    $tool = new MiniMaxVideoV1Tool($config, M::mock(HttpClientInterface::class));
     $result = $tool->execute(['action' => 'eat_pie', 'prompt' => 'x'], 1);
 
     expect($result->success)->toBeFalse()

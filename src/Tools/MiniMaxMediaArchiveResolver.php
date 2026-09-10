@@ -39,7 +39,7 @@ use Spora\Tools\ValueObjects\ToolResult;
  * so the plugin can ship without depending on the `MediaAssetReader` type
  * directly (the host application's `MediaAssetReader` is `final` and
  * therefore not Mockery-friendly from a plugin test). The plugin's
- * {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::register()} wraps the
+ * {@see \Spora\Plugins\MiniMax\MiniMaxPlugin::onContainerBuilding()} wraps the
  * core service in a one-line closure.
  */
 final class MiniMaxMediaArchiveResolver

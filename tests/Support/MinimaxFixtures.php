@@ -5,17 +5,15 @@ declare(strict_types=1);
 namespace Spora\Plugins\MiniMax\Tests\Support;
 
 /**
- * Reusable response-shape fixtures derived from real MiniMax API captures
- * in `storage/database.sqlite` (table `minimax_generation_log`). The
- * production hex payloads are sanitized to `"[base64 230700 bytes]"` in the
- * DB; tests synthesize their own bytes so the pipeline runs end-to-end.
+ * Reusable response-shape fixtures derived from real MiniMax API captures.
+ * Tests synthesize their own bytes so the pipeline runs end-to-end.
  *
  * The shape mirrors rows captured 2026-07-03 against
  * https://api.minimax.io — keep this file in sync when MiniMax adds fields.
  */
 final class MinimaxFixtures
 {
-    /** Speech row — `minimax_generation_log.id=1`. */
+    /** Speech row — `text-to-speech` response with hex audio payload. */
     public static function speechHexPayload(): array
     {
         $bytes  = random_bytes(115350); // matches the 115 350 byte audio_size
@@ -44,7 +42,7 @@ final class MinimaxFixtures
         ];
     }
 
-    /** Music row — `minimax_generation_log.id=3` (OSS URL, 1.6 MB MP3). */
+    /** Music row — `music_generation` response with OSS URL (1.6 MB MP3). */
     public static function musicUrlResponse(): array
     {
         return [

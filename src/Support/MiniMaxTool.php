@@ -87,17 +87,16 @@ abstract class MiniMaxTool extends AbstractTool
     public function __construct(
         ToolConfigService   $configService,
         HttpClientInterface $httpClient,
-        MiniMaxLogWriter    $logWriter,
         ?LoggerInterface    $logger = null,
         ?MiniMaxToolSupport $support = null,
     ) {
         // Constructor params are consumed once to build the support and then
         // go out of scope. The support owns the long-lived references.
-        $this->support = $support ?? new MiniMaxToolSupport($configService, $httpClient, $logWriter, $logger);
+        $this->support = $support ?? new MiniMaxToolSupport($configService, $httpClient, $logger);
     }
 
     /**
-     * Wired by PHP-DI from {@see MiniMaxPlugin::register()}.
+     * Wired by PHP-DI from {@see MiniMaxPlugin::onContainerBuilding()}.
      */
     public function setLogger(?LoggerInterface $logger): void
     {
@@ -105,7 +104,7 @@ abstract class MiniMaxTool extends AbstractTool
     }
 
     /**
-     * Wired by PHP-DI from {@see MiniMaxPlugin::register()} for the
+     * Wired by PHP-DI from {@see MiniMaxPlugin::onContainerBuilding()} for the
      * video tools that accept first-frame / reference images. Optional:
      * tools that don't take asset URLs (image, speech, music) skip
      * this step entirely.
@@ -366,7 +365,6 @@ abstract class MiniMaxTool extends AbstractTool
         return $this->support->prepare(
             toolClass: static::class,
             provider: static::PROVIDER,
-            qualifiedName: static::QUALIFIED_NAME,
             arguments: $arguments,
             agentId: $agentId,
             ownerUserId: $ownerUserId,

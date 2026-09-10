@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Spora\Plugins\MiniMax;
 
-use DI\ContainerBuilder;
 use Psr\Log\LoggerInterface;
+use Spora\Events\ContainerBuildingEvent;
 use Spora\Plugins\AbstractPlugin;
 use Spora\Plugins\MiniMax\Tools\MiniMaxImageTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxMediaArchiveResolver;
@@ -16,8 +16,9 @@ use Spora\Plugins\MiniMax\Tools\MiniMaxVideoV1Tool;
 use Spora\Services\LocalAssetStore;
 use Spora\Services\MediaArchive\MediaArchiveService;
 use Spora\Services\MediaArchive\MediaAssetReader;
+use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 
-final class MiniMaxPlugin extends AbstractPlugin
+final class MiniMaxPlugin extends AbstractPlugin implements EventSubscriberInterface
 {
     public function getName(): string
     {
@@ -36,9 +37,21 @@ final class MiniMaxPlugin extends AbstractPlugin
         ];
     }
 
-    public function schemaVersion(): int
+    /**
+     * Subscribe to the framework's boot-time events.
+     *
+     * - {@see ContainerBuildingEvent} fires once per process, before the
+     *   DI container is built. {@see self::onContainerBuilding()} adds
+     *   bindings for the five tools + the media-archive resolver so PHP-DI
+     *   can autowire them at request time.
+     *
+     * @return array<class-string, string>
+     */
+    public static function getSubscribedEvents(): array
     {
-        return 1;
+        return [
+            ContainerBuildingEvent::class => 'onContainerBuilding',
+        ];
     }
 
     /**
@@ -82,8 +95,9 @@ final class MiniMaxPlugin extends AbstractPlugin
      * their audio payloads always land at `/api/v1/assets/<token>.mp3`
      * (the chat UI sanitizer truncates long base64 to `[data-omitted]`).
      */
-    public function register(ContainerBuilder $builder): void
+    public function onContainerBuilding(ContainerBuildingEvent $event): void
     {
+        $builder        = $event->builder();
         $archiveService  = \DI\get(MediaArchiveService::class);
         $localAssetStore = \DI\get(LocalAssetStore::class);
         $logger          = \DI\get(LoggerInterface::class);

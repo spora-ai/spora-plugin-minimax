@@ -8,9 +8,9 @@
         "ext-curl": "*",
         "ext-json": "*",
         "ext-mbstring": "*",
-        "illuminate/database": "^13.0",
         "psr/log": "^3.0",
-        "spora-ai/spora-core": ">=0.18.0 <2.0.0 || @dev",
+        "spora-ai/spora-core": ">=0.23.0 <2.0.0 || @dev",
+        "symfony/event-dispatcher": "^8.0",
         "symfony/http-client-contracts": "^3.6"
     },
     "require-dev": {

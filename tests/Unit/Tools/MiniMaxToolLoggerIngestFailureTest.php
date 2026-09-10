@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use Mockery as M;
 use Psr\Log\AbstractLogger;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Tools\MiniMaxImageTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxMusicTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool;
@@ -87,6 +86,7 @@ function minimaxLoggerArchiveService(): MediaArchiveService
         new MetadataExtractor($logger, false),
         $throwingStore,
         new MediaConverterRegistry($container),
+        new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
         $logger,
     );
 
@@ -112,10 +112,9 @@ it('image tool logs a warning when MediaArchive::ingest throws', function () {
     ])));
 
     $archive = minimaxLoggerArchiveService();
-    $log     = new MiniMaxLogWriter();
     $logger  = new CapturingLogger();
 
-    $tool = new MiniMaxImageTool($config, $upstream, $log, null, null, $archive);
+    $tool = new MiniMaxImageTool($config, $upstream, null, null, $archive);
     $tool->setLogger($logger);
 
     $result = $tool->execute(['prompt' => 'a red fox'], 1);
@@ -144,13 +143,12 @@ it('speech tool logs a warning when MediaArchive::ingest throws', function () {
     ])));
 
     $archive = minimaxLoggerArchiveService();
-    $log     = new MiniMaxLogWriter();
     $logger  = new CapturingLogger();
 
     $assetStore = M::mock(AssetStore::class);
     $assetStore->shouldNotReceive('store');
 
-    $tool = new MiniMaxSpeechTool($config, $upstream, $log, $assetStore, null, null, $archive);
+    $tool = new MiniMaxSpeechTool($config, $upstream, $assetStore, null, null, $archive);
     $tool->setLogger($logger);
 
     $result = $tool->execute(['text' => 'hello', 'voice_id' => 'English_PassionateWarrior'], 7);
@@ -176,13 +174,12 @@ it('music tool logs a warning when MediaArchive::ingest throws', function () {
     ])));
 
     $archive = minimaxLoggerArchiveService();
-    $log     = new MiniMaxLogWriter();
     $logger  = new CapturingLogger();
 
     $assetStore = M::mock(AssetStore::class);
     $assetStore->shouldNotReceive('store');
 
-    $tool = new MiniMaxMusicTool($config, $upstream, $log, $assetStore, null, null, $archive);
+    $tool = new MiniMaxMusicTool($config, $upstream, $assetStore, null, null, $archive);
     $tool->setLogger($logger);
 
     $tmp = sys_get_temp_dir() . '/minimax-logger-music-' . bin2hex(random_bytes(4));
@@ -234,10 +231,9 @@ it('video tool logs a warning when MediaArchive::ingest throws', function () {
         ])));
 
     $archive = minimaxLoggerArchiveService();
-    $log     = new MiniMaxLogWriter();
     $logger  = new CapturingLogger();
 
-    $tool = new MiniMaxVideoTool($config, $upstream, $log, null, null, $archive);
+    $tool = new MiniMaxVideoTool($config, $upstream, null, null, $archive);
     $tool->setLogger($logger);
 
     $result = $tool->execute(['prompt' => '[Push in] a forest', 'duration_seconds' => 6], 11);

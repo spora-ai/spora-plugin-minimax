@@ -2,14 +2,13 @@
 
 declare(strict_types=1);
 
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Tools\MiniMaxMusicTool;
 use Spora\Services\AssetStore;
 use Spora\Services\ToolConfigService;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 it('routes the hex payload through the injected LocalAssetStore (never a data: URI)', function () {
-    // Production contract: the plugin's `register()` wires a real
+    // Production contract: the plugin's `onContainerBuilding()` wires a real
     // LocalAssetStore so the chat UI never sees a `data:` URI (the
     // chat UI sanitizer truncates long base64 to `[data-omitted]`).
     // Mirror the speech tool's LocalAssetStore test for music.
@@ -36,9 +35,6 @@ it('routes the hex payload through the injected LocalAssetStore (never a data: U
             ]), true));
             return $response;
         })());
-
-    $log = new MiniMaxLogWriter();
-
     $tmp = sys_get_temp_dir() . '/minimax-music-local-asset-' . bin2hex(random_bytes(4));
     $local = new Spora\Services\LocalAssetStore(
         new Spora\Core\Paths($tmp),
@@ -52,7 +48,7 @@ it('routes the hex payload through the injected LocalAssetStore (never a data: U
     $assetStore = Mockery::mock(AssetStore::class);
     $assetStore->shouldNotReceive('store');
 
-    $tool = new MiniMaxMusicTool($config, $http, $log, $assetStore);
+    $tool = new MiniMaxMusicTool($config, $http, $assetStore);
     $tool->setLocalAssetStore($local);
     $result = $tool->execute(['action' => 'compose', 'lyrics' => '[Verse]\ntest', 'output_format' => 'hex'], 1);
 
@@ -94,13 +90,11 @@ it('fails loudly (success=false) when a `data:` URL leaks through (LocalAssetSto
         ]), true));
         return $response;
     })());
-
-    $log = new MiniMaxLogWriter();
     $assetStore = Mockery::mock(AssetStore::class);
     $assetStore->allows('store')
         ->andReturn(new Spora\Services\AssetReference('data:audio/mpeg;base64,LEAK', 'data_url'));
 
-    $tool = new MiniMaxMusicTool($config, $http, $log, $assetStore);
+    $tool = new MiniMaxMusicTool($config, $http, $assetStore);
     $result = $tool->execute(['action' => 'compose', 'lyrics' => '[Verse]\ntest', 'output_format' => 'hex'], 1);
 
     expect($result->success)->toBeFalse()

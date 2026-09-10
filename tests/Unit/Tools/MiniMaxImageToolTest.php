@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Tools\MiniMaxImageTool;
 use Spora\Services\ToolConfigService;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -27,9 +26,8 @@ it('returns an error when the API key is missing', function () {
     $config->allows('getEffectiveSettings')->andReturn([]);
 
     $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
 
-    $tool = new MiniMaxImageTool($config, $http, $log);
+    $tool = new MiniMaxImageTool($config, $http);
 
     $result = $tool->execute(['prompt' => MiniMaxImageToolTestLiterals::PROMPT_RED_FOX], 1);
     expect($result->success)->toBeFalse()
@@ -41,9 +39,8 @@ it('returns an error when the prompt is empty', function () {
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
 
-    $tool = new MiniMaxImageTool($config, $http, $log);
+    $tool = new MiniMaxImageTool($config, $http);
 
     $result = $tool->execute(['prompt' => '   '], 1);
     expect($result->success)->toBeFalse()
@@ -55,7 +52,6 @@ it('makes a POST to /v1/image_generation and parses the image URLs on success', 
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
 
     $http->expects('request')
         ->with('POST', 'https://api.minimax.io/v1/image_generation', Mockery::on(function ($opts) {
@@ -68,7 +64,7 @@ it('makes a POST to /v1/image_generation and parses the image URLs on success', 
             'data'      => ['image_urls' => [MiniMaxImageToolTestLiterals::CDN_URL_PNG]],
         ])));
 
-    $tool = new MiniMaxImageTool($config, $http, $log);
+    $tool = new MiniMaxImageTool($config, $http);
     $result = $tool->execute(['prompt' => MiniMaxImageToolTestLiterals::PROMPT_RED_FOX], 1);
 
     expect($result->success)->toBeTrue()
@@ -82,14 +78,13 @@ it('surfaces a business-error message when base_resp.status_code is non-zero', f
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
 
     $http->expects('request')
         ->andReturn(minimaxImageResponse(200, json_encode([
             'base_resp' => ['status_code' => 1008, 'status_msg' => 'insufficient balance'],
         ])));
 
-    $tool = new MiniMaxImageTool($config, $http, $log);
+    $tool = new MiniMaxImageTool($config, $http);
     $result = $tool->execute(['prompt' => MiniMaxImageToolTestLiterals::PROMPT_RED_FOX], 1);
 
     expect($result->success)->toBeFalse()
@@ -102,7 +97,6 @@ it('returns a failure when the response contains no image URLs', function () {
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = Mockery::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
 
     $http->expects('request')
         ->andReturn(minimaxImageResponse(200, json_encode([
@@ -110,7 +104,7 @@ it('returns a failure when the response contains no image URLs', function () {
             'data'      => ['image_urls' => []],
         ])));
 
-    $tool = new MiniMaxImageTool($config, $http, $log);
+    $tool = new MiniMaxImageTool($config, $http);
     $result = $tool->execute(['prompt' => MiniMaxImageToolTestLiterals::PROMPT_RED_FOX], 1);
 
     expect($result->success)->toBeFalse()

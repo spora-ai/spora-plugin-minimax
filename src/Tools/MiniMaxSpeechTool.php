@@ -161,7 +161,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     protected const AUDIO_MIME             = 'audio/mpeg';
 
     /**
-     * Wired by PHP-DI from {@see MiniMaxPlugin::register()}.
+     * Wired by PHP-DI from {@see MiniMaxPlugin::onContainerBuilding()}.
      * Forces the hex payload to disk via `/api/v1/assets/<token>.mp3`
      * so the chat UI doesn't truncate a long base64 to `[data-omitted]`.
      */
@@ -175,13 +175,12 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     public function __construct(
         \Spora\Services\ToolConfigService $configService,
         \Symfony\Contracts\HttpClient\HttpClientInterface $httpClient,
-        \Spora\Plugins\MiniMax\Support\MiniMaxLogWriter $logWriter,
         AssetStore $assetStore,
         ?\Psr\Log\LoggerInterface $logger = null,
         ?\Spora\Plugins\MiniMax\Support\MiniMaxToolSupport $support = null,
         ?\Spora\Services\MediaArchive\MediaArchiveService $mediaArchive = null,
     ) {
-        parent::__construct($configService, $httpClient, $logWriter, $logger, $support);
+        parent::__construct($configService, $httpClient, $logger, $support);
         $this->setAssetStore($assetStore);
         $this->attachSpeechMediaArchive($mediaArchive);
     }
@@ -325,11 +324,8 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         $usageChars = $response['extra_info']['usage_characters'] ?? null;
 
         if (!is_string($hexAudio) && !is_string($audioUrl)) {
-            $this->support->logFailure($ctx, $response, 'No audio in response');
             return new ToolResult(false, 'MiniMax returned no audio data.');
         }
-
-        $this->support->logSuccess($ctx, $response);
 
         $statsLine = $this->formatStatsLine($lengthMs, $sizeBytes, $usageChars);
         $resolved  = $this->resolveSpeechPlayback($audioUrl, $hexAudio);
@@ -347,7 +343,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         }
 
         // Hard invariant: this tool must NEVER emit a `data:` URL.
-        // `MiniMaxPlugin::register()` wires `LocalAssetStore` (and the
+        // `MiniMaxPlugin::onContainerBuilding()` wires `LocalAssetStore` (and the
         // MediaArchive swap produces `/api/v1/assets/...` too), so the
         // only path that lands here with a `data:` URL is a
         // misconfigured deployment or a custom factory that
@@ -618,8 +614,6 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         $voiceType = MiniMaxSpeechVoiceLibrary::resolveVoiceType($arguments);
         $timeout = $this->resolveTimeout('http_timeout_seconds', $ctx->settings, self::TIMEOUT_SECONDS_VOICES);
         $response  = $client->postJson('/v1/get_voice', ['voice_type' => $voiceType], timeoutSeconds: $timeout);
-
-        $this->support->logSuccess($ctx, $response);
 
         $allVoices = MiniMaxSpeechVoiceLibrary::extractVoices($response, $voiceType);
         $filtered  = MiniMaxSpeechVoiceLibrary::applyClientFilters($allVoices, $arguments);

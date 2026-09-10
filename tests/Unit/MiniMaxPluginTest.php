@@ -27,17 +27,15 @@ it('contributes all five MiniMax tools', function () {
     ]);
 });
 
-it('declares schema version 1', function () {
-    $plugin = new MiniMaxPlugin();
-    expect($plugin->schemaVersion())->toBe(1);
+it('subscribes to ContainerBuildingEvent', function () {
+    $events = MiniMaxPlugin::getSubscribedEvents();
+
+    expect($events)->toBe([
+        Spora\Events\ContainerBuildingEvent::class => 'onContainerBuilding',
+    ]);
 });
 
-// Note: the plugin previously exposed a `database/migrations/` directory
-// with an audit-log table. The table was unused (write-only, no SELECTs),
-// so it was removed in the H3 migration. `migrationsPath()` was deleted
-// alongside it; if a future migration is added, restore the method + test.
-
-it('register() binds each MiniMax tool with a setMediaArchive resolver', function () {
+it('onContainerBuilding binds each MiniMax tool with a setMediaArchive resolver', function () {
     $plugin = new MiniMaxPlugin();
     $builder = new ContainerBuilder();
     $builder->useAutowiring(true);
@@ -46,9 +44,9 @@ it('register() binds each MiniMax tool with a setMediaArchive resolver', functio
     // Mockery can't stub it: MediaArchiveService is `final` and has no
     // no-arg ctor, so partial mocks aren't available. A real instance with
     // a stub URL resolver is enough to prove the `\DI\get(...)` resolver
-    // inside the plugin's `register()` actually resolves to a usable
-    // object at container-build time. We don't `$container->get()` the
-    // tool classes because their constructors pull in
+    // inside the plugin's `onContainerBuilding()` actually resolves to a
+    // usable object at container-build time. We don't `$container->get()`
+    // the tool classes because their constructors pull in
     // `Spora\Services\ToolConfigService`, which depends on
     // `SecurityManagerInterface` (abstract) — outside the unit-test scope
     // of this plugin. The integration suite covers full container builds.
@@ -86,6 +84,7 @@ it('register() binds each MiniMax tool with a setMediaArchive resolver', functio
         new Spora\Services\MediaArchive\MediaConverterRegistry(
             Mockery::mock(Psr\Container\ContainerInterface::class),
         ),
+        new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
         $logger,
     );
     $archive = new MediaArchiveService($pipeline);
@@ -93,19 +92,21 @@ it('register() binds each MiniMax tool with a setMediaArchive resolver', functio
         MediaArchiveService::class => $archive,
     ]);
 
-    $plugin->register($builder);
+    $dispatcher = new Symfony\Component\EventDispatcher\EventDispatcher();
+    $dispatcher->addSubscriber($plugin);
+    $dispatcher->dispatch(new Spora\Events\ContainerBuildingEvent($builder));
 
     // Build the container so PHP-DI validates the definitions. This
     // surfaces a runtime error if any tool's autowire()->method() binding
     // is malformed (the most likely failure mode — the DefaultValueResolver
-    // / TypeHintContainerResolver short-circuit documented on the register()
+    // / TypeHintContainerResolver short-circuit documented on the onContainerBuilding()
     // method's docblock).
     $container = $builder->build();
 
     // Pulling the actual MediaArchiveService instance (via `get()`, not
     // `has()`) is the strongest assertion we can run without the full
     // ToolConfigService dependency tree. It proves the `\DI\get(...)`
-    // resolver inside the plugin's `register()` reaches our concrete
+    // resolver inside the plugin's `onContainerBuilding()` reaches our concrete
     // archive — exactly what each tool's setMediaArchive() binding feeds.
     expect($container->get(MediaArchiveService::class))->toBe($archive);
 });

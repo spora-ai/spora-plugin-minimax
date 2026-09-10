@@ -212,12 +212,11 @@ final class MiniMaxVideoTool extends MiniMaxTool
     public function __construct(
         \Spora\Services\ToolConfigService $configService,
         \Symfony\Contracts\HttpClient\HttpClientInterface $httpClient,
-        \Spora\Plugins\MiniMax\Support\MiniMaxLogWriter $logWriter,
         ?LoggerInterface $logger = null,
         ?\Spora\Plugins\MiniMax\Support\MiniMaxToolSupport $support = null,
         ?\Spora\Services\MediaArchive\MediaArchiveService $mediaArchive = null,
     ) {
-        parent::__construct($configService, $httpClient, $logWriter, $logger, $support);
+        parent::__construct($configService, $httpClient, $logger, $support);
         $this->attachVideoMediaArchive($mediaArchive);
     }
 
@@ -434,8 +433,6 @@ final class MiniMaxVideoTool extends MiniMaxTool
         $finalResponse = $pollResult['data'];
         $downloadUrl   = (string) ($finalResponse['content']['url'] ?? '');
 
-        $this->support->logSuccess($ctx, $finalResponse);
-
         return $this->archiveAndRender(
             $ctx,
             $downloadUrl,
@@ -479,7 +476,6 @@ final class MiniMaxVideoTool extends MiniMaxTool
         }
 
         $finalResponse = $pollResult['data'];
-        $this->support->logSuccess($ctx, $finalResponse);
 
         $taskKind = is_string($finalResponse['task_type'] ?? null) ? (string) $finalResponse['task_type'] : 'generation';
         return $taskKind === 'h3_context_ir'
@@ -587,8 +583,6 @@ final class MiniMaxVideoTool extends MiniMaxTool
         $finalResponse  = $pollResult['data'];
         $enhancedPrompt = (string) ($finalResponse['content']['prompt'] ?? '');
 
-        $this->support->logSuccess($ctx, $finalResponse);
-
         if ($enhancedPrompt === '') {
             return new ToolResult(false, "H3-Context-IR task succeeded (task_id={$taskId}) but the enhanced prompt was empty.", [
                 'task_id'   => $taskId,
@@ -668,8 +662,6 @@ final class MiniMaxVideoTool extends MiniMaxTool
         }
         $finalResponse = $pollResult['data'];
         $downloadUrl   = (string) ($finalResponse['content']['url'] ?? '');
-
-        $this->support->logSuccess($ctx, $finalResponse);
 
         return $this->archiveAndRender(
             $ctx,

@@ -6,7 +6,6 @@ use Illuminate\Database\Capsule\Manager;
 use Illuminate\Database\Schema\Blueprint;
 use Mockery as M;
 use Psr\Log\NullLogger;
-use Spora\Plugins\MiniMax\Support\MiniMaxLogWriter;
 use Spora\Plugins\MiniMax\Support\MiniMaxTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxImageTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxMusicTool;
@@ -123,6 +122,7 @@ function minimaxTestArchiveService(?HttpClientInterface $http = null): MediaArch
         $meta,
         minimaxTestAssetStore(),
         new MediaConverterRegistry($container),
+        new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
         $logger,
     ));
 }
@@ -132,7 +132,6 @@ it('image tool calls MediaArchive::ingest without breaking the success result', 
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
     $archive = minimaxTestArchiveService();
 
     $http->allows('request')->andReturn(minimaxArchiveResponse(200, json_encode([
@@ -145,7 +144,7 @@ it('image tool calls MediaArchive::ingest without breaking the success result', 
         ],
     ])));
 
-    $tool = new MiniMaxImageTool($config, $http, $log, null, null, $archive);
+    $tool = new MiniMaxImageTool($config, $http, null, null, $archive);
     $result = $tool->execute(['prompt' => 'a red fox'], 42);
 
     // The tool succeeded — proves both image URLs were emitted and that
@@ -163,7 +162,6 @@ it('speech tool ingests a CDN audio_url via the MediaArchive', function () {
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
     $archive = minimaxTestArchiveService();
 
     $http->allows('request')->andReturn(minimaxArchiveResponse(200, json_encode([
@@ -172,7 +170,7 @@ it('speech tool ingests a CDN audio_url via the MediaArchive', function () {
         'extra_info' => ['audio_size' => 12_345],
     ])));
 
-    $tool = new MiniMaxSpeechTool($config, $http, $log, minimaxTestAssetStore(), null, null, $archive);
+    $tool = new MiniMaxSpeechTool($config, $http, minimaxTestAssetStore(), null, null, $archive);
     $result = $tool->execute([
         'text'     => 'hello world',
         'voice_id' => 'English_PassionateWarrior',
@@ -187,7 +185,6 @@ it('music tool ingests a hex audio payload via the MediaArchive', function () {
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
     $archive = minimaxTestArchiveService();
 
     // 24 bytes of MP3 silence (all zeros) → "00"×24.
@@ -197,8 +194,8 @@ it('music tool ingests a hex audio payload via the MediaArchive', function () {
         'data'      => ['audio' => $hexAudio],
     ])));
 
-    $tool = new MiniMaxMusicTool($config, $http, $log, minimaxTestAssetStore(), null, null, $archive);
-    // Production wires LocalAssetStore via `MiniMaxPlugin::register()` —
+    $tool = new MiniMaxMusicTool($config, $http, minimaxTestAssetStore(), null, null, $archive);
+    // Production wires LocalAssetStore via `MiniMaxPlugin::onContainerBuilding()` —
     // mirror it here so the music tool doesn't LogicException on the
     // AutoAssetStore's `data:` URL fallback.
     $tmp = sys_get_temp_dir() . '/minimax-music-ingest-' . bin2hex(random_bytes(4));
@@ -228,7 +225,6 @@ it('video tool ingests the download_url with width/height/duration on the reques
     ]);
 
     $http = M::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
     $archive = minimaxTestArchiveService();
 
     $http->allows('request')
@@ -246,7 +242,7 @@ it('video tool ingests the download_url with width/height/duration on the reques
             ],
         ])));
 
-    $tool = new MiniMaxVideoTool($config, $http, $log, null, null, $archive);
+    $tool = new MiniMaxVideoTool($config, $http, null, null, $archive);
     $result = $tool->execute(['prompt' => '[Push in] a forest', 'duration_seconds' => '6'], 11);
 
     expect($result->success)->toBeTrue()
@@ -258,8 +254,6 @@ it('a failing MediaArchive::ingest() does not break the tool result (image tool)
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
-
     // A HTTP client that throws on every request — the URL probe will
     // fail, the service's URL branch will translate to a fallback that
     // also fails, and `ingest()` will surface the exception to the
@@ -274,7 +268,7 @@ it('a failing MediaArchive::ingest() does not break the tool result (image tool)
         'data'      => ['image_urls' => ['https://cdn.example.com/a.png']],
     ])));
 
-    $tool = new MiniMaxImageTool($config, $http, $log, null, null, $archive);
+    $tool = new MiniMaxImageTool($config, $http, null, null, $archive);
     $result = $tool->execute(['prompt' => 'a red fox'], 1);
 
     // The tool succeeded — the upstream call returned a valid URL.
@@ -366,6 +360,42 @@ function minimaxFilenameCaptureArchiveService(): array
         $table->boolean('migrated_from_inline_data_url')->default(false);
         $table->timestamps();
     });
+    $capsule->schema()->create('users', function (Blueprint $table): void {
+        $table->bigIncrements('id');
+        $table->string('email', 249)->unique();
+        $table->string('password', 255);
+        $table->string('username', 100)->nullable();
+        $table->tinyInteger('status')->default(0);
+        $table->tinyInteger('verified')->default(0);
+        $table->tinyInteger('resettable')->default(1);
+        $table->unsignedInteger('roles_mask')->default(0);
+        $table->unsignedInteger('registered');
+        $table->unsignedInteger('last_login')->nullable();
+        $table->unsignedMediumInteger('force_logout')->default(0);
+        $table->timestamp('created_at')->nullable();
+        $table->timestamp('updated_at')->nullable();
+    });
+    $capsule->schema()->create('principals', function (Blueprint $table): void {
+        $table->bigIncrements('id');
+        $table->enum('type', ['user', 'group']);
+        $table->unsignedBigInteger('user_id')->nullable();
+        $table->unsignedBigInteger('group_id')->nullable();
+        $table->timestamps();
+    });
+    $capsule->schema()->create('agents', function (Blueprint $table): void {
+        $table->bigIncrements('id');
+        $table->unsignedBigInteger('principal_id')->nullable();
+        $table->string('name', 100)->default('My Assistant');
+        $table->text('description')->nullable();
+        $table->string('recipe_id', 100)->nullable();
+        $table->string('llm_provider', 50)->default('openai_compatible');
+        $table->string('llm_model', 100)->default('gpt-4o');
+        $table->string('llm_base_url', 255)->nullable();
+        $table->unsignedTinyInteger('max_steps')->default(10);
+        $table->tinyInteger('is_active')->default(1);
+        $table->timestamp('created_at')->nullable();
+        $table->timestamp('updated_at')->nullable();
+    });
 
     $logger  = new NullLogger();
     $sniffer = new MimeSniffer();
@@ -400,6 +430,7 @@ function minimaxFilenameCaptureArchiveService(): array
         new MetadataExtractor($logger, false),
         $store,
         new MediaConverterRegistry($container),
+        new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
         $logger,
     ));
     return [$archive, $store];
@@ -414,11 +445,9 @@ it('image tool honours the LLM-supplied filename and appends the canonical exten
         'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
         'data'      => ['image_urls' => ['https://cdn.example.com/a.png']],
     ])));
-
-    $log = new MiniMaxLogWriter();
     [$archive, $store] = minimaxFilenameCaptureArchiveService();
 
-    $tool = new MiniMaxImageTool($config, $http, $log, null, null, $archive);
+    $tool = new MiniMaxImageTool($config, $http, null, null, $archive);
     $result = $tool->execute([
         'prompt'   => 'a red fox',
         'filename' => 'sunset-at-the-beach',
@@ -438,11 +467,9 @@ it('image tool slugifies the prompt when no filename is supplied', function () {
         'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
         'data'      => ['image_urls' => ['https://cdn.example.com/a.png']],
     ])));
-
-    $log = new MiniMaxLogWriter();
     [$archive, $store] = minimaxFilenameCaptureArchiveService();
 
-    $tool = new MiniMaxImageTool($config, $http, $log, null, null, $archive);
+    $tool = new MiniMaxImageTool($config, $http, null, null, $archive);
     $result = $tool->execute(['prompt' => 'a red fox'], 42);
 
     expect($result->success)->toBeTrue();
@@ -476,11 +503,9 @@ it('video tool honours the LLM-supplied filename and appends the canonical exten
                 'content'   => ['url' => 'https://minimax.example/output.mp4'],
             ],
         ])));
-
-    $log = new MiniMaxLogWriter();
     [$archive, $store] = minimaxFilenameCaptureArchiveService();
 
-    $tool = new MiniMaxVideoTool($config, $http, $log, null, null, $archive);
+    $tool = new MiniMaxVideoTool($config, $http, null, null, $archive);
     $result = $tool->execute([
         'prompt'   => '[Push in] a forest',
         'filename' => 'forest-push-in',
@@ -516,11 +541,9 @@ it('video tool slugifies the prompt when no filename is supplied', function () {
                 'content'   => ['url' => 'https://minimax.example/output.mp4'],
             ],
         ])));
-
-    $log = new MiniMaxLogWriter();
     [$archive, $store] = minimaxFilenameCaptureArchiveService();
 
-    $tool = new MiniMaxVideoTool($config, $http, $log, null, null, $archive);
+    $tool = new MiniMaxVideoTool($config, $http, null, null, $archive);
     $result = $tool->execute(['prompt' => '[Push in] a forest', 'duration_seconds' => '6'], 11);
 
     expect($result->success)->toBeTrue();
@@ -539,11 +562,9 @@ it('music tool honours the LLM-supplied filename and appends the canonical exten
         'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
         'data'      => ['audio' => str_repeat('00', 24)],
     ])));
-
-    $log = new MiniMaxLogWriter();
     [$archive, $store] = minimaxFilenameCaptureArchiveService();
 
-    $tool = new MiniMaxMusicTool($config, $http, $log, minimaxTestAssetStore(), null, null, $archive);
+    $tool = new MiniMaxMusicTool($config, $http, minimaxTestAssetStore(), null, null, $archive);
     $result = $tool->execute([
         'action'        => 'compose',
         'prompt'        => 'lofi piano',
@@ -565,11 +586,9 @@ it('music tool slugifies the prompt when no filename is supplied', function () {
         'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
         'data'      => ['audio' => str_repeat('00', 24)],
     ])));
-
-    $log = new MiniMaxLogWriter();
     [$archive, $store] = minimaxFilenameCaptureArchiveService();
 
-    $tool = new MiniMaxMusicTool($config, $http, $log, minimaxTestAssetStore(), null, null, $archive);
+    $tool = new MiniMaxMusicTool($config, $http, minimaxTestAssetStore(), null, null, $archive);
     $result = $tool->execute([
         'action'        => 'compose',
         'prompt'        => 'lofi piano',
@@ -593,11 +612,9 @@ it('speech tool honours the LLM-supplied filename and appends the canonical exte
         'data'       => ['audio_url' => 'https://cdn.example.com/speech.mp3'],
         'extra_info' => ['audio_size' => 12_345],
     ])));
-
-    $log = new MiniMaxLogWriter();
     [$archive, $store] = minimaxFilenameCaptureArchiveService();
 
-    $tool = new MiniMaxSpeechTool($config, $http, $log, minimaxTestAssetStore(), null, null, $archive);
+    $tool = new MiniMaxSpeechTool($config, $http, minimaxTestAssetStore(), null, null, $archive);
     $result = $tool->execute([
         'text'     => 'hello world',
         'voice_id' => 'English_PassionateWarrior',
@@ -639,7 +656,6 @@ it('speech tool ingests a hex audio payload via the MediaArchive', function () {
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
 
     $http = M::mock(HttpClientInterface::class);
-    $log = new MiniMaxLogWriter();
     [$archive, $store] = minimaxFilenameCaptureArchiveService();
 
     // 24 bytes of MP3 silence (all zeros) → "00"×24.
@@ -650,7 +666,7 @@ it('speech tool ingests a hex audio payload via the MediaArchive', function () {
         'extra_info' => ['audio_size' => 24],
     ])));
 
-    $tool = new MiniMaxSpeechTool($config, $http, $log, minimaxTestAssetStore(), null, null, $archive);
+    $tool = new MiniMaxSpeechTool($config, $http, minimaxTestAssetStore(), null, null, $archive);
     $result = $tool->execute([
         'text'     => 'hello world',
         'voice_id' => 'English_PassionateWarrior',
@@ -674,11 +690,9 @@ it('speech tool slugifies the text when no filename is supplied', function () {
         'data'       => ['audio_url' => 'https://cdn.example.com/speech.mp3'],
         'extra_info' => ['audio_size' => 12_345],
     ])));
-
-    $log = new MiniMaxLogWriter();
     [$archive, $store] = minimaxFilenameCaptureArchiveService();
 
-    $tool = new MiniMaxSpeechTool($config, $http, $log, minimaxTestAssetStore(), null, null, $archive);
+    $tool = new MiniMaxSpeechTool($config, $http, minimaxTestAssetStore(), null, null, $archive);
     $result = $tool->execute([
         'text'     => 'hello world',
         'voice_id' => 'English_PassionateWarrior',
