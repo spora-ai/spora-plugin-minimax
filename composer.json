@@ -10,6 +10,7 @@
         "ext-mbstring": "*",
         "psr/log": "^3.0",
         "spora-ai/spora-core": ">=0.18.0 <2.0.0 || @dev",
+        "symfony/event-dispatcher": "^8.0",
         "symfony/http-client-contracts": "^3.6"
     },
     "require-dev": {

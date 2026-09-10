@@ -195,7 +195,7 @@ it('music tool ingests a hex audio payload via the MediaArchive', function () {
     ])));
 
     $tool = new MiniMaxMusicTool($config, $http, minimaxTestAssetStore(), null, null, $archive);
-    // Production wires LocalAssetStore via `MiniMaxPlugin::register()` —
+    // Production wires LocalAssetStore via `MiniMaxPlugin::onContainerBuilding()` —
     // mirror it here so the music tool doesn't LogicException on the
     // AutoAssetStore's `data:` URL fallback.
     $tmp = sys_get_temp_dir() . '/minimax-music-ingest-' . bin2hex(random_bytes(4));

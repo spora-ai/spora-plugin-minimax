@@ -39,7 +39,7 @@ final class MiniMaxToolSupport
     }
 
     /**
-     * Wired by PHP-DI from {@see MiniMaxPlugin::register()}; the optional
+     * Wired by PHP-DI from {@see MiniMaxPlugin::onContainerBuilding()}; the optional
      * ctor param is short-circuited to null by reflection autowiring, so
      * the setter is the only path that reaches the production logger.
      */

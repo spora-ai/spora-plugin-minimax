@@ -116,7 +116,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
     protected const AUDIO_MIME            = 'audio/mpeg';
 
     /**
-     * Wired by PHP-DI from {@see MiniMaxPlugin::register()}.
+     * Wired by PHP-DI from {@see MiniMaxPlugin::onContainerBuilding()}.
      * Forces the hex payload to disk via `/api/v1/assets/<token>.mp3`
      * so the chat UI doesn't truncate a long base64 to `[data-omitted]`.
      */
@@ -358,7 +358,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
         }
 
         // Hard invariant: this tool must NEVER emit a `data:` URL.
-        // `MiniMaxPlugin::register()` wires `LocalAssetStore` (and the
+        // `MiniMaxPlugin::onContainerBuilding()` wires `LocalAssetStore` (and the
         // MediaArchive swap produces `/api/v1/assets/...` too), so the
         // only path that lands here with a `data:` URL is a
         // misconfigured deployment or a custom factory that

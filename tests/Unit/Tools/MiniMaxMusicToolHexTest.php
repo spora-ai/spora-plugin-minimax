@@ -8,7 +8,7 @@ use Spora\Services\ToolConfigService;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 it('routes the hex payload through the injected LocalAssetStore (never a data: URI)', function () {
-    // Production contract: the plugin's `register()` wires a real
+    // Production contract: the plugin's `onContainerBuilding()` wires a real
     // LocalAssetStore so the chat UI never sees a `data:` URI (the
     // chat UI sanitizer truncates long base64 to `[data-omitted]`).
     // Mirror the speech tool's LocalAssetStore test for music.

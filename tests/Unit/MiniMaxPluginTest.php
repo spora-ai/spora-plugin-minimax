@@ -99,14 +99,14 @@ it('onContainerBuilding binds each MiniMax tool with a setMediaArchive resolver'
     // Build the container so PHP-DI validates the definitions. This
     // surfaces a runtime error if any tool's autowire()->method() binding
     // is malformed (the most likely failure mode — the DefaultValueResolver
-    // / TypeHintContainerResolver short-circuit documented on the register()
+    // / TypeHintContainerResolver short-circuit documented on the onContainerBuilding()
     // method's docblock).
     $container = $builder->build();
 
     // Pulling the actual MediaArchiveService instance (via `get()`, not
     // `has()`) is the strongest assertion we can run without the full
     // ToolConfigService dependency tree. It proves the `\DI\get(...)`
-    // resolver inside the plugin's `register()` reaches our concrete
+    // resolver inside the plugin's `onContainerBuilding()` reaches our concrete
     // archive — exactly what each tool's setMediaArchive() binding feeds.
     expect($container->get(MediaArchiveService::class))->toBe($archive);
 });

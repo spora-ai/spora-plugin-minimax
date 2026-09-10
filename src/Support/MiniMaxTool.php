@@ -96,7 +96,7 @@ abstract class MiniMaxTool extends AbstractTool
     }
 
     /**
-     * Wired by PHP-DI from {@see MiniMaxPlugin::register()}.
+     * Wired by PHP-DI from {@see MiniMaxPlugin::onContainerBuilding()}.
      */
     public function setLogger(?LoggerInterface $logger): void
     {
@@ -104,7 +104,7 @@ abstract class MiniMaxTool extends AbstractTool
     }
 
     /**
-     * Wired by PHP-DI from {@see MiniMaxPlugin::register()} for the
+     * Wired by PHP-DI from {@see MiniMaxPlugin::onContainerBuilding()} for the
      * video tools that accept first-frame / reference images. Optional:
      * tools that don't take asset URLs (image, speech, music) skip
      * this step entirely.

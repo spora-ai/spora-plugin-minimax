@@ -158,7 +158,7 @@ it('fails loudly (success=false) when a `data:` URL leaks through (LocalAssetSto
     // Hard invariant: the speech tool must never emit a `data:` URL.
     // The only path that produces one in code is `embedHex` against the
     // configured AssetStore, which fires when LocalAssetStore is not
-    // wired. Production wires it via `MiniMaxPlugin::register()`; this
+    // wired. Production wires it via `MiniMaxPlugin::onContainerBuilding()`; this
     // test simulates a misconfigured deployment and asserts the
     // tool surfaces a clear failure to the orchestrator (rather than
     // papering over with a stale instruction). The framework's
