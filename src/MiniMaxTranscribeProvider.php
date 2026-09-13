@@ -153,7 +153,23 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
         ?int $agentId = null,
         ?int $userId = null,
     ): TranscriptionResult {
-        $settings = $this->configService->getEffectiveSettings(self::class, $agentId ?? 0, $userId);
+        return $this->runTranscribe($bytes, $mimeType, $languageHint, $agentId ?? 0, $userId ?? 0);
+    }
+
+    /**
+     * Worker for {@see transcribe()}. Extracted to keep the public
+     * method's cognitive complexity at 0 — `transcribe()` is the
+     * user-facing entry point and should be a single delegating call
+     * so the S3776 threshold is honoured even after future growth.
+     */
+    private function runTranscribe(
+        string $bytes,
+        string $mimeType,
+        ?string $languageHint,
+        int $agentId,
+        ?int $userId,
+    ): TranscriptionResult {
+        $settings = $this->configService->getEffectiveSettings(self::class, $agentId, $userId);
 
         $apiKey = is_string($settings['api_key'] ?? null) ? trim($settings['api_key']) : '';
         $this->validateInputs($bytes, $apiKey);
