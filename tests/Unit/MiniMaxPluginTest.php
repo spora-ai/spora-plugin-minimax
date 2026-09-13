@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use DI\ContainerBuilder;
 use Spora\Plugins\MiniMax\MiniMaxPlugin;
+use Spora\Plugins\MiniMax\MiniMaxTranscribeProvider;
 use Spora\Plugins\MiniMax\Tools\MiniMaxImageTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxMusicTool;
 use Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool;
@@ -25,6 +26,14 @@ it('contributes all five MiniMax tools', function () {
         MiniMaxVideoTool::class,
         MiniMaxVideoV1Tool::class,
     ]);
+});
+
+it('contributes the MiniMaxTranscribeProvider as a SpeechToTextProviderInterface', function () {
+    // The provider is discovered via the framework's
+    // speechToTextProviders() data hook; first-configured provider wins
+    // per request.
+    $plugin = new MiniMaxPlugin();
+    expect($plugin->speechToTextProviders())->toBe([MiniMaxTranscribeProvider::class]);
 });
 
 it('subscribes to ContainerBuildingEvent', function () {
@@ -109,4 +118,11 @@ it('onContainerBuilding binds each MiniMax tool with a setMediaArchive resolver'
     // resolver inside the plugin's `onContainerBuilding()` reaches our concrete
     // archive — exactly what each tool's setMediaArchive() binding feeds.
     expect($container->get(MediaArchiveService::class))->toBe($archive);
+
+    // The STT provider has no nullable ctor params so plain
+    // \DI\autowire() resolves its ToolConfigService + HttpClientInterface
+    // deps from the container. `has()` is enough to confirm the binding
+    // is in place; `get()` would require the full ToolConfigService
+    // dependency tree which is outside this unit-test's scope.
+    expect($container->has(MiniMaxTranscribeProvider::class))->toBeTrue();
 });
