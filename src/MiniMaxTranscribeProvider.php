@@ -156,6 +156,22 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
         $settings = $this->configService->getEffectiveSettings(self::class, $agentId ?? 0, $userId);
 
         $apiKey = is_string($settings['api_key'] ?? null) ? trim($settings['api_key']) : '';
+        $this->validateInputs($bytes, $apiKey);
+
+        $request = $this->buildRequestDescriptor($settings, $bytes, $mimeType, $languageHint, $apiKey);
+
+        $payload = $this->dispatch($request['url'], $request['headers'], $request['multipart'], $request['timeout']);
+
+        return $this->parseResponse($payload, $languageHint, $request['model']);
+    }
+
+    /**
+     * Pre-flight checks that must fail before any HTTP call. Extracted
+     * from {@see transcribe()} to keep the cognitive complexity of the
+     * public method under the SonarQube S3776 threshold (≤15).
+     */
+    private function validateInputs(string $bytes, string $apiKey): void
+    {
         if ($apiKey === '') {
             throw new SpeechToTextException('MiniMax API Key is not configured for this user.');
         }
@@ -166,7 +182,27 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
                 self::MAX_BYTES / 1024 / 1024,
             ));
         }
+    }
 
+    /**
+     * Build the `{url, headers, multipart, timeout, model}` tuple the
+     * dispatcher consumes. Extracted from {@see transcribe()} to keep
+     * the cognitive complexity of the public method under S3776.
+     *
+     * Returns the resolved `model` alongside the descriptor so the
+     * caller can stamp it into {@see TranscriptionResult::metadata}
+     * without re-reading the settings array.
+     *
+     * @param array<string, mixed> $settings
+     * @return array{url: string, headers: array<string, string>, multipart: list<array<string, mixed>>, timeout: int, model: string}
+     */
+    private function buildRequestDescriptor(
+        array $settings,
+        string $bytes,
+        string $mimeType,
+        ?string $languageHint,
+        string $apiKey,
+    ): array {
         $baseUrl = $this->resolveBaseUrl($settings);
         $model   = $this->resolveModel($settings);
         $timeout = $this->resolveTimeout($settings);
@@ -187,8 +223,31 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
             ['name' => 'response_format', 'contents' => 'json'],
         ];
 
+        return [
+            'url'       => rtrim($baseUrl, '/') . '/v1/speech_to_text',
+            'headers'   => $headers,
+            'multipart' => $multipart,
+            'timeout'   => $timeout,
+            'model'     => $model,
+        ];
+    }
+
+    /**
+     * Dispatch the multipart POST and unwrap the response into the
+     * upstream's `{text, duration, trace_id}` payload. Translates every
+     * transport / upstream failure into a
+     * {@see SpeechToTextException} (or {@see InvalidAudioException}
+     * for the 413 over-cap path) so the controller only needs to
+     * translate one exception type.
+     *
+     * @param array<string, string>           $headers
+     * @param list<array<string, mixed>>      $multipart
+     * @return array<string, mixed>
+     */
+    private function dispatch(string $url, array $headers, array $multipart, int $timeout): array
+    {
         try {
-            $response = $this->http->request('POST', rtrim($baseUrl, '/') . '/v1/speech_to_text', [
+            $response = $this->http->request('POST', $url, [
                 'headers' => $headers,
                 'multipart' => $multipart,
                 'timeout' => $timeout,
@@ -199,25 +258,37 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
                 throw $this->buildHttpException($response, $statusCode);
             }
 
-            $payload = $response->toArray();
+            return $response->toArray();
         } catch (SpeechToTextException $e) {
             // `InvalidAudioException extends SpeechToTextException` (see
-            // `app/Speech/InvalidAudioException.php` on `fix/review-findings-core`),
-            // so this re-throw is the choke point that preserves both the
-            // pre-flight MIME/size failures AND the 413 over-cap path that
+            // `app/Speech/InvalidAudioException.php` on
+            // `fix/review-findings-core`), so this re-throw is the
+            // choke point that preserves both the pre-flight MIME/size
+            // failures AND the 413 over-cap path that
             // buildHttpException() also produces.
             throw $e;
         } catch (HttpClientException $e) {
-            // Symfony's `TransportException` implements `TransportExceptionInterface
-            // extends ExceptionInterface` which we alias as `HttpClientException`,
-            // so this catch covers every transport-level failure (timeouts,
-            // SSL, DNS, network reset). Catch the parent interface, not the
-            // concrete class.
+            // Symfony's `TransportException` implements
+            // `TransportExceptionInterface extends ExceptionInterface`
+            // which we alias as `HttpClientException`, so this catch
+            // covers every transport-level failure (timeouts, SSL,
+            // DNS, network reset). Catch the parent interface, not
+            // the concrete class.
             throw new SpeechToTextException('MiniMax STT request failed: ' . $e->getMessage(), 0, $e);
         } catch (Throwable $e) {
             throw new SpeechToTextException('MiniMax STT request failed: ' . $e->getMessage(), 0, $e);
         }
+    }
 
+    /**
+     * Translate the upstream `{text, duration, trace_id}` payload into
+     * a {@see TranscriptionResult}. Extracted from {@see transcribe()}
+     * to keep the public method's cognitive complexity under S3776.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function parseResponse(array $payload, ?string $languageHint, string $model): TranscriptionResult
+    {
         $text = is_string($payload['text'] ?? null) ? trim($payload['text']) : '';
         if ($text === '') {
             throw new InvalidAudioException('MiniMax STT returned no transcript.');
@@ -318,7 +389,7 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
         }
 
         $error = is_array($body['error'] ?? null) ? $body['error'] : [];
-        $msg   = is_string($error['message'] ?? null) ? trim($error['message']) : '';
-        return $msg;
+
+        return is_string($error['message'] ?? null) ? trim($error['message']) : '';
     }
 }
