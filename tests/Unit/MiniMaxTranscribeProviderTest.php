@@ -31,6 +31,63 @@ test('isConfigured() is optimistic', function (): void {
     expect($provider->isConfigured())->toBeTrue();
 });
 
+test('isConfigured() returns false when bound settings lack an api_key (v2-cascade gate)', function (): void {
+    // When the registry has resolved a v2 SpeechProviderConfiguration
+    // and pushed it into bindSettings(), isConfigured() is the gate
+    // that tells the registry whether to hand the provider to
+    // transcribe(). An empty api_key flips the gate to false so the
+    // registry returns null and the controller surfaces 503 — better
+    // than throwing 502 mid-call when there's no key to use.
+    [$provider] = buildTranscribeProvider([]);
+    $provider->bindSettings(['api_key' => '']);
+    expect($provider->isConfigured())->toBeFalse();
+
+    $provider->bindSettings(['api_key' => '   ']);
+    expect($provider->isConfigured())->toBeFalse();
+
+    $provider->bindSettings(['display_name' => 'no-key-here']);
+    expect($provider->isConfigured())->toBeFalse();
+
+    $provider->bindSettings(['api_key' => 'sk-from-v2']);
+    expect($provider->isConfigured())->toBeTrue();
+});
+
+test('bindSettings() overrides ToolConfigService for transcribe()', function (): void {
+    // The v2-cascade path: registry resolved a
+    // SpeechProviderConfiguration with api_key 'sk-from-v2' and pushed
+    // it into bindSettings(). transcribe() must use that key, not the
+    // one ToolConfigService would have returned (which here is a stale
+    // 'sk-from-v1').
+    [$provider, $response] = buildTranscribeProvider(
+        ['api_key' => 'sk-from-v1'],
+        200,
+        json_encode(['text' => 'v2 path', 'duration' => 0.5, 'trace_id' => 't-v2']),
+    );
+    $provider->bindSettings(['api_key' => 'sk-from-v2']);
+
+    $result = $provider->transcribe('audio-bytes', 'audio/wav');
+
+    expect($result->text)->toBe('v2 path');
+    $headersBlob = implode("\n", array_map('strval', $response->getRequestOptions()['headers']));
+    expect($headersBlob)->toContain('Authorization: Bearer sk-from-v2')
+        ->and($headersBlob)->not->toContain('sk-from-v1');
+});
+
+test('bindSettings() exposes decoded settings via boundSettings() accessor', function (): void {
+    [$provider] = buildTranscribeProvider([]);
+    $provider->bindSettings(['api_key' => 'sk-x', 'base_url' => 'https://api.minimax.io']);
+
+    expect($provider->boundSettings())->toBe([
+        'api_key'  => 'sk-x',
+        'base_url' => 'https://api.minimax.io',
+    ]);
+});
+
+test('boundSettings() returns [] when bindSettings() never fires (legacy v1 path)', function (): void {
+    [$provider] = buildTranscribeProvider([]);
+    expect($provider->boundSettings())->toBe([]);
+});
+
 test('getName / getDisplayName surface the MiniMax identity', function (): void {
     [$provider] = buildTranscribeProvider([]);
     expect($provider->getName())->toBe('minimax')

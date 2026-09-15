@@ -103,6 +103,15 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
     // reassigned. Mirrors the pattern on MuseTranscribeProvider.
     private ?string $boundDisplayName = null;
 
+    /**
+     * v2-cascade settings pushed by {@see bindSettings()}. `null` until
+     * the registry resolves a `SpeechProviderConfiguration` row for
+     * this provider class; the legacy `ToolConfigService` path is the
+     * fallback for that case (so operators who configured the key
+     * via the pre-PR-#238 `tool_user_settings` path keep working).
+     */
+    private ?array $boundSettings = null;
+
     public function __construct(
         private HttpClientInterface $http,
         private ToolConfigService $configService,
@@ -119,16 +128,23 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
     }
 
     /**
-     * Optimistic — `isConfigured()` returning false would make the
-     * capability endpoint advertise this provider as not-configured even
-     * when the operator only forgot to enable it on this agent. The
-     * `api_key` check happens per-call in {@see transcribe()}, which
-     * throws a clear `SpeechToTextException` if the key is empty.
-     * Matches the MuseTranscribeProvider pattern.
+     * When bound settings are present (v2-cascade path), the gate is
+     * the `api_key` field — empty means the operator hasn't saved a key
+     * yet, and the registry filters the provider out so the transcribe
+     * endpoint returns 503 instead of throwing mid-call. The legacy
+     * optimistic default (defer to `transcribe()` for the real check)
+     * is kept for the no-bound-settings path so v1
+     * `tool_user_settings` operators keep working without an admin-side
+     * re-save.
      */
     public function isConfigured(): bool
     {
-        return true;
+        if ($this->boundSettings === null) {
+            return true;
+        }
+        $apiKey = $this->boundSettings['api_key'] ?? null;
+
+        return is_string($apiKey) && trim($apiKey) !== '';
     }
 
     /**
@@ -144,6 +160,39 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
     public function bindLabel(string $label): void
     {
         $this->boundDisplayName = $label;
+    }
+
+    /**
+     * Cache the operator's v2-cascade settings (decoded by
+     * {@see \Spora\Services\SpeechProviderConfigPersistence::decodeSettings()})
+     * so {@see transcribe()} and {@see isConfigured()} consult the
+     * `speech_provider_configurations` cascade — the single source of
+     * truth post-{@see https://github.com/spora-ai/spora-core/pull/238 PR #238}.
+     * Falls back to `ToolConfigService` only when no bound settings
+     * are present (legacy v1 `tool_user_settings` operators keep
+     * working without an admin-side re-save). The registry resets
+     * the bound value on every `configuredProvider()` call so
+     * multi-tenant requests don't bleed settings across calls.
+     *
+     * @param array<string, mixed> $settings
+     */
+    public function bindSettings(array $settings): void
+    {
+        $this->boundSettings = $settings;
+    }
+
+    /**
+     * Test accessor for the bound settings. Not part of
+     * {@see SpeechToTextProviderInterface} — production callers go
+     * through {@see transcribe()} which reads `$this->boundSettings`
+     * directly. Exposed so registry-binding tests can assert on the
+     * decoded settings without reflection.
+     *
+     * @return array<string, mixed>
+     */
+    public function boundSettings(): array
+    {
+        return $this->boundSettings ?? [];
     }
 
     public function transcribe(
@@ -169,7 +218,8 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
         int $agentId,
         ?int $userId,
     ): TranscriptionResult {
-        $settings = $this->configService->getEffectiveSettings(self::class, $agentId, $userId);
+        $settings = $this->boundSettings
+            ?? $this->configService->getEffectiveSettings(self::class, $agentId, $userId);
 
         $apiKey = is_string($settings['api_key'] ?? null) ? trim($settings['api_key']) : '';
         $this->validateInputs($bytes, $apiKey);
