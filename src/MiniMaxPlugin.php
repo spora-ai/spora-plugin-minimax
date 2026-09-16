@@ -16,6 +16,7 @@ use Spora\Plugins\MiniMax\Tools\MiniMaxVideoV1Tool;
 use Spora\Services\LocalAssetStore;
 use Spora\Services\MediaArchive\MediaArchiveService;
 use Spora\Services\MediaArchive\MediaAssetReader;
+use Spora\Speech\SpeechToTextProviderInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 
 final class MiniMaxPlugin extends AbstractPlugin implements EventSubscriberInterface
@@ -38,12 +39,25 @@ final class MiniMaxPlugin extends AbstractPlugin implements EventSubscriberInter
     }
 
     /**
+     * Contributes MiniMax's `asr-1.0` speech-to-text model as a
+     * {@see SpeechToTextProviderInterface}. Discovered by
+     * {@see \Spora\Speech\SpeechToTextRegistry}; first configured
+     * provider wins per transcribe request.
+     *
+     * @return list<class-string<SpeechToTextProviderInterface>>
+     */
+    public function speechToTextProviders(): array
+    {
+        return [MiniMaxTranscribeProvider::class];
+    }
+
+    /**
      * Subscribe to the framework's boot-time events.
      *
      * - {@see ContainerBuildingEvent} fires once per process, before the
      *   DI container is built. {@see self::onContainerBuilding()} adds
-     *   bindings for the five tools + the media-archive resolver so PHP-DI
-     *   can autowire them at request time.
+     *   bindings for the five tools, the STT provider, and the media-archive
+     *   resolver so PHP-DI can autowire them at request time.
      *
      * @return array<class-string, string>
      */
@@ -57,9 +71,8 @@ final class MiniMaxPlugin extends AbstractPlugin implements EventSubscriberInter
     /**
      * Plugin-shipped Skills live as siblings under `<plugin>/skills/<slug>/SKILL.md`.
      * Each of the four tools gets one Skill (`minimax-image`, `minimax-speech`,
-     * `minimax-music`, `minimax-video`) so the Agent can pull per-tool usage
-     * notes on demand instead of relying on the LLM's memory of the full
-     * MiniMax surface area.
+     * `minimax-music`, `minimax-video`) plus a legacy companion for music
+     * (`minimax-music-legacy`) that signposts the Aug 20 2026 deprecation.
      *
      * `is_dir` guard keeps the override side-effect-free when the directory
      * is absent (e.g. checkout without the `skills/` subtree).
@@ -122,6 +135,13 @@ final class MiniMaxPlugin extends AbstractPlugin implements EventSubscriberInter
             MiniMaxImageTool::class  => \DI\autowire()
                 ->method('setMediaArchive', $archiveService)
                 ->method('setLogger', $logger),
+
+            // The provider has no nullable ctor params (no Optional
+            // MediaArchive / LocalAssetStore wiring needed), so plain
+            // \DI\autowire() resolves ToolConfigService + HttpClientInterface
+            // from the container.
+            MiniMaxTranscribeProvider::class => \DI\autowire(),
+
             MiniMaxSpeechTool::class => \DI\autowire()
                 ->method('setMediaArchive', $archiveService)
                 ->method('setLocalAssetStore', $localAssetStore)

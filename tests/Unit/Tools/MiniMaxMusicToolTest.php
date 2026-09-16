@@ -415,3 +415,21 @@ it('ingests the audio_url into the MediaArchive and prefers asset_url in the emb
 it('falls back to the CDN URL when the MediaArchive ingest throws', function () {
     expect(true)->toBeTrue();
 });
+
+test('MiniMaxMusicTool class docblock carries the Aug 20 2026 deprecation notice', function () {
+    // The deprecation note is the load-bearing part of the docblock —
+    // a future "modernize the docblock" PR has no signal that this line
+    // was the deprecation signal without an explicit substring check.
+    // The cheapest possible regression guard: literal-string match on
+    // the deprecation date. Mirrors the constraint applied to the
+    // `displayName` (which the LLM reads in the tool picker UI).
+    $source = (string) file_get_contents((new ReflectionClass(MiniMaxMusicTool::class))->getFileName());
+
+    expect($source)
+        ->toContain('Aug 20 2026')
+        // The Tool attribute description is read by the LLM in the tool
+        // picker; the **Deprecated since** prefix is what surfaces the
+        // marker in the chat UI's tool list.
+        ->toContain('**Deprecated since Aug 20 2026** for new users')
+        ->toContain("displayName: 'MiniMax Music (legacy)'");
+});

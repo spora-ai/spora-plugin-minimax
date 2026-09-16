@@ -27,11 +27,24 @@ use Throwable;
  * Song-making operations for MiniMax, consolidated into one tool:
  * `compose`, `write_lyrics`, `edit_lyrics`. Returns the upstream audio URL
  * (24h expiry) when `output_format=url`; hex otherwise.
+ *
+ * **Deprecated as of Aug 20 2026** per MiniMax's Music API Service
+ * Adjustment Notice (https://platform.minimax.io/docs/api-reference/music-generation):
+ * the paid Music Generation and Lyrics Generation APIs are no longer
+ * available to new users. Existing paying users can continue to use the
+ * current API services, so this tool stays operational — only the
+ * `displayName`, the in-prompt routing table, and the agent-template skill
+ * carry the `(legacy)` marker. For new deployments, prefer MiniMax Audio
+ * (https://www.minimax.io/audio) or self-host the open-source MiniMax
+ * Music 3 model (https://huggingface.co/MiniMaxAI/MiniMax-Music3).
+ *
+ * Sister tool to {@see MiniMaxSpeechTool} (TTS) and the
+ * {@see \Spora\Plugins\MiniMax\MiniMaxTranscribeProvider} (STT, asr-1.0).
  */
 #[Tool(
     name: 'music_minimax',
-    description: 'Generate music (instrumental or with lyrics) or write/edit song lyrics. The "action" argument selects the operation.',
-    displayName: 'MiniMax Music',
+    description: '**Deprecated since Aug 20 2026** for new users. Existing paying users can keep using this tool. Generate music (instrumental or with lyrics) or write/edit song lyrics. The "action" argument selects the operation. For new deployments, prefer MiniMax Audio (https://www.minimax.io/audio) or the open-source MiniMax Music 3 model on Hugging Face.',
+    displayName: 'MiniMax Music (legacy)',
     category: 'generation',
     icon: 'music',
 )]
