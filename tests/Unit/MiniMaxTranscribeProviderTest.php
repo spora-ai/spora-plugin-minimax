@@ -8,6 +8,49 @@ use Spora\Speech\InvalidAudioException;
 use Spora\Speech\SpeechToTextException;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Symfony\Contracts\HttpClient\ResponseInterface;
+use Symfony\Contracts\HttpClient\ResponseStreamInterface;
+
+/**
+ * Test-only HttpClient that captures the request body BEFORE Symfony's
+ * `prepareRequest()` normalises it. After the multipart→body fix, Symfony
+ * wraps multipart bodies in a generator Closure — that prevents the
+ * tests from asserting on field shape via `MockResponse::getRequestOptions()`.
+ * The capturing client mirrors `MuseCapturingHttpClient` from
+ * spora-plugin-muse's test suite.
+ */
+final class MiniMaxCapturingHttpClient implements HttpClientInterface
+{
+    public mixed $capturedBody = null;
+    /** @var array<string, mixed> */
+    public array $capturedHeaders = [];
+    public ?string $capturedUrl = null;
+    public ?string $capturedMethod = null;
+
+    public function __construct(private HttpClientInterface $inner) {}
+
+    public function request(string $method, string $url, array $options = []): ResponseInterface
+    {
+        $this->capturedBody    = $options['body'] ?? null;
+        $this->capturedHeaders = $options['headers'] ?? [];
+        $this->capturedUrl     = $url;
+        $this->capturedMethod  = $method;
+        return $this->inner->request($method, $url, $options);
+    }
+
+    public function stream(ResponseInterface|iterable $responses, ?float $timeout = null): ResponseStreamInterface
+    {
+        return $this->inner->stream($responses, $timeout);
+    }
+
+    public function withOptions(array $options): static
+    {
+        $clone = clone $this;
+        $clone->inner = $this->inner->withOptions($options);
+        return $clone;
+    }
+}
 
 /**
  * @return array{0: MiniMaxTranscribeProvider, 1: MockResponse}
@@ -24,6 +67,29 @@ function buildTranscribeProvider(array $settings, int $status = 200, ?string $bo
     $response = new MockResponse($body, ['http_code' => $status]);
     $client   = new MockHttpClient([$response]);
     return [new MiniMaxTranscribeProvider($client, $config), $response];
+}
+
+/**
+ * Same as buildTranscribeProvider() but also returns the capturing
+ * HttpClient so the body can be inspected before Symfony normalises it
+ * (the multipart→body fix replaces the descriptor with a Closure
+ * that the MockResponse capture can't decompose).
+ *
+ * @return array{0: MiniMaxTranscribeProvider, 1: MockResponse, 2: MiniMaxCapturingHttpClient}
+ */
+function buildTranscribeProviderWithCapture(array $settings, int $status = 200, ?string $body = null): array
+{
+    $config = Mockery::mock(ToolConfigService::class);
+    $config->shouldReceive('getEffectiveSettings')->andReturn($settings);
+
+    if ($body === null) {
+        $body = json_encode(['text' => 'hello world', 'duration' => 1.5, 'trace_id' => 't-1']);
+    }
+
+    $response = new MockResponse($body, ['http_code' => $status]);
+    $inner     = new MockHttpClient([$response]);
+    $client    = new MiniMaxCapturingHttpClient($inner);
+    return [new MiniMaxTranscribeProvider($client, $config), $response, $client];
 }
 
 test('isConfigured() is optimistic', function (): void {
@@ -147,7 +213,7 @@ test('transcribe() happy path parses {text, duration, trace_id}', function (): v
 });
 
 test('transcribe() posts multipart with model + file + response_format=json + Bearer header', function (): void {
-    [$provider, $response] = buildTranscribeProvider(
+    [$provider, $response, $client] = buildTranscribeProviderWithCapture(
         ['api_key' => 'sk-test'],
         200,
         json_encode(['text' => 'hi', 'duration' => 0.5, 'trace_id' => 't-2']),
@@ -155,27 +221,31 @@ test('transcribe() posts multipart with model + file + response_format=json + Be
 
     $provider->transcribe('audio-bytes', 'audio/wav');
 
+    // Headers get normalised by Symfony's HttpClient into
+    // "Name: value" strings before MockResponse captures them; the
+    // body closure, however, is captured raw by the test client.
     $options = $response->getRequestOptions();
     $headersBlob = implode("\n", array_map('strval', $options['headers']));
     expect($headersBlob)->toContain('Authorization: Bearer sk-test');
 
-    $multipart = $options['multipart'] ?? null;
-    expect($multipart)->toBeArray();
+    // After the multipart→body fix, file fields are resource streams
+    // and text fields are scalars — the presence of any resource flips
+    // Symfony's content-type to multipart/form-data. Assert on the
+    // raw body (captured before Symfony normalises it) so the test
+    // doesn't have to introspect the wrapped Closure.
+    $body = $client->capturedBody;
+    expect($body)->toBeArray()
+        ->and($body['model'] ?? null)->toBe('asr-1.0')
+        ->and($body['response_format'] ?? null)->toBe('json');
 
-    $parts = [];
-    foreach ($multipart as $part) {
-        $parts[$part['name']] = $part;
-    }
-
-    expect($parts['model']['contents'] ?? null)->toBe('asr-1.0')
-        ->and($parts['file']['contents'] ?? null)->toBe('audio-bytes')
-        ->and($parts['file']['filename'] ?? null)->toBe('audio')
-        ->and($parts['file']['content_type'] ?? null)->toBe('audio/wav')
-        ->and($parts['response_format']['contents'] ?? null)->toBe('json');
+    expect($body['file'] ?? null)->toBeResource();
+    $tempPath = stream_get_meta_data($body['file'])['uri'] ?? null;
+    expect($tempPath)->toBeString();
+    expect(file_get_contents($tempPath))->toBe('audio-bytes');
 });
 
 test('model ToolSetting overrides the default in the multipart body', function (): void {
-    [$provider, $response] = buildTranscribeProvider(
+    [$provider, , $client] = buildTranscribeProviderWithCapture(
         ['api_key' => 'sk-test', 'model' => 'asr-1.1-experimental'],
         200,
         json_encode(['text' => 'hi', 'duration' => 1.0, 'trace_id' => 't-3']),
@@ -183,21 +253,12 @@ test('model ToolSetting overrides the default in the multipart body', function (
 
     $provider->transcribe('audio-bytes', 'audio/wav');
 
-    $options = $response->getRequestOptions();
-    $modelPart = null;
-    foreach ($options['multipart'] as $part) {
-        if (($part['name'] ?? null) === 'model') {
-            $modelPart = $part;
-        }
-    }
-
-    expect($modelPart)->not->toBeNull()
-        ->and($modelPart['contents'])->toBe('asr-1.1-experimental');
+    expect(($client->capturedBody['model'] ?? null))->toBe('asr-1.1-experimental');
 });
 
 test('empty / whitespace model setting falls back to the default model', function (): void {
     foreach (['', '   '] as $empty) {
-        [$provider, $response] = buildTranscribeProvider(
+        [$provider, , $client] = buildTranscribeProviderWithCapture(
             ['api_key' => 'sk-test', 'model' => $empty],
             200,
             json_encode(['text' => 'hi', 'duration' => 1.0, 'trace_id' => 't-4']),
@@ -205,16 +266,26 @@ test('empty / whitespace model setting falls back to the default model', functio
 
         $provider->transcribe('audio-bytes', 'audio/wav');
 
-        $options = $response->getRequestOptions();
-        $modelPart = null;
-        foreach ($options['multipart'] as $part) {
-            if (($part['name'] ?? null) === 'model') {
-                $modelPart = $part;
-            }
-        }
-
-        expect($modelPart['contents'])->toBe('asr-1.0');
+        expect(($client->capturedBody['model'] ?? null))->toBe('asr-1.0');
     }
+});
+
+test('dispatch() uses `body` (not `multipart`) so Symfony flips to multipart/form-data', function (): void {
+    // Regression guard for the Symfony `multipart` option that
+    // MiniMaxTranscribeProvider previously passed — Symfony's
+    // HttpClient rejects it with "Unsupported option 'multipart'". The
+    // `body` option, with the file field as a resource stream, is the
+    // shape Symfony uses to detect multipart/form-data.
+    [$provider, , $client] = buildTranscribeProviderWithCapture(
+        ['api_key' => 'sk-test'],
+        200,
+        json_encode(['text' => 'hi', 'duration' => 0.5, 'trace_id' => 't-multipart']),
+    );
+
+    $provider->transcribe('audio-bytes', 'audio/wav');
+
+    expect($client->capturedBody)->toBeArray()
+        ->and($client->capturedBody)->not->toHaveKey('multipart');
 });
 
 test('transcribe() sets language header when hint is non-empty', function (): void {

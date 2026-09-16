@@ -313,9 +313,40 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
     private function dispatch(string $url, array $headers, array $multipart, int $timeout): array
     {
         try {
+            // Symfony's HttpClient does NOT accept a `multipart` option.
+            // It auto-flips to `multipart/form-data` when any value in
+            // `body` is a PHP resource (HttpClientTrait::normalizeBody).
+            // Mirror the OpenAI-compatible transcriber pattern: write
+            // each file part's bytes to a temp file, open it as a
+            // stream resource, and use that as the body value. Text
+            // fields pass through as scalars.
+            //
+            // The temp file is intentionally NOT unlinked in a finally
+            // block: Symfony reads the stream lazily during request
+            // execution (after dispatch() has returned control), so an
+            // early unlink races the HTTP transport. The OS reaps
+            // `/tmp` on its own (tmpwatch / systemd-tmpfiles on Linux,
+            // periodic reboots on every platform), and the audio is
+            // capped at MiniMax's 50 MB upstream ceiling so the leak is
+            // bounded per request.
+            $body = [];
+            foreach ($multipart as $part) {
+                $name = (string) ($part['name'] ?? '');
+                if (isset($part['filename']) && isset($part['contents']) && is_string($part['contents'])) {
+                    $tempPath = tempnam(sys_get_temp_dir(), 'spora_minimax_stt_');
+                    if ($tempPath === false) {
+                        throw new SpeechToTextException('MiniMax STT request failed: failed to stage audio for upload.');
+                    }
+                    file_put_contents($tempPath, $part['contents']);
+                    $body[$name] = fopen($tempPath, 'rb');
+                } else {
+                    $body[$name] = $part['contents'] ?? '';
+                }
+            }
+
             $response = $this->http->request('POST', $url, [
                 'headers' => $headers,
-                'multipart' => $multipart,
+                'body'    => $body,
                 'timeout' => $timeout,
             ]);
 
