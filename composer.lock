@@ -3063,11 +3063,11 @@
         },
         {
             "name": "spora-ai/spora-core",
-            "version": "dev-main",
+            "version": "dev-fix/speech-llm-scope-by-agent",
             "dist": {
                 "type": "path",
                 "url": "../spora-core",
-                "reference": "03876ac8311d455a2a5430da35f558a2003783ea"
+                "reference": "bbfa5253c77dd3a48b58bb14202ae1179e40f466"
             },
             "require": {
                 "chriskonnertz/string-calc": "^2.0",

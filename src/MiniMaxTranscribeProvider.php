@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Spora\Plugins\MiniMax;
 
 use Spora\Services\ToolConfigService;
+use Spora\Speech\Attributes\AcceptedAudioMime;
 use Spora\Speech\InvalidAudioException;
 use Spora\Speech\SpeechToTextException;
 use Spora\Speech\SpeechToTextProviderInterface;
@@ -86,6 +87,29 @@ use Throwable;
     description: 'Per-request timeout for `/v1/speech_to_text`. MiniMax\'s docs cap audio at 500 s; 60 s is the conventional safety ceiling for typical utterances.',
     default: '60',
 )]
+/**
+ * MiniMax's `/v1/speech_to_text` accepts (per
+ * https://platform.minimax.io/docs/api-reference/speech-to-text):
+ *
+ *   - `wav`, `aiff`, `flac`, `alac`, `mp3` (containers with implicit codecs)
+ *   - `aac` (codec; container varies — Safari records it in `audio/mp4`)
+ *   - `opus` (codec)
+ *   - `ogg` (container)
+ *
+ * …but rejects the Matroska/WebM container with HTTP 502 error code
+ * 2013 even though the underlying Opus codec is identical to OGG-wrapped
+ * Opus. Chrome ≥ 105 records `audio/webm;codecs=opus` natively; OGG
+ * over Opus is the right first choice for browsers that can produce
+ * it, with Safari's MP4/AAC fallback, and WebM as the last resort for
+ * browsers that don't do OGG (Chrome < 105, older embedded WebViews).
+ *
+ * Without these declarations the SPA's recorder would pick
+ * `audio/webm;codecs=opus` (Chrome's default) and MiniMax would reject
+ * every recording with the 2013 container error.
+ */
+#[AcceptedAudioMime('audio/ogg;codecs=opus')]
+#[AcceptedAudioMime('audio/mp4')]
+#[AcceptedAudioMime('audio/webm;codecs=opus')]
 final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
 {
     private const DEFAULT_DISPLAY_NAME = 'MiniMax Speech-to-Text';

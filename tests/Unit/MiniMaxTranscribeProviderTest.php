@@ -160,6 +160,34 @@ test('getName / getDisplayName surface the MiniMax identity', function (): void 
         ->and($provider->getDisplayName())->toBe('MiniMax Speech-to-Text');
 });
 
+test('class declares #[AcceptedAudioMime] in MiniMax preference order', function (): void {
+    // The recorder's MIME picker consumes this list per provider via
+    // the /api/v1/speech/capability response. MiniMax rejects the
+    // Matroska/WebM container with HTTP 502 (error 2013), so the
+    // browser's MediaRecorder has to record OGG-over-Opus first;
+    // Safari's MP4/AAC is the second preference; legacy WebM-over-Opus
+    // is only the third choice for browsers that don't do OGG.
+    //
+    // Skipped pre spora-core#243: `getAttributes()` with the
+    // AcceptedAudioMime::class argument throws "class not found"
+    // until the attribute class is shipped in core.
+    if (!class_exists('Spora\\Speech\\Attributes\\AcceptedAudioMime')) {
+        test()->skip('Spora\Speech\Attributes\AcceptedAudioMime not yet shipped in spora-core');
+    }
+
+    $ref = new ReflectionClass(MiniMaxTranscribeProvider::class);
+    $mimes = array_map(
+        static fn(ReflectionAttribute $attr): string => $attr->getArguments()[0],
+        $ref->getAttributes(Spora\Speech\Attributes\AcceptedAudioMime::class),
+    );
+
+    expect($mimes)->toBe([
+        'audio/ogg;codecs=opus',
+        'audio/mp4',
+        'audio/webm;codecs=opus',
+    ]);
+});
+
 test('bindLabel() overrides getDisplayName() until reset', function (): void {
     // Mirrors what SpeechToTextRegistry::describeGeneric() does for any
     // class-level provider that opts into the bindLabel() hook — the
