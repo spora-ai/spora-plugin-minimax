@@ -226,7 +226,7 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
         ?int $agentId = null,
         ?int $userId = null,
     ): TranscriptionResult {
-        return $this->runTranscribe($bytes, $mimeType, $languageHint, $agentId ?? 0, $userId ?? 0);
+        return $this->runTranscribe($bytes, $mimeType, $languageHint, $agentId ?? 0, $userId);
     }
 
     /**
