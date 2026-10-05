@@ -114,6 +114,11 @@ abstract class MiniMaxTool extends AbstractTool
         $this->mediaArchiveResolver = $resolver;
     }
 
+    /**
+     * @param  int|null  $userId  Deprecated: same value as `$context->ownerUserId`, which
+     *                             always held this same value. Removed from the interface
+     *                             in core 0.30.0 — read the context instead.
+     */
     public function execute(
         array $arguments,
         int $agentId,
@@ -123,11 +128,9 @@ abstract class MiniMaxTool extends AbstractTool
     ): ToolResult {
         // Owner = the user whose MiniMax API key pays for this call
         // (settings lookup). Runner = the user who triggered it (Media
-        // Archive permission checks + per-row asset attribution). When
-        // the orchestrator didn't pass a PrincipalContext — legacy
-        // dispatch paths, tests — both fall back to the legacy $userId.
-        $ownerId  = ($context !== null && $context->ownerUserId !== null) ? $context->ownerUserId : $userId;
-        $runnerId = ($context !== null && $context->runnerUserId !== null) ? $context->runnerUserId : $userId;
+        // Archive permission checks + per-row asset attribution).
+        $ownerId  = $context?->ownerUserId;
+        $runnerId = $context?->runnerUserId;
 
         // Resolve Media Archive references BEFORE building the work
         // closure so `doWork()` receives the rewritten argument array

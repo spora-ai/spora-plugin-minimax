@@ -237,6 +237,10 @@ final class MiniMaxVideoTool extends MiniMaxTool
      * typo doesn't silently fall back to `generate`.
      *
      * @param array<string, mixed> $arguments
+     *
+     * @param  int|null  $userId  Deprecated: same value as `$context->ownerUserId`, which
+     *                             always held this same value. Removed from the interface
+     *                             in core 0.30.0 — read the context instead.
      */
     public function execute(
         array $arguments,
@@ -247,10 +251,9 @@ final class MiniMaxVideoTool extends MiniMaxTool
     ): ToolResult {
         // Owner pays for the MiniMax API key; runner triggers the call
         // and rides along for Media Archive permission checks + asset
-        // attribution. Both fall back to the legacy $userId when the
-        // orchestrator didn't pass a PrincipalContext.
-        $ownerId  = ($context !== null && $context->ownerUserId !== null) ? $context->ownerUserId : $userId;
-        $runnerId = ($context !== null && $context->runnerUserId !== null) ? $context->runnerUserId : $userId;
+        // attribution.
+        $ownerId  = $context?->ownerUserId;
+        $runnerId = $context?->runnerUserId;
 
         // Resolve Media Archive references BEFORE dispatching. Each
         // per-operation method (`generate()`, `resume()`, ...) builds

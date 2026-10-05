@@ -203,6 +203,10 @@ final class MiniMaxVideoV1Tool extends MiniMaxTool
      * typo doesn't silently fall back to `generate`.
      *
      * @param array<string, mixed> $arguments
+     *
+     * @param  int|null  $userId  Deprecated: same value as `$context->ownerUserId`, which
+     *                             always held this same value. Removed from the interface
+     *                             in core 0.30.0 — read the context instead.
      */
     public function execute(
         array $arguments,
@@ -211,8 +215,8 @@ final class MiniMaxVideoV1Tool extends MiniMaxTool
         ?int $taskId = null,
         ?PrincipalContext $context = null,
     ): ToolResult {
-        $ownerId  = ($context !== null && $context->ownerUserId !== null) ? $context->ownerUserId : $userId;
-        $runnerId = ($context !== null && $context->runnerUserId !== null) ? $context->runnerUserId : $userId;
+        $ownerId  = $context?->ownerUserId;
+        $runnerId = $context?->runnerUserId;
 
         // Resolve Media Archive references BEFORE dispatching — each
         // per-operation method (`generate()`, `resume()`) builds an

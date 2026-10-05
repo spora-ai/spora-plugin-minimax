@@ -203,6 +203,10 @@ final class MiniMaxSpeechTool extends MiniMaxTool
      * enforces the enum at a higher layer.
      *
      * @param array<string, mixed> $arguments
+     *
+     * @param  int|null  $userId  Deprecated: same value as `$context->ownerUserId`, which
+     *                             always held this same value. Removed from the interface
+     *                             in core 0.30.0 — read the context instead.
      */
     public function execute(
         array $arguments,
@@ -211,8 +215,8 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         ?int $taskId = null,
         ?PrincipalContext $context = null,
     ): ToolResult {
-        $ownerId  = ($context !== null && $context->ownerUserId !== null) ? $context->ownerUserId : $userId;
-        $runnerId = ($context !== null && $context->runnerUserId !== null) ? $context->runnerUserId : $userId;
+        $ownerId  = $context?->ownerUserId;
+        $runnerId = $context?->runnerUserId;
         $operation = (string) ($arguments['action'] ?? 'synthesize');
         return match ($operation) {
             'voices' => $this->listVoices($arguments, $agentId, $ownerId, $runnerId),

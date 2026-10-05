@@ -18,7 +18,7 @@ use Spora\Services\DataUrlAssetStore;
 use Spora\Services\LocalAssetStore;
 use Spora\Services\MediaArchive\MediaArchiveService;
 use Spora\Services\MediaArchive\MediaArchiveUrlResolver;
-use Spora\Services\MediaArchive\MediaConverterRegistry;
+use Spora\Services\MediaArchive\MediaDerivativeService;
 use Spora\Services\MediaArchive\MediaIngestDecoder;
 use Spora\Services\MediaArchive\MetadataExtractor;
 use Spora\Services\MediaArchive\MimeSniffer;
@@ -109,22 +109,29 @@ function minimaxTestArchiveService(?HttpClientInterface $http = null): MediaArch
     $fetcher = new RemoteMediaFetcher($http, $logger, 30, 100 * 1024 * 1024);
     $resolver = new MediaArchiveUrlResolver($fetcher, $sniffer, $logger, true, 100 * 1024 * 1024);
 
-    // MediaConverterDiscovery::all() returns an empty list by default
-    // (no static init in the discovery class), so the registry's
-    // constructor never calls $container->get() — the mock is
-    // never invoked, but PHPStan still needs a real implementation.
-    $container = M::mock(Psr\Container\ContainerInterface::class);
+    // MediaDerivativeProducerDiscovery::all() returns an empty list by
+    // default (no static init in the discovery class), so the container
+    // is only consulted to resolve producers that were never registered —
+    // the mock is never invoked, but PHPStan still needs a real
+    // implementation.
+    $store       = minimaxTestAssetStore();
+    $derivatives = new MediaDerivativeService(
+        $store,
+        new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
+        M::mock(Psr\Container\ContainerInterface::class),
+        null,
+        $logger,
+    );
 
     return new MediaArchiveService(new Spora\Services\MediaArchive\MediaArchiveIngestPipeline(
         new MediaIngestDecoder(),
         $resolver,
         $sniffer,
         $meta,
-        minimaxTestAssetStore(),
-        new MediaConverterRegistry($container),
+        $store,
+        $derivatives,
         new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
-        $logger,
-    ));
+    ), $derivatives);
 }
 
 it('image tool calls MediaArchive::ingest without breaking the success result', function () {
@@ -360,6 +367,21 @@ function minimaxFilenameCaptureArchiveService(): array
         $table->boolean('migrated_from_inline_data_url')->default(false);
         $table->timestamps();
     });
+    // `ensureTextDerivative()` reads this join table to find an existing
+    // `md` derivative before it decides whether to mint one, so the
+    // fixture needs it even though no producer is registered. Columns
+    // mirror core's 0076 migration; the foreign keys are omitted because
+    // this in-memory fixture only ever exercises the read path.
+    $capsule->schema()->create('media_derivatives', function (Blueprint $table): void {
+        $table->uuid('id')->primary();
+        $table->uuid('parent_id');
+        $table->uuid('derivative_id');
+        $table->string('format', 16);
+        $table->string('producer_plugin', 64)->nullable();
+        $table->string('producer_operation', 64)->nullable();
+        $table->dateTime('created_at')->nullable();
+        $table->dateTime('updated_at')->nullable();
+    });
     $capsule->schema()->create('users', function (Blueprint $table): void {
         $table->bigIncrements('id');
         $table->string('email', 249)->unique();
@@ -422,17 +444,25 @@ function minimaxFilenameCaptureArchiveService(): array
     );
 
     $store = new MinimaxFilenameCapturingStore();
-    $container = M::mock(Psr\Container\ContainerInterface::class);
+    // No derivative producer is registered, so the container is never
+    // consulted. `ensureTextDerivative()` still reads `media_derivatives`
+    // before deciding that, which is why this fixture needs the table.
+    $derivatives = new MediaDerivativeService(
+        $store,
+        new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
+        M::mock(Psr\Container\ContainerInterface::class),
+        null,
+        $logger,
+    );
     $archive = new MediaArchiveService(new Spora\Services\MediaArchive\MediaArchiveIngestPipeline(
         new MediaIngestDecoder(),
         $resolver,
         $sniffer,
         new MetadataExtractor($logger, false),
         $store,
-        new MediaConverterRegistry($container),
+        $derivatives,
         new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
-        $logger,
-    ));
+    ), $derivatives);
     return [$archive, $store];
 }
 

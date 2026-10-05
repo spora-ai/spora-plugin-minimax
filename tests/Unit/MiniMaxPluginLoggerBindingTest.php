@@ -43,19 +43,26 @@ it('onContainerBuilding binds LoggerInterface to every MiniMax tool', function (
         true,
         1024 * 1024,
     );
+    // Shared between the ingest pipeline and `MediaArchiveService`; the
+    // container is only consulted for registered derivative producers and
+    // none are registered, so `ensureTextDerivative()` is a no-op.
+    $derivatives = new Spora\Services\MediaArchive\MediaDerivativeService(
+        $assetStore,
+        new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
+        Mockery::mock(Psr\Container\ContainerInterface::class),
+        null,
+        $logger,
+    );
     $pipeline = new Spora\Services\MediaArchive\MediaArchiveIngestPipeline(
         new Spora\Services\MediaArchive\MediaIngestDecoder(),
         $urlResolver,
         $sniffer,
         new Spora\Services\MediaArchive\MetadataExtractor($logger, false),
         $assetStore,
-        new Spora\Services\MediaArchive\MediaConverterRegistry(
-            Mockery::mock(Psr\Container\ContainerInterface::class),
-        ),
+        $derivatives,
         new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
-        $logger,
     );
-    $archive = new MediaArchiveService($pipeline);
+    $archive = new MediaArchiveService($pipeline, $derivatives);
 
     $builder->addDefinitions([
         MediaArchiveService::class => $archive,
