@@ -6,7 +6,7 @@ compatibility: spora>=0.7 spora-plugin-minimax>=1.2
 metadata:
   author: spora-ai
   version: "1.2"
-allowed-tools: Spora\Plugins\MiniMax\Tools\MiniMaxVideoTool
+allowed-tools: video_minimax
 ---
 
 # MiniMax video (H3)
