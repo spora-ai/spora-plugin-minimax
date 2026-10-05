@@ -61,7 +61,7 @@ describe('Media Archive resolver hook in MiniMaxVideoTool', function (): void {
         $result = $tool->execute([
             'prompt' => 'a forest',
             'first_frame_image' => '11111111-2222-3333-4444-555555555555',
-        ], 1, 7);
+        ], 1);
 
         expect($result->success)->toBeFalse()
             ->and($result->content)->not->toContain('must be http(s)://, mm_file://, or a data: URI');
@@ -76,7 +76,7 @@ describe('Media Archive resolver hook in MiniMaxVideoTool', function (): void {
         $result = $tool->execute([
             'prompt' => 'a forest',
             'first_frame_image' => '11111111-2222-3333-4444-555555555555',
-        ], 1, 7);
+        ], 1);
 
         expect($result->success)->toBeFalse()
             ->and($result->content)->toContain('11111111-2222-3333-4444-555555555555')
@@ -93,7 +93,7 @@ describe('Media Archive resolver hook in MiniMaxVideoTool', function (): void {
         $result = $tool->execute([
             'prompt' => 'a forest',
             'first_frame_image' => '11111111-2222-3333-4444-555555555555',
-        ], 1, 7);
+        ], 1);
 
         expect($result->success)->toBeFalse()
             ->and($result->content)->toContain('50 MB');
@@ -113,7 +113,7 @@ describe('Media Archive resolver hook in MiniMaxVideoTool', function (): void {
         $result = $tool->execute([
             'prompt' => 'a forest',
             'first_frame_image' => 'https://cdn.example.com/frame.png',
-        ], 1, 7);
+        ], 1);
 
         expect($result->success)->toBeFalse()
             ->and($result->content)->not->toContain('must be http(s)://, mm_file://, or a data: URI');
@@ -129,7 +129,7 @@ describe('Media Archive resolver hook in MiniMaxVideoTool', function (): void {
         $result = $tool->execute([
             'prompt' => 'a forest',
             'first_frame_image' => '11111111-2222-3333-4444-555555555555',
-        ], 1, 7);
+        ], 1);
 
         expect($result->success)->toBeFalse()
             ->and($result->content)->toContain('must be http(s)://, mm_file://, or a data: URI');
@@ -146,7 +146,7 @@ describe('Media Archive resolver hook in MiniMaxVideoV1Tool', function (): void 
         $result = $tool->execute([
             'prompt' => 'a forest',
             'first_frame_image' => '11111111-2222-3333-4444-555555555555',
-        ], 1, 7);
+        ], 1);
 
         expect($result->success)->toBeFalse()
             ->and($result->content)->toContain('11111111-2222-3333-4444-555555555555')
@@ -210,7 +210,7 @@ describe('Media Archive resolver: closure-capture regression (doGenerate must se
         $result = $tool->execute([
             'prompt' => 'a forest',
             'first_frame_image' => $opaqueOriginal,
-        ], 1, 7);
+        ], 1);
 
         // Body was captured (i.e. `doGenerate` ran and called submit).
         expect($capturedBodies['submit'] ?? null)->not->toBeNull()
@@ -248,7 +248,7 @@ describe('Media Archive resolver: closure-capture regression (doGenerate must se
         $result = $tool->execute([
             'prompt' => 'a forest',
             'first_frame_image' => '11111111-2222-3333-4444-555555555555',
-        ], 1, 7);
+        ], 1);
 
         expect($result->success)->toBeFalse()
             ->and($result->content)->toContain('11111111-2222-3333-4444-555555555555')

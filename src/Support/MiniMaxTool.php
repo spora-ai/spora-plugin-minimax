@@ -115,14 +115,10 @@ abstract class MiniMaxTool extends AbstractTool
     }
 
     /**
-     * @param  int|null  $userId  Deprecated: same value as `$context->ownerUserId`, which
-     *                             always held this same value. Removed from the interface
-     *                             in core 0.30.0 — read the context instead.
      */
     public function execute(
         array $arguments,
         int $agentId,
-        ?int $userId = null,
         ?int $taskId = null,
         ?PrincipalContext $context = null,
     ): ToolResult {
