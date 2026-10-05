@@ -6,7 +6,7 @@ compatibility: spora>=0.7 spora-plugin-minimax>=1.0
 metadata:
   author: spora-ai
   version: "1.0"
-allowed-tools: Spora\Plugins\MiniMax\Tools\MiniMaxMusicTool
+allowed-tools: music_minimax
 ---
 
 # MiniMax music

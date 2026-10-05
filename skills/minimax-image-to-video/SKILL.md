@@ -6,7 +6,7 @@ compatibility: spora>=0.16 spora-plugin-minimax>=1.2
 metadata:
   author: spora-ai
   version: "1.2"
-allowed-tools: Spora\Plugins\MiniMax\Tools\MiniMaxImageTool, Spora\Plugins\MiniMax\Tools\MiniMaxVideoTool
+allowed-tools: image_minimax video_minimax
 ---
 
 # MiniMax image-to-video workflow
