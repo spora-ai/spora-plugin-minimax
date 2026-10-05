@@ -236,6 +236,7 @@ final class MiniMaxVideoTool extends MiniMaxTool
      * definitions; any unrecognised `action` value fails loudly so a
      * typo doesn't silently fall back to `generate`.
      *
+     * @deprecated 1.0 pass $context->ownerUserId instead; removed from the interface in core 0.30.0.
      * @param array<string, mixed> $arguments
      */
     public function execute(
@@ -247,10 +248,9 @@ final class MiniMaxVideoTool extends MiniMaxTool
     ): ToolResult {
         // Owner pays for the MiniMax API key; runner triggers the call
         // and rides along for Media Archive permission checks + asset
-        // attribution. Both fall back to the legacy $userId when the
-        // orchestrator didn't pass a PrincipalContext.
-        $ownerId  = ($context !== null && $context->ownerUserId !== null) ? $context->ownerUserId : $userId;
-        $runnerId = ($context !== null && $context->runnerUserId !== null) ? $context->runnerUserId : $userId;
+        // attribution.
+        $ownerId  = $context?->ownerUserId;
+        $runnerId = $context?->runnerUserId;
 
         // Resolve Media Archive references BEFORE dispatching. Each
         // per-operation method (`generate()`, `resume()`, ...) builds

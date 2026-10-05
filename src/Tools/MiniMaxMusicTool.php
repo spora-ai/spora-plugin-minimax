@@ -162,6 +162,8 @@ final class MiniMaxMusicTool extends MiniMaxTool
 
     /**
      * Multi-operation tool: dispatch on the `action` argument.
+     *
+     * @deprecated 1.0 pass $context->ownerUserId instead; removed from the interface in core 0.30.0.
      */
     public function execute(
         array $arguments,
@@ -170,8 +172,8 @@ final class MiniMaxMusicTool extends MiniMaxTool
         ?int $taskId = null,
         ?PrincipalContext $context = null,
     ): ToolResult {
-        $ownerId  = ($context !== null && $context->ownerUserId !== null) ? $context->ownerUserId : $userId;
-        $runnerId = ($context !== null && $context->runnerUserId !== null) ? $context->runnerUserId : $userId;
+        $ownerId  = $context?->ownerUserId;
+        $runnerId = $context?->runnerUserId;
         $operation = $this->getOperationName($arguments);
 
         return match ($operation) {

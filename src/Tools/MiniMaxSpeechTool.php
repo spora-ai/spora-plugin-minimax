@@ -202,6 +202,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
      * failing — the runtime schema validator (per the docs skill page)
      * enforces the enum at a higher layer.
      *
+     * @deprecated 1.0 pass $context->ownerUserId instead; removed from the interface in core 0.30.0.
      * @param array<string, mixed> $arguments
      */
     public function execute(
@@ -211,8 +212,8 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         ?int $taskId = null,
         ?PrincipalContext $context = null,
     ): ToolResult {
-        $ownerId  = ($context !== null && $context->ownerUserId !== null) ? $context->ownerUserId : $userId;
-        $runnerId = ($context !== null && $context->runnerUserId !== null) ? $context->runnerUserId : $userId;
+        $ownerId  = $context?->ownerUserId;
+        $runnerId = $context?->runnerUserId;
         $operation = (string) ($arguments['action'] ?? 'synthesize');
         return match ($operation) {
             'voices' => $this->listVoices($arguments, $agentId, $ownerId, $runnerId),
