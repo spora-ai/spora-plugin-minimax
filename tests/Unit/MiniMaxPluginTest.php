@@ -84,19 +84,28 @@ it('onContainerBuilding binds each MiniMax tool with a setMediaArchive resolver'
         true,
         1024 * 1024,
     );
+    // `MediaDerivativeService` is the one collaborator both the ingest
+    // pipeline and `MediaArchiveService` need, so it is built once and
+    // shared. The container is only consulted for registered derivative
+    // producers; none are registered here, so `ensureTextDerivative()`
+    // is a no-op and the mock is never invoked.
+    $derivatives = new Spora\Services\MediaArchive\MediaDerivativeService(
+        $assetStore,
+        new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
+        Mockery::mock(Psr\Container\ContainerInterface::class),
+        null,
+        $logger,
+    );
     $pipeline = new Spora\Services\MediaArchive\MediaArchiveIngestPipeline(
         new Spora\Services\MediaArchive\MediaIngestDecoder(),
         $urlResolver,
         $sniffer,
         new Spora\Services\MediaArchive\MetadataExtractor($logger, false),
         $assetStore,
-        new Spora\Services\MediaArchive\MediaConverterRegistry(
-            Mockery::mock(Psr\Container\ContainerInterface::class),
-        ),
+        $derivatives,
         new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
-        $logger,
     );
-    $archive = new MediaArchiveService($pipeline);
+    $archive = new MediaArchiveService($pipeline, $derivatives);
     $builder->addDefinitions([
         MediaArchiveService::class => $archive,
     ]);
