@@ -13,7 +13,7 @@ use Spora\Services\AssetStore;
 use Spora\Services\AssetTooLargeException;
 use Spora\Services\MediaArchive\MediaArchiveService;
 use Spora\Services\MediaArchive\MediaArchiveUrlResolver;
-use Spora\Services\MediaArchive\MediaConverterRegistry;
+use Spora\Services\MediaArchive\MediaDerivativeService;
 use Spora\Services\MediaArchive\MediaIngestDecoder;
 use Spora\Services\MediaArchive\MetadataExtractor;
 use Spora\Services\MediaArchive\MimeSniffer;
@@ -77,7 +77,19 @@ function minimaxLoggerArchiveService(): MediaArchiveService
         }
     };
 
-    $container = M::mock(Psr\Container\ContainerInterface::class);
+    // Shared by the pipeline and the service. The container is only
+    // consulted for registered derivative producers; none are registered
+    // here, so the mock is never invoked. The logger that the pipeline's
+    // removed converter-registry parameter used to carry now belongs to
+    // `MediaDerivativeService`, which is the component that logs
+    // producer failures.
+    $derivatives = new MediaDerivativeService(
+        $throwingStore,
+        new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
+        M::mock(Psr\Container\ContainerInterface::class),
+        null,
+        $logger,
+    );
 
     $pipeline = new Spora\Services\MediaArchive\MediaArchiveIngestPipeline(
         new MediaIngestDecoder(),
@@ -85,12 +97,11 @@ function minimaxLoggerArchiveService(): MediaArchiveService
         $sniffer,
         new MetadataExtractor($logger, false),
         $throwingStore,
-        new MediaConverterRegistry($container),
+        $derivatives,
         new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
-        $logger,
     );
 
-    return new MediaArchiveService($pipeline);
+    return new MediaArchiveService($pipeline, $derivatives);
 }
 
 function minimaxLoggerArchiveResponse(int $status, string $body): Symfony\Contracts\HttpClient\ResponseInterface

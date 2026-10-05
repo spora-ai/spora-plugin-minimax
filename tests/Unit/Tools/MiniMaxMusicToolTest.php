@@ -292,6 +292,21 @@ it('ingests the audio_url into the MediaArchive and prefers asset_url in the emb
         $table->string('storage_mode', 16);
         $table->timestamps();
     });
+    // `ensureTextDerivative()` reads this join table to find an existing
+    // `md` derivative before it decides whether to mint one, so the
+    // fixture needs it even though no producer is registered. Columns
+    // mirror core's 0076 migration; the foreign keys are omitted because
+    // this in-memory fixture only ever exercises the read path.
+    $capsule->schema()->create('media_derivatives', function (Illuminate\Database\Schema\Blueprint $table): void {
+        $table->uuid('id')->primary();
+        $table->uuid('parent_id');
+        $table->uuid('derivative_id');
+        $table->string('format', 16);
+        $table->string('producer_plugin', 64)->nullable();
+        $table->string('producer_operation', 64)->nullable();
+        $table->dateTime('created_at')->nullable();
+        $table->dateTime('updated_at')->nullable();
+    });
     $capsule->schema()->create('users', function (Illuminate\Database\Schema\Blueprint $table): void {
         $table->bigIncrements('id');
         $table->string('email', 249)->unique();
@@ -367,22 +382,31 @@ it('ingests the audio_url into the MediaArchive and prefers asset_url in the emb
             true,
             1024 * 1024,
         );
+        $store = new Spora\Services\LocalAssetStore(
+            new Spora\Core\Paths(sys_get_temp_dir() . '/minimax-music-test'),
+            new Spora\Core\SecurityManager(str_repeat("\0", SODIUM_CRYPTO_SECRETBOX_KEYBYTES)),
+            50 * 1024 * 1024,
+        );
+        // Shared between the ingest pipeline and `MediaArchiveService`.
+        // No derivative producer is registered, so the container is never
+        // consulted and `ensureTextDerivative()` is a no-op.
+        $derivatives = new Spora\Services\MediaArchive\MediaDerivativeService(
+            $store,
+            new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
+            M::mock(Psr\Container\ContainerInterface::class),
+            null,
+            $logger,
+        );
+
         return new Spora\Services\MediaArchive\MediaArchiveService(new Spora\Services\MediaArchive\MediaArchiveIngestPipeline(
             new Spora\Services\MediaArchive\MediaIngestDecoder(),
             $resolver,
             $sniffer,
             new Spora\Services\MediaArchive\MetadataExtractor($logger, false),
-            new Spora\Services\LocalAssetStore(
-                new Spora\Core\Paths(sys_get_temp_dir() . '/minimax-music-test'),
-                new Spora\Core\SecurityManager(str_repeat("\0", SODIUM_CRYPTO_SECRETBOX_KEYBYTES)),
-                50 * 1024 * 1024,
-            ),
-            new Spora\Services\MediaArchive\MediaConverterRegistry(
-                M::mock(Psr\Container\ContainerInterface::class),
-            ),
+            $store,
+            $derivatives,
             new Spora\Services\PrincipalService(new Spora\Services\PrincipalResolver()),
-            $logger,
-        ));
+        ), $derivatives);
     })();
 
     $tool = new MiniMaxMusicTool($config, $http, M::mock(Spora\Services\AssetStore::class), null, null, $archive);
