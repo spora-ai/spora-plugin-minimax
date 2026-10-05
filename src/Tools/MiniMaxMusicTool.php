@@ -163,7 +163,9 @@ final class MiniMaxMusicTool extends MiniMaxTool
     /**
      * Multi-operation tool: dispatch on the `action` argument.
      *
-     * @deprecated 1.0 pass $context->ownerUserId instead; removed from the interface in core 0.30.0.
+     * @param  int|null  $userId  Deprecated: same value as `$context->ownerUserId`, which
+     *                             always held this same value. Removed from the interface
+     *                             in core 0.30.0 — read the context instead.
      */
     public function execute(
         array $arguments,
