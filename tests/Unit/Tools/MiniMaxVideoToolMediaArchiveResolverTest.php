@@ -47,7 +47,7 @@ function makeVideoV1ToolWithResolver(MiniMaxMediaArchiveResolver $resolver): Min
 describe('Media Archive resolver hook in MiniMaxVideoTool', function (): void {
     it('resolves a UUID first_frame_image into a data URI before the URL policy', function (): void {
         $resolver = new MiniMaxMediaArchiveResolver(
-            static fn(string $id, ?int $userId): array
+            static fn(string $id, ?int $runnerUserId): array
                 => ['status' => 'data_url', 'bytes' => 'pixel', 'mime' => 'image/png'],
         );
         $tool = makeVideoToolWithResolver($resolver);
@@ -69,7 +69,7 @@ describe('Media Archive resolver hook in MiniMaxVideoTool', function (): void {
 
     it('returns the resolver failure when the UUID does not exist', function (): void {
         $resolver = new MiniMaxMediaArchiveResolver(
-            static fn(string $id, ?int $userId): ?array => null,
+            static fn(string $id, ?int $runnerUserId): ?array => null,
         );
         $tool = makeVideoToolWithResolver($resolver);
 
@@ -85,7 +85,7 @@ describe('Media Archive resolver hook in MiniMaxVideoTool', function (): void {
 
     it('rejects a UUID that resolves to a payload over the 50 MB cap', function (): void {
         $resolver = new MiniMaxMediaArchiveResolver(
-            static fn(string $id, ?int $userId): array
+            static fn(string $id, ?int $runnerUserId): array
                 => ['status' => 'data_url', 'bytes' => str_repeat("\x00", 51 * 1024 * 1024), 'mime' => 'image/png'],
         );
         $tool = makeVideoToolWithResolver($resolver);
@@ -106,7 +106,7 @@ describe('Media Archive resolver hook in MiniMaxVideoTool', function (): void {
         // reason — the *absence* of the URL policy error is the
         // assertion that proves the resolver left the URL alone.
         $resolver = new MiniMaxMediaArchiveResolver(
-            static fn(string $id, ?int $userId): ?array => null,
+            static fn(string $id, ?int $runnerUserId): ?array => null,
         );
         $tool = makeVideoToolWithResolver($resolver);
 
@@ -122,7 +122,7 @@ describe('Media Archive resolver hook in MiniMaxVideoTool', function (): void {
     it('is a no-op when no resolver is wired', function (): void {
         // No setMediaArchiveResolver call — the hook is skipped.
         $tool = makeVideoToolWithResolver(new MiniMaxMediaArchiveResolver(
-            static fn(string $id, ?int $userId): ?array => null,
+            static fn(string $id, ?int $runnerUserId): ?array => null,
         ));
         $tool->setMediaArchiveResolver(null);
 
@@ -139,7 +139,7 @@ describe('Media Archive resolver hook in MiniMaxVideoTool', function (): void {
 describe('Media Archive resolver hook in MiniMaxVideoV1Tool', function (): void {
     it('returns the resolver failure for a UUID first_frame_image', function (): void {
         $resolver = new MiniMaxMediaArchiveResolver(
-            static fn(string $id, ?int $userId): ?array => null,
+            static fn(string $id, ?int $runnerUserId): ?array => null,
         );
         $tool = makeVideoV1ToolWithResolver($resolver);
 
@@ -171,7 +171,7 @@ describe('Media Archive resolver: closure-capture regression (doGenerate must se
         $opaqueOriginal = '/api/v1/assets/' . '11111111-2222-3333-4444-555555555555.png';
 
         $resolver = new MiniMaxMediaArchiveResolver(
-            static fn(string $id, ?int $userId): array
+            static fn(string $id, ?int $runnerUserId): array
                 => ['status' => 'data_url', 'bytes' => 'pixel', 'mime' => 'image/png'],
             // The resolver wraps the bytes as a data URI; we override
             // to a SENTINEL so the test can assert byte-for-byte that
@@ -234,7 +234,7 @@ describe('Media Archive resolver: closure-capture regression (doGenerate must se
         $http->shouldNotReceive('request');
 
         $resolver = new MiniMaxMediaArchiveResolver(
-            static fn(string $id, ?int $userId): ?array => null,
+            static fn(string $id, ?int $runnerUserId): ?array => null,
         );
 
         $config = Mockery::mock(ToolConfigService::class);

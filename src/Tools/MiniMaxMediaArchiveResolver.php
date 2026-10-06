@@ -62,7 +62,11 @@ final class MiniMaxMediaArchiveResolver
     ];
 
     /**
-     * @param Closure(string $id, ?int $userId): ?array $reader
+     * @param Closure(string $id, ?int $runnerUserId): ?array $reader
+     *        Binding to the host's `MediaAssetReader::readAsset()`, whose
+     *        second argument core still names `userId`; the plugin calls
+     *        the value it passes "runner" because it is who triggered the
+     *        task, not who owns the paying key.
      */
     public function __construct(
         private readonly Closure $reader,
@@ -74,9 +78,13 @@ final class MiniMaxMediaArchiveResolver
      * Media Archive UUIDs with inline data URIs.
      *
      * @param  array<string, mixed> $arguments
+     * @param  int|null             $runnerUserId User the ownership check
+     *                                          runs against, or null for
+     *                                          the system-context bypass
+     *                                          (admin / no-auth callers).
      * @return array{resolved: array<string, mixed>}|array{failed: ToolResult}
      */
-    public function resolve(array $arguments, ?int $userId): array
+    public function resolve(array $arguments, ?int $runnerUserId): array
     {
         $mutated = $arguments;
         foreach (self::URL_FIELDS as $field) {
@@ -93,7 +101,7 @@ final class MiniMaxMediaArchiveResolver
                     $replaced[] = $value;
                     continue;
                 }
-                $outcome = $this->resolveOne($value, $userId);
+                $outcome = $this->resolveOne($value, $runnerUserId);
                 if (isset($outcome['failed'])) {
                     return ['failed' => $outcome['failed']];
                 }
@@ -109,7 +117,7 @@ final class MiniMaxMediaArchiveResolver
     /**
      * @return array{resolved: string}|array{failed: ToolResult}
      */
-    private function resolveOne(string $url, ?int $userId): array
+    private function resolveOne(string $url, ?int $runnerUserId): array
     {
         $uuid = $this->extractUuid($url);
         if ($uuid === null) {
@@ -119,7 +127,7 @@ final class MiniMaxMediaArchiveResolver
             return ['resolved' => $url];
         }
 
-        $result = ($this->reader)($uuid, $userId);
+        $result = ($this->reader)($uuid, $runnerUserId);
         if ($result === null) {
             return ['failed' => $this->notFoundFailure($uuid)];
         }
