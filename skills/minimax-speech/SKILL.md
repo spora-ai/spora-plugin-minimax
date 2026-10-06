@@ -6,7 +6,7 @@ compatibility: spora>=0.7 spora-plugin-minimax>=1.0
 metadata:
   author: spora-ai
   version: "1.0"
-allowed-tools: Spora\Plugins\MiniMax\Tools\MiniMaxSpeechTool
+allowed-tools: speech_minimax
 ---
 
 # MiniMax speech
