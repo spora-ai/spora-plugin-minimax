@@ -9,7 +9,7 @@
         "ext-json": "*",
         "ext-mbstring": "*",
         "psr/log": "^3.0",
-        "spora-ai/spora-core": ">=0.23.0 <2.0.0 || @dev",
+        "spora-ai/spora-core": ">=0.30.0 <2.0.0",
         "symfony/event-dispatcher": "^8.0",
         "symfony/http-client-contracts": "^3.6"
     },
@@ -54,7 +54,10 @@
             "type": "path",
             "url": "../spora-core",
             "options": {
-                "symlink": true
+                "symlink": true,
+                "versions": {
+                    "spora-ai/spora-core": "0.30.0"
+                }
             }
         }
     ],
