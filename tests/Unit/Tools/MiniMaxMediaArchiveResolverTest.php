@@ -18,21 +18,21 @@ use Spora\Tools\ValueObjects\ToolResult;
 function makeResolver(?Closure $reader = null): MiniMaxMediaArchiveResolver
 {
     return new MiniMaxMediaArchiveResolver(
-        $reader ?? static fn(string $id, ?int $userId): ?array => null,
+        $reader ?? static fn(string $id, ?int $runnerUserId): ?array => null,
     );
 }
 
 /**
- * Build a closure that scripts a single (id, userId) → payload mapping.
+ * Build a closure that scripts a single (id, runnerUserId) → payload mapping.
  * Unscripted calls return null (the not-found failure).
  */
 function fakeReader(array $script): Closure
 {
-    return static function (string $id, ?int $userId) use ($script): ?array {
+    return static function (string $id, ?int $runnerUserId) use ($script): ?array {
         foreach ($script as $entry) {
             if ($entry['id'] === $id
-                && ($entry['userId'] === $userId || !array_key_exists('userId', $entry))
-                && $entry['userId'] === $userId
+                && ($entry['runnerUserId'] === $runnerUserId || !array_key_exists('runnerUserId', $entry))
+                && $entry['runnerUserId'] === $runnerUserId
             ) {
                 return $entry['payload'];
             }
@@ -45,7 +45,7 @@ function fakeReader(array $script): Closure
 
 describe('MiniMaxMediaArchiveResolver::resolve', function (): void {
     it('passes through a plain HTTP URL untouched', function (): void {
-        $reader = static fn(string $id, ?int $userId): ?array => null;
+        $reader = static fn(string $id, ?int $runnerUserId): ?array => null;
         $resolver = makeResolver($reader);
 
         $out = $resolver->resolve([
@@ -56,7 +56,7 @@ describe('MiniMaxMediaArchiveResolver::resolve', function (): void {
     });
 
     it('passes through a data: URI untouched', function (): void {
-        $reader = static fn(string $id, ?int $userId): ?array => null;
+        $reader = static fn(string $id, ?int $runnerUserId): ?array => null;
         $resolver = makeResolver($reader);
 
         $out = $resolver->resolve([
@@ -67,7 +67,7 @@ describe('MiniMaxMediaArchiveResolver::resolve', function (): void {
     });
 
     it('passes through an mm_file:// URL untouched', function (): void {
-        $reader = static fn(string $id, ?int $userId): ?array => null;
+        $reader = static fn(string $id, ?int $runnerUserId): ?array => null;
         $resolver = makeResolver($reader);
 
         $out = $resolver->resolve([
@@ -81,7 +81,7 @@ describe('MiniMaxMediaArchiveResolver::resolve', function (): void {
 
     it('resolves a bare 36-char UUID into a data URI', function (): void {
         $reader = fakeReader([
-            ['id' => '11111111-2222-3333-4444-555555555555', 'userId' => 7,
+            ['id' => '11111111-2222-3333-4444-555555555555', 'runnerUserId' => 7,
                 'payload' => ['status' => 'data_url', 'bytes' => 'png-bytes', 'mime' => 'image/png']],
         ]);
         $resolver = makeResolver($reader);
@@ -95,7 +95,7 @@ describe('MiniMaxMediaArchiveResolver::resolve', function (): void {
 
     it('resolves a bare UUID with a stray extension into a data URI', function (): void {
         $reader = fakeReader([
-            ['id' => '11111111-2222-3333-4444-555555555555', 'userId' => 7,
+            ['id' => '11111111-2222-3333-4444-555555555555', 'runnerUserId' => 7,
                 'payload' => ['status' => 'local', 'bytes' => 'jpeg-bytes', 'mime' => 'image/jpeg']],
         ]);
         $resolver = makeResolver($reader);
@@ -109,7 +109,7 @@ describe('MiniMaxMediaArchiveResolver::resolve', function (): void {
 
     it('resolves a /api/v1/assets/<uuid>.<ext> URL into a data URI', function (): void {
         $reader = fakeReader([
-            ['id' => '11111111-2222-3333-4444-555555555555', 'userId' => 7,
+            ['id' => '11111111-2222-3333-4444-555555555555', 'runnerUserId' => 7,
                 'payload' => ['status' => 'data_url', 'bytes' => 'webp-bytes', 'mime' => 'image/webp']],
         ]);
         $resolver = makeResolver($reader);
@@ -125,7 +125,7 @@ describe('MiniMaxMediaArchiveResolver::resolve', function (): void {
 
     it('passes through the source URL for external-mode assets', function (): void {
         $reader = fakeReader([
-            ['id' => '11111111-2222-3333-4444-555555555555', 'userId' => 7,
+            ['id' => '11111111-2222-3333-4444-555555555555', 'runnerUserId' => 7,
                 'payload' => ['status' => 'external', 'sourceUrl' => 'https://cdn.example.com/asset.jpg']],
         ]);
         $resolver = makeResolver($reader);
@@ -140,7 +140,7 @@ describe('MiniMaxMediaArchiveResolver::resolve', function (): void {
     // ----- Failure paths ------------------------------------------------
 
     it('returns a failed ToolResult when the UUID does not exist', function (): void {
-        $reader = static fn(string $id, ?int $userId): ?array => null;
+        $reader = static fn(string $id, ?int $runnerUserId): ?array => null;
         $resolver = makeResolver($reader);
 
         $out = $resolver->resolve([
@@ -157,7 +157,7 @@ describe('MiniMaxMediaArchiveResolver::resolve', function (): void {
         // 51 MB of zeros — base64 encodes to ~68 MB, over the 50 MB cap.
         $hugeBytes = str_repeat("\x00", 51 * 1024 * 1024);
         $reader = fakeReader([
-            ['id' => '11111111-2222-3333-4444-555555555555', 'userId' => 7,
+            ['id' => '11111111-2222-3333-4444-555555555555', 'runnerUserId' => 7,
                 'payload' => ['status' => 'data_url', 'bytes' => $hugeBytes, 'mime' => 'image/png']],
         ]);
         $resolver = makeResolver($reader);
@@ -175,9 +175,9 @@ describe('MiniMaxMediaArchiveResolver::resolve', function (): void {
 
     it('scans every element in a reference_images list', function (): void {
         $reader = fakeReader([
-            ['id' => 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'userId' => 7,
+            ['id' => 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'runnerUserId' => 7,
                 'payload' => ['status' => 'data_url', 'bytes' => 'bytes-1', 'mime' => 'image/png']],
-            ['id' => 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'userId' => 7,
+            ['id' => 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'runnerUserId' => 7,
                 'payload' => ['status' => 'data_url', 'bytes' => 'bytes-2', 'mime' => 'image/jpeg']],
         ]);
         $resolver = makeResolver($reader);
@@ -199,7 +199,7 @@ describe('MiniMaxMediaArchiveResolver::resolve', function (): void {
 
     it('short-circuits on a failed resolution mid-list', function (): void {
         $reader = fakeReader([
-            ['id' => 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'userId' => 7,
+            ['id' => 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'runnerUserId' => 7,
                 'payload' => ['status' => 'data_url', 'bytes' => 'ok', 'mime' => 'image/png']],
             // cccccccc is intentionally absent — the resolver must stop
             // before reaching bbbbbbbb.
@@ -219,7 +219,7 @@ describe('MiniMaxMediaArchiveResolver::resolve', function (): void {
 
     it('preserves the rest of the arguments', function (): void {
         $reader = fakeReader([
-            ['id' => '11111111-2222-3333-4444-555555555555', 'userId' => 1,
+            ['id' => '11111111-2222-3333-4444-555555555555', 'runnerUserId' => 1,
                 'payload' => ['status' => 'data_url', 'bytes' => 'png', 'mime' => 'image/png']],
         ]);
         $resolver = makeResolver($reader);
@@ -236,11 +236,11 @@ describe('MiniMaxMediaArchiveResolver::resolve', function (): void {
             ->and($out['resolved']['aspect_ratio'])->toBe('16:9');
     });
 
-    // ----- userId handling ---------------------------------------------
+    // ----- runnerUserId handling ---------------------------------------------
 
-    it('passes null userId through to the reader as the system-context bypass', function (): void {
+    it('passes null runnerUserId through to the reader as the system-context bypass', function (): void {
         $reader = fakeReader([
-            ['id' => '11111111-2222-3333-4444-555555555555', 'userId' => null,
+            ['id' => '11111111-2222-3333-4444-555555555555', 'runnerUserId' => null,
                 'payload' => ['status' => 'data_url', 'bytes' => 'png', 'mime' => 'image/png']],
         ]);
         $resolver = makeResolver($reader);
@@ -256,7 +256,7 @@ describe('MiniMaxMediaArchiveResolver::resolve', function (): void {
 
     it('scans last_frame_image', function (): void {
         $reader = fakeReader([
-            ['id' => '11111111-2222-3333-4444-555555555555', 'userId' => 1,
+            ['id' => '11111111-2222-3333-4444-555555555555', 'runnerUserId' => 1,
                 'payload' => ['status' => 'data_url', 'bytes' => 'last', 'mime' => 'image/png']],
         ]);
         $resolver = makeResolver($reader);
@@ -270,7 +270,7 @@ describe('MiniMaxMediaArchiveResolver::resolve', function (): void {
 
     it('leaves unknown fields alone', function (): void {
         $reader = fakeReader([
-            ['id' => '11111111-2222-3333-4444-555555555555', 'userId' => 1,
+            ['id' => '11111111-2222-3333-4444-555555555555', 'runnerUserId' => 1,
                 'payload' => ['status' => 'data_url', 'bytes' => 'png', 'mime' => 'image/png']],
         ]);
         $resolver = makeResolver($reader);

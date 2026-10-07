@@ -219,14 +219,23 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
         return $this->boundSettings ?? [];
     }
 
+    /**
+     * {@see SpeechToTextProviderInterface::transcribe()} implementation.
+     * The interface still names its last argument `$userId`; this
+     * implementation calls it `$ownerUserId` because that is what it is —
+     * the cascade principal for `ToolConfigService::getEffectiveSettings()`,
+     * i.e. the user whose saved settings hold the API key. Core's
+     * `SpeechTranscribeController` calls this positionally, so the rename
+     * is source-compatible.
+     */
     public function transcribe(
         string $bytes,
         string $mimeType,
         ?string $languageHint = null,
         ?int $agentId = null,
-        ?int $userId = null,
+        ?int $ownerUserId = null,
     ): TranscriptionResult {
-        return $this->runTranscribe($bytes, $mimeType, $languageHint, $agentId ?? 0, $userId);
+        return $this->runTranscribe($bytes, $mimeType, $languageHint, $agentId ?? 0, $ownerUserId);
     }
 
     /**
@@ -240,10 +249,10 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
         string $mimeType,
         ?string $languageHint,
         int $agentId,
-        ?int $userId,
+        ?int $ownerUserId,
     ): TranscriptionResult {
         $settings = $this->boundSettings
-            ?? $this->configService->getEffectiveSettings(self::class, $agentId, $userId);
+            ?? $this->configService->getEffectiveSettings(self::class, $agentId, $ownerUserId);
 
         $apiKey = is_string($settings['api_key'] ?? null) ? trim($settings['api_key']) : '';
         $this->validateInputs($bytes, $apiKey);

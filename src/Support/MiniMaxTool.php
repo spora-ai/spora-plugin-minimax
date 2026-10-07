@@ -69,15 +69,23 @@ abstract class MiniMaxTool extends AbstractTool
      * arguments and `doGenerate()` (and friends) hand the resolver's
      * `data:` URI — or a forwarded external URL — to the H3 submit.
      *
+     * The resolver performs its ownership check against the *runner*
+     * (who triggered the task), never the owner (whose key pays), so
+     * callers pass `$context?->runnerUserId` here.
+     *
      * @param  array<string, mixed>   $arguments
+     * @param  int|null               $runnerUserId User the Media Archive
+     *                                              permission check runs
+     *                                              against, or null for the
+     *                                              system-context bypass.
      * @return array<string, mixed>|ToolResult
      */
-    protected function resolveMediaArchiveReferences(array $arguments, ?int $userId): array|ToolResult
+    protected function resolveMediaArchiveReferences(array $arguments, ?int $runnerUserId): array|ToolResult
     {
         if ($this->mediaArchiveResolver === null) {
             return $arguments;
         }
-        $resolution = $this->mediaArchiveResolver->resolve($arguments, $userId);
+        $resolution = $this->mediaArchiveResolver->resolve($arguments, $runnerUserId);
         if (isset($resolution['failed'])) {
             return $resolution['failed'];
         }
@@ -115,14 +123,16 @@ abstract class MiniMaxTool extends AbstractTool
     }
 
     /**
-     * @param  int|null  $userId  Deprecated: same value as `$context->ownerUserId`, which
-     *                             always held this same value. Removed from the interface
-     *                             in core 0.30.0 — read the context instead.
+     * Single-operation entry point. Reads the owner (who pays) and the
+     * runner (who triggered) from `$context` — core 0.30.0 removed the
+     * legacy fifth `$userId` parameter, which always held the same value
+     * as `$context->ownerUserId`.
+     *
+     * @param array<string, mixed> $arguments
      */
     public function execute(
         array $arguments,
         int $agentId,
-        ?int $userId = null,
         ?int $taskId = null,
         ?PrincipalContext $context = null,
     ): ToolResult {

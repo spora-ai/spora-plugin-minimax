@@ -126,8 +126,8 @@ final class MiniMaxPlugin extends AbstractPlugin implements EventSubscriberInter
                 ?LoggerInterface $logger,
             ): MiniMaxMediaArchiveResolver {
                 return new MiniMaxMediaArchiveResolver(
-                    static fn(string $id, ?int $userId): ?array
-                        => $reader->readAsset($id, $userId),
+                    static fn(string $id, ?int $runnerUserId): ?array
+                        => $reader->readAsset($id, $runnerUserId),
                     $logger,
                 );
             },
