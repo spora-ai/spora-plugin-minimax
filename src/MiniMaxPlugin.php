@@ -98,6 +98,42 @@ final class MiniMaxPlugin extends AbstractPlugin implements EventSubscriberInter
     }
 
     /**
+     * Translation catalogues this plugin ships, declared through
+     * {@see \Spora\Plugins\PluginInterface::translationsPaths()}.
+     *
+     * Keys are the English source text — `de.json` reads
+     * `{"API key for api.minimax.io (shared across all MiniMax tools).":
+     * "API-Schlüssel für …"}`, not `{"api_key": "…"}`. That is what makes
+     * the host's `i18n:check` able to fail when a string is edited without
+     * being re-translated: the key changes and the old entry orphans.
+     *
+     * **Only operator copy belongs in here.** A string the model reads is
+     * never translated: not any of the five `#[Tool].description` values,
+     * not any `#[ToolOperation].description`, not any
+     * `#[ToolParameter].description`, and not `ToolResult` content.
+     * `#[ToolSetting].label` is excluded for the usual reason.
+     * `locales/de.json` holds the five `#[Tool].displayName` values plus
+     * every distinct `#[ToolSetting].description` — the flat layout
+     * collapses the three descriptions all six settings-owning classes
+     * share into one entry each.
+     *
+     * `MiniMaxTranscribeProvider`'s `display_name` setting is a
+     * free-text operator rename, not copy, and has no fixed English
+     * source string to key on; its *description* is translated.
+     *
+     * Requires `spora-core >= 0.31.0` at runtime; older versions fail to
+     * resolve the method when the loader is strict.
+     *
+     * @return string[]
+     */
+    public function translationsPaths(): array
+    {
+        return [
+            __DIR__ . '/../locales',
+        ];
+    }
+
+    /**
      * PHP-DI quirk: nullable ctor params with `= null` defaults are
      * short-circuited to null by DefaultValueResolver before the type-hint
      * resolver runs, so the tools' optional `?MediaArchiveService` /
