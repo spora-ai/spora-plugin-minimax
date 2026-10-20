@@ -37,5 +37,6 @@
   "Resume video polling for task: '{$taskId}'": "Video-Abfrage für Aufgabe fortsetzen: '{$taskId}'",
   "Generate video for prompt: '{$prompt}'": "Video für Prompt erzeugen: '{$prompt}'",
   "Resume v1 video polling for task: '{$taskId}'": "v1-Video-Abfrage für Aufgabe fortsetzen: '{$taskId}'",
-  "Generate v1 video for prompt: '{$prompt}'": "v1-Video für Prompt erzeugen: '{$prompt}'"
+  "Generate v1 video for prompt: '{$prompt}'": "v1-Video für Prompt erzeugen: '{$prompt}'",
+  "Image, speech (TTS + STT), music (legacy — see SKILL.md, deprecated for new users as of Aug 20 2026 per MiniMax's API service adjustment notice), and video generation via MiniMax's multimodal APIs. Text/chat is provided by Spora's built-in Anthropic-compatible driver pointed at MiniMax's base URL.": "Bild-, Sprach- (TTS + STT), Musik- (veraltet — siehe SKILL.md, für neue Benutzer seit dem 20. August 2026 gemäß der Mitteilung von MiniMax zur Anpassung des API-Service-Angebots abgekündigt) und Videogenerierung über die multimodalen APIs von MiniMax. Für Text/Chat ist Sporas integrierter Anthropic-kompatibler Treiber zuständig, der auf die Basis-URL von MiniMax zeigt."
 }
