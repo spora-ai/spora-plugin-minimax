@@ -104,25 +104,36 @@ final class MiniMaxPlugin extends AbstractPlugin implements EventSubscriberInter
      * Keys are the English source text — `de.json` reads
      * `{"API key for api.minimax.io (shared across all MiniMax tools).":
      * "API-Schlüssel für …"}`, not `{"api_key": "…"}`. That is what makes
-     * the host's `i18n:check` able to fail when a string is edited without
-     * being re-translated: the key changes and the old entry orphans.
+     * a copy edit detectable: the key changes and the old entry orphans.
+     * The gate is this plugin's own `LocaleCatalogTest`, not the host's
+     * `i18n:check` — that command harvests core's `app/` and reads core's
+     * `locales/en.json`, so run against a plugin repo it reports every
+     * catalogue key as an orphan.
      *
      * **Only operator copy belongs in here.** A string the model reads is
      * never translated: not any of the five `#[Tool].description` values,
      * not any `#[ToolOperation].description`, not any
      * `#[ToolParameter].description`, and not `ToolResult` content.
      * `#[ToolSetting].label` is excluded for the usual reason.
-     * `locales/de.json` holds the five `#[Tool].displayName` values plus
-     * every distinct `#[ToolSetting].description` — the flat layout
-     * collapses the three descriptions all six settings-owning classes
-     * share into one entry each.
+     * `locales/de.json` holds the five `#[Tool].displayName` values, every
+     * distinct `#[ToolSetting].description` — the flat layout collapses
+     * the three descriptions all six settings-owning classes share into one
+     * entry each — the eleven approval prompts the tools return from
+     * `describeAction()`, and the manifest description.
+     *
+     * An approval prompt is keyed on its `sprintf()` template, not on the
+     * rendered sentence: the host looks the stored, already-rendered
+     * string up and matches it against the catalogue's templates, so
+     * `"Generate image for prompt: '%s'"` is the key. A `{$prompt}`
+     * interpolation has no template to match and never resolves.
      *
      * `MiniMaxTranscribeProvider`'s `display_name` setting is a
      * free-text operator rename, not copy, and has no fixed English
      * source string to key on; its *description* is translated.
      *
-     * Requires `spora-core >= 0.31.0` at runtime; older versions fail to
-     * resolve the method when the loader is strict.
+     * Requires `spora-core >= 0.31.0` for the catalogue to be loaded. On an
+     * older core the host never calls this hook and the plugin renders in
+     * English.
      *
      * @return string[]
      */

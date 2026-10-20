@@ -290,10 +290,10 @@ final class MiniMaxVideoTool extends MiniMaxTool
         $taskId    = mb_substr(trim((string) ($arguments['task_id'] ?? '')), 0, 40);
 
         return match ($operation) {
-            'enhance_prompt' => "Enhance H3 prompt for: '{$prompt}'",
-            'regenerate'     => "Regenerate H3 video at 2K for task: '{$taskId}'",
-            'resume'         => "Resume video polling for task: '{$taskId}'",
-            default          => "Generate video for prompt: '{$prompt}'",
+            'enhance_prompt' => sprintf("Enhance H3 prompt for: '%s'", $prompt),
+            'regenerate'     => sprintf("Regenerate H3 video at 2K for task: '%s'", $taskId),
+            'resume'         => sprintf("Resume video polling for task: '%s'", $taskId),
+            default          => sprintf("Generate video for prompt: '%s'", $prompt),
         };
     }
 

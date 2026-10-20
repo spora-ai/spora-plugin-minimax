@@ -188,9 +188,9 @@ final class MiniMaxMusicTool extends MiniMaxTool
         $prompt = mb_substr(trim((string) ($arguments['prompt'] ?? '')), 0, 80);
 
         return match ($operation) {
-            'write_lyrics' => "Write song lyrics for: '{$prompt}'",
-            'edit_lyrics'  => "Edit song lyrics: '{$prompt}'",
-            default        => "Generate music for: '{$prompt}'",
+            'write_lyrics' => sprintf("Write song lyrics for: '%s'", $prompt),
+            'edit_lyrics'  => sprintf("Edit song lyrics: '%s'", $prompt),
+            default        => sprintf("Generate music for: '%s'", $prompt),
         };
     }
 
