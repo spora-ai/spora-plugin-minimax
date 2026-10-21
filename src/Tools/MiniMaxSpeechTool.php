@@ -233,7 +233,7 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         $text = mb_substr(trim((string) ($arguments['text'] ?? '')), 0, 80);
         return match ($operation) {
             'voices' => 'Fetch the MiniMax voice library',
-            default  => "Synthesize speech for: '{$text}'",
+            default  => sprintf("Synthesize speech for: '%s'", $text),
         };
     }
 

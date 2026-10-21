@@ -249,8 +249,8 @@ final class MiniMaxVideoV1Tool extends MiniMaxTool
         $taskId    = mb_substr(trim((string) ($arguments['task_id'] ?? '')), 0, 40);
 
         return match ($operation) {
-            'resume' => "Resume v1 video polling for task: '{$taskId}'",
-            default  => "Generate v1 video for prompt: '{$prompt}'",
+            'resume' => sprintf("Resume v1 video polling for task: '%s'", $taskId),
+            default  => sprintf("Generate v1 video for prompt: '%s'", $prompt),
         };
     }
 

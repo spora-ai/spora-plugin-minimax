@@ -116,7 +116,7 @@ final class MiniMaxImageTool extends MiniMaxTool
     public function describeAction(array $arguments): string
     {
         $prompt = mb_substr(trim((string) ($arguments['prompt'] ?? '')), 0, 80);
-        return "Generate image for prompt: '{$prompt}'";
+        return sprintf("Generate image for prompt: '%s'", $prompt);
     }
 
     /** @param array<string, mixed> $arguments */
