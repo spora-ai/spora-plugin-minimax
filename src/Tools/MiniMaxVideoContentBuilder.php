@@ -7,8 +7,8 @@ namespace Spora\Plugins\MiniMax\Tools;
 /**
  * Builds the H3 multimodal `content[]` payload from the LLM's flat
  * arguments. Pure transforms — no I/O, no state. Split off the main
- * `MiniMaxVideoTool` to keep its method count under Sonar's 20-method
- * threshold (S1448).
+ * `MiniMaxVideoTool` to keep its method count under Sonar's
+ * S1448 threshold.
  */
 final class MiniMaxVideoContentBuilder
 {
@@ -105,8 +105,7 @@ final class MiniMaxVideoContentBuilder
     /**
      * Classify a built `content[]` into a short mode label for
      * debug logging. One of `text_only`, `i2v_first_frame`,
-     * `i2v_first_last_frame`, `r2v`. Anything else falls through to
-     * `mixed` so the log line still surfaces the shape.
+     * `i2v_first_last_frame`, `r2v`.
      *
      * @param  array<int, array<string, mixed>> $content
      */

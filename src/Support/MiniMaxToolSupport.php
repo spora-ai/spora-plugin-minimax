@@ -40,7 +40,7 @@ final class MiniMaxToolSupport
 
     /**
      * Wired by PHP-DI from {@see MiniMaxPlugin::onContainerBuilding()}; the optional
-     * ctor param is short-circuited to null by reflection autowiring, so
+     * ctor param is short-circuited to null by PHP-DI's DefaultValueResolver, so
      * the setter is the only path that reaches the production logger.
      */
     public function setLogger(?LoggerInterface $logger): void

@@ -7,8 +7,8 @@ namespace Spora\Plugins\MiniMax\Support\Exceptions;
 use RuntimeException;
 
 /**
- * Thrown by MiniMaxHttpClient for both transport-level errors (HTTP >= 400) and
- * business-level errors (non-zero base_resp.status_code). The status code is
+ * Thrown by MiniMaxHttpClient for transport failures, for HTTP >= 400, and for
+ * business-level errors (non-zero `base_resp.status_code`). The status code is
  * preserved so callers can distinguish rate-limit (1002), auth (1004), balance
  * (1008), content moderation (1026), bad params (2013), and bad API key (2049)
  * when surfacing error messages to the LLM.

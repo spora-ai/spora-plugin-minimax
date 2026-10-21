@@ -15,18 +15,12 @@ namespace Spora\Plugins\MiniMax\Tools;
  *   https://platform.minimax.io/docs/api-reference/video-generation-t2v
  *   https://platform.minimax.io/docs/api-reference/video-generation-i2v
  *
- * The matrix also lists the i2v-capable models (`MiniMax-Hailuo-2.3-Fast`,
- * `I2V-01-Director`, `I2V-01-live`, `I2V-01`) so the validator can
+ * The matrix also lists the i2v-capable models so the validator can
  * reject operator-typed i2v calls with a clear "i2v code path not yet
  * shipped" message instead of letting the upstream silently 400. The
  * i2v code path itself will land in a follow-up PR — at that point
  * the matrix stops rejecting `first_frame_image` and the t2v code
  * path branches into the i2v submit body.
- *
- * Models recognised by the v1 endpoint, in declaration order:
- *   - t2v: `MiniMax-Hailuo-2.3`, `MiniMax-Hailuo-02`, `T2V-01-Director`, `T2V-01`
- *   - i2v: `MiniMax-Hailuo-2.3`, `MiniMax-Hailuo-2.3-Fast`, `MiniMax-Hailuo-02`,
- *          `I2V-01-Director`, `I2V-01-live`, `I2V-01`
  */
 final class MiniMaxVideoV1Matrix
 {
@@ -44,8 +38,8 @@ final class MiniMaxVideoV1Matrix
      * Allowed duration values under v1. The OpenAPI exposes both
      * `6` and `10` as integers, but the v1 tool's `duration_seconds`
      * attribute accepts strings (the operator-facing field has been
-     * template-typed as `string` since 1.0.0 and changing the type
-     * would break existing agent definitions).
+     * template-typed as `string` since the tool shipped, and changing the
+     * type would break existing agent definitions).
      *
      * @var list<string>
      */
@@ -76,8 +70,8 @@ final class MiniMaxVideoV1Matrix
     ];
 
     /**
-     * Models recognised by the v1 endpoint. Eight total — four t2v
-     * and four i2v. Subset of {@see DURATION_RULES} keys.
+     * Models recognised by the v1 endpoint. Subset of {@see DURATION_RULES}
+     * keys.
      *
      * @var list<string>
      */
@@ -111,10 +105,6 @@ final class MiniMaxVideoV1Matrix
      * Verify the (model, resolution, duration) triple against the
      * matrix. Returns `null` when the combination is valid; a
      * human-readable error message otherwise.
-     *
-     * The error message carries an actionable hint (`At 10s, only 768P
-     * is supported`) for the most common trap (1080P + 10s) so the
-     * LLM can self-correct without a second round-trip.
      */
     public static function explain(string $model, string $resolution, int $duration): ?string
     {

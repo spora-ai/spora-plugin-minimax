@@ -21,11 +21,12 @@ use Throwable;
 /**
  * Generates an image from a text prompt via MiniMax's image_generation API.
  *
- * When ingest fails (the archive plugin is absent, or the upstream fetch
- * errored), the embed falls back to the CDN URL so the chat bubble still
- * renders. {@see MediaArchiveService} catches and rethrows as external
- * mode in that case — the row's `source_url` keeps the CDN URL for
- * operator audit while `asset_url` stays opaque.
+ * When ingest fails — the archive service is not wired, or the upstream
+ * fetch errored — the embed falls back to the CDN URL so the chat bubble
+ * still renders. A failed upstream fetch does not fail the ingest: core
+ * downgrades the row to `external` mode, where `source_url` keeps the CDN
+ * URL for operator audit while `asset_url` is still the opaque
+ * `/api/v1/assets/<uuid>.<ext>` form.
  */
 #[Tool(
     name: 'image_minimax',
@@ -219,14 +220,13 @@ final class MiniMaxImageTool extends MiniMaxTool
      * Hand one CDN URL to the Media Archive. Returns the URL to embed
      * in the chat along with whether the archive actually claimed it
      * — either the archive's opaque URL and `true`, or the original
-     * CDN URL and `false` (when the archive is absent, fails, or
-     * hands us a `data:` URL — older core, or a non-default
-     * AssetStore in tests).
+     * CDN URL and `false` (when the archive is not wired, fails, or
+     * hands us a `data:` URL — a `data_url`-mode asset store).
      *
-     * `@param-out` via the second tuple element lets the caller pick
-     * the trailing instruction honestly: when no image in the batch
-     * was archived, the instruction tells the LLM the URLs are the
-     * short-lived CDN URLs (not `/api/v1/assets/...`).
+     * The second tuple element lets the caller pick the trailing
+     * instruction honestly: when no image in the batch was archived, the
+     * instruction tells the LLM the URLs are the short-lived CDN URLs (not
+     * `/api/v1/assets/...`).
      *
      * @param  array<string, mixed> $arguments
      * @return array{0: string, 1: bool}  [embedUrl, wasArchived]

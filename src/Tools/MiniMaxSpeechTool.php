@@ -26,22 +26,17 @@ use Throwable;
 /**
  * Synthesizes speech from text via MiniMax's t2a_v2 (text-to-audio) API
  * and exposes the upstream voice library so the Agent can pick a
- * language-matched voice id per call. The tool is a multi-operation
- * discriminator:
+ * language-matched voice id per call.
  *
- *   - `synthesize` (default) — text → MP3; returns the upstream audio URL
- *     (24h expiry) if a CDN URL is available, otherwise embeds the audio
- *     bytes inline.
- *   - `voices`              — fetch the MiniMax voice library
- *     (`POST /v1/get_voice`, body `{"voice_type": "<bucket>"}`). Returns
- *     every voice in the chosen bucket; `language` / `gender` / `voice_id`
- *     are applied as client-side filters over `voice_name` + flattened
- *     `description[]` because MiniMax's upstream API does not expose
- *     server-side filters for those fields.
+ * `synthesize` (default) returns the upstream audio URL (24h expiry) if a
+ * CDN URL is available, otherwise embeds the audio bytes inline. `voices`
+ * fetches the MiniMax voice library (`POST /v1/get_voice`); `language` /
+ * `gender` / `voice_id` are applied as client-side filters over
+ * `voice_name` + flattened `description[]` because MiniMax's upstream API
+ * does not expose server-side filters for those fields.
  *
- * The `voices` response-parsing / filtering / rendering helpers live in
- * {@see MiniMaxSpeechVoiceLibrary}, kept out of this class so the tool
- * stays under the SonarQube S1448 (≤20 methods) threshold.
+ * The `voices` helpers live in {@see MiniMaxSpeechVoiceLibrary}, kept out of
+ * this class so the tool stays under the SonarQube S1448 threshold.
  */
 #[Tool(
     name: 'speech_minimax',
@@ -163,7 +158,9 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     /**
      * Wired by PHP-DI from {@see MiniMaxPlugin::onContainerBuilding()}.
      * Forces the hex payload to disk via `/api/v1/assets/<token>.mp3`
-     * so the chat UI doesn't truncate a long base64 to `[data-omitted]`.
+     * instead of a `data:` URI — core's `ScrubDataUrls` replaces the
+     * literal `[data-omitted]` for a `data:` URI before the result is
+     * stored.
      */
     private ?LocalAssetStore $localAssetStore = null;
 
@@ -203,7 +200,6 @@ final class MiniMaxSpeechTool extends MiniMaxTool
      * enforces the enum at a higher layer.
      *
      * @param array<string, mixed> $arguments
-     *
      */
     public function execute(
         array $arguments,
@@ -388,8 +384,9 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     }
 
     /**
-     * Prefers {@see LocalAssetStore} so the chat UI never sees a
-     * `data:` URI (the chat sanitizer truncates long base64).
+     * Prefers {@see LocalAssetStore} so the tool result never carries a
+     * `data:` URI — core's `ScrubDataUrls` replaces it with the literal
+     * `[data-omitted]` before the result is stored.
      *
      * @return array{0: string, 1: string}
      */
@@ -447,13 +444,11 @@ final class MiniMaxSpeechTool extends MiniMaxTool
         try {
             // Pass `url` and `hex` as named args so MiniMax returning one
             // payload shape doesn't accidentally populate both. Symmetric
-            // with MiniMaxMusicTool::ingestIntoMediaArchive() — see #28
-            // for the speech-specific regression that prompted the move:
-            // the prior `if ($audioUrl !== '') { url: … } else { hex: … }`
-            // guard let `$audioUrl === null` slip through to the URL
-            // branch (`null !== ''` is true), leaving `hex` unset and
-            // tripping MediaIngestRequest's "exactly one non-empty source"
-            // invariant.
+            // with MiniMaxMusicTool::ingestIntoMediaArchive(): the prior
+            // `if ($audioUrl !== '') { url: … } else { hex: … }` guard let
+            // `$audioUrl === null` slip through to the URL branch
+            // (`null !== ''` is true), leaving `hex` unset and tripping
+            // MediaIngestRequest's "exactly one non-empty source" invariant.
             $request = new MediaIngestRequest(
                 ...$base,
                 userId: $ctx->runnerUserId,
@@ -577,32 +572,15 @@ final class MiniMaxSpeechTool extends MiniMaxTool
     /**
      * Voice library fetch worker.
      *
-     * Upstream contract: `POST /v1/get_voice` (see
-     * https://platform.minimax.io/docs/api-reference/voice-management-get)
-     * takes exactly one field in the body — `voice_type` — and returns
-     * up to three voice buckets: `system_voice`, `voice_cloning`, and
-     * `voice_generation`. Each entry carries `voice_id`, `voice_name`
-     * (display name; not the API call id), and a free-text
-     * `description[]` array that MiniMax uses to convey language,
-     * gender, character, etc.
+     * Upstream contract: `POST /v1/get_voice` takes exactly one field in the
+     * body — `voice_type` — and returns up to three buckets (`system_voice`,
+     * `voice_cloning`, `voice_generation`), each entry carrying `voice_id`,
+     * `voice_name` and a free-text `description[]`. MiniMax exposes no
+     * server-side filters, so `voice_id` / `language` / `gender` are applied
+     * client-side by {@see MiniMaxSpeechVoiceLibrary}.
      *
-     * Because MiniMax does not expose server-side filters, the LLM's
-     * `voice_id` / `language` / `gender` are applied client-side:
-     *   - `voice_id`: exact match against `voice_id`. When non-empty
-     *     it short-circuits the other filters (matches the SKILL.md
-     *     promise "Other filters are ignored when this is set" —
-     *     `voices(voice_id: "X")` is how the Agent checks whether
-     *     `X` is available on this MiniMax account).
-     *   - `language`: case-insensitive substring match against
-     *     `voice_name` + flattened `description`.
-     *   - `gender`:   case-insensitive substring match against
-     *     flattened `description`.
-     * `limit` is a client-side cap on the rendered bullet count.
-     *
-     * The result is a Markdown bullet list. Each bullet quotes the
-     * `voice_id` in backticks and, when present, appends the
-     * `voice_name` + description so the LLM can pick a language-matched
-     * voice from the chat transcript.
+     * The result is a Markdown bullet list, so the LLM can pick a
+     * language-matched voice from the chat transcript.
      *
      * @param array<string, mixed> $arguments
      */
