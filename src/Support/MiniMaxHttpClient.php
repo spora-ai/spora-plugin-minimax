@@ -13,17 +13,17 @@ use Throwable;
 /**
  * Thin wrapper over Symfony's HttpClientInterface that knows the MiniMax envelope.
  *
- * - Adds `Authorization: Bearer <api_key>` to every request.
- * - Single-shot: every failure surfaces to the caller so the LLM can adapt on retry.
- *   Earlier versions retried 2x on 429/5xx with backoff; that wasted quota on
- *   expensive media-generation calls (image, video, music, speech) where the
- *   LLM can lower quality/size/duration instead of re-charging the same payload.
- * - Raises MiniMaxApiException on:
- *     - transport failure, or
- *     - HTTP >= 400, or
- *     - HTTP 200 with `base_resp.status_code != 0` (the MiniMax business-error envelope).
+ * Single-shot: every failure surfaces to the caller so the LLM can adapt on
+ * retry. Earlier versions retried 2x on 429/5xx with backoff; that wasted
+ * quota on expensive media-generation calls (image, video, music, speech)
+ * where the LLM can lower quality/size/duration instead of re-charging the
+ * same payload.
  *
- * Note: this wrapper does NOT pass `max_size` to the underlying client — that's
+ * Raises {@see MiniMaxApiException} on a transport failure, on HTTP >= 400, and
+ * on HTTP 200 with a non-zero `base_resp.status_code` (the MiniMax
+ * business-error envelope).
+ *
+ * This wrapper does NOT pass `max_size` to the underlying client — that's
  * only accepted by Symfony's `RetryableHttpClient`, and the container injects
  * a raw `CurlHttpClient`. Callers that need a response-size cap should wrap the
  * client themselves before passing it in.
@@ -178,11 +178,9 @@ final class MiniMaxHttpClient
      * Two shapes are accepted:
      *   - Anthropic-style: `{"type":"error","error":{"type":"...","message":"...","code":...}}`
      *   - MiniMax-style: `{"base_resp":{"status_msg":"...","status_code":...}}`
-     * The Anthropic-style is what the v2 video endpoints use (the
-     * "TokenPlan or Credit does not currently support MiniMax-H3 series
-     * models (2013)" message that landed in `spora-local`); the
-     * MiniMax-style is what the v1 endpoints use. Without this the LLM
-     * only sees `MiniMax API returned HTTP 400` and has to guess.
+     * The Anthropic-style is what the v2 video endpoints use; the MiniMax-style
+     * is what the v1 endpoints use. Without this the LLM only sees
+     * `MiniMax API returned HTTP 400` and has to guess.
      */
     private function extractUpstreamError(string $content): ?string
     {

@@ -23,41 +23,16 @@ use Throwable;
 /**
  * Generates a short video clip via MiniMax's H3 multimodal video model.
  *
- * Four operations:
- *
- *   - `generate`       — submit a multimodal `content[]` payload (text + optional
- *     first/last-frame images + reference images / videos / audio), poll
- *     `/v2/query/video_generation/{task_id}` until `succeeded`, archive the
- *     MP4 via the Media Archive. The download URL is read directly from
- *     `task.content.url` on success — no second `/v1/files/retrieve` roundtrip.
- *
- *   - `resume`         — re-attach to a previously submitted task by `task_id`
- *     and continue polling. Used when `generate` returned `success: false` with
- *     `data.timed_out: true`.
- *
- *   - `enhance_prompt` — POST to `/v2/h3_context_ir` with the same `content[]`
- *     shape; the upstream returns a structured, semantically richer video
- *     prompt (retrievable from `task.content.prompt` when the task succeeds,
- *     identified by `task_type=h3_context_ir`). No video is produced.
- *
- *   - `regenerate`     — re-submit a previously generated H3 video's `content[]`
- *     to `/v2/video_regeneration` with `resolution: '2K'` and the original
- *     768P output appended as a `role=base_video` source. The LLM is
- *     responsible for passing back the exact `prompt` / `first_frame_image` /
- *     `last_frame_image` / `reference_*` arguments it used for the original
- *     `generate` call, plus `base_video_url` (the previous 768P output's
- *     `download_url` or `asset_url`). The tool does not persist the
- *     original `content[]` — the LLM is the source of truth.
- *
- * All four operations share {@see MiniMaxVideoPoller::pollUntilDone()} —
- * the only difference is the create endpoint and how the success envelope
- * is consumed.
+ * Four operations (`generate`, `resume`, `enhance_prompt`, `regenerate`),
+ * all sharing {@see MiniMaxVideoPoller::pollUntilDone()} — the only
+ * difference is the create endpoint and how the success envelope is
+ * consumed. `generate` polls `/v2/query/video_generation/{task_id}` and
+ * reads the download URL directly from `task.content.url` on success — no
+ * second `/v1/files/retrieve` roundtrip.
  *
  * Class structure: the URL / scalar hygiene rules, content[] builder,
  * argument validators, HTTP submitter, and poll loop are split into
- * dedicated files so this class stays under Sonar's 20-method threshold
- * (S1448) and so the per-function cognitive complexity stays under the
- * 15 (S3776) threshold.
+ * dedicated files so this class stays under Sonar's S1448 threshold.
  */
 #[Tool(
     name: 'video_minimax',
@@ -237,7 +212,6 @@ final class MiniMaxVideoTool extends MiniMaxTool
      * typo doesn't silently fall back to `generate`.
      *
      * @param array<string, mixed> $arguments
-     *
      */
     public function execute(
         array $arguments,
@@ -252,13 +226,13 @@ final class MiniMaxVideoTool extends MiniMaxTool
         $runnerId = $context?->runnerUserId;
 
         // Resolve Media Archive references BEFORE dispatching. Each
-        // per-operation method (`generate()`, `resume()`, ...) builds
-        // an `fn()` work closure that captures `$arguments` by value
-        // at definition time — resolving here (instead of inside
+        // per-operation method (`generate()`, `resume()`, ...) builds an
+        // `fn()` work closure that captures `$arguments` by value at
+        // definition time — resolving here (instead of inside
         // `runWithValidation()`) ensures `doGenerate()`, `doResume()`
-        // etc. see the rewritten `data:` URI or forwarded external
-        // URL. See {@see MiniMaxTool::resolveMediaArchiveReferences()}.
-        // Permission check uses the runner id (who is asking), not the
+        // etc. see the rewritten `data:` URI or forwarded external URL.
+        // See {@see MiniMaxTool::resolveMediaArchiveReferences()}. The
+        // permission check uses the runner id (who is asking), not the
         // owner's settings.
         $resolved = $this->resolveMediaArchiveReferences($arguments, $runnerId);
         if ($resolved instanceof ToolResult) {

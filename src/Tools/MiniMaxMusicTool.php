@@ -38,7 +38,7 @@ use Throwable;
  * (https://www.minimax.io/audio) or self-host the open-source MiniMax
  * Music 3 model (https://huggingface.co/MiniMaxAI/MiniMax-Music3).
  *
- * Sister tool to {@see MiniMaxSpeechTool} (TTS) and the
+ * Sister tool to {@see MiniMaxSpeechTool} (TTS) and
  * {@see \Spora\Plugins\MiniMax\MiniMaxTranscribeProvider} (STT, asr-1.0).
  */
 #[Tool(
@@ -131,7 +131,9 @@ final class MiniMaxMusicTool extends MiniMaxTool
     /**
      * Wired by PHP-DI from {@see MiniMaxPlugin::onContainerBuilding()}.
      * Forces the hex payload to disk via `/api/v1/assets/<token>.mp3`
-     * so the chat UI doesn't truncate a long base64 to `[data-omitted]`.
+     * instead of a `data:` URI — core's `ScrubDataUrls` replaces the
+     * literal `[data-omitted]` for a `data:` URI before the result is
+     * stored.
      */
     private ?LocalAssetStore $localAssetStore = null;
 
@@ -161,8 +163,7 @@ final class MiniMaxMusicTool extends MiniMaxTool
     }
 
     /**
-     * Multi-operation tool: dispatch on the `action` argument.
-     *
+     * Multi-operation dispatcher: dispatch on the `action` argument.
      */
     public function execute(
         array $arguments,
@@ -415,8 +416,9 @@ final class MiniMaxMusicTool extends MiniMaxTool
     }
 
     /**
-     * Prefers {@see LocalAssetStore} so the chat UI never sees a
-     * `data:` URI (the chat sanitizer truncates long base64).
+     * Prefers {@see LocalAssetStore} so the tool result never carries a
+     * `data:` URI — core's `ScrubDataUrls` replaces it with the literal
+     * `[data-omitted]` before the result is stored.
      *
      * @return array{0: string, 1: string}
      */

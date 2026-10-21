@@ -41,8 +41,8 @@ final class MiniMaxPlugin extends AbstractPlugin implements EventSubscriberInter
     /**
      * Contributes MiniMax's `asr-1.0` speech-to-text model as a
      * {@see SpeechToTextProviderInterface}. Discovered by
-     * {@see \Spora\Speech\SpeechToTextRegistry}; first configured
-     * provider wins per transcribe request.
+     * {@see \Spora\Speech\SpeechToTextRegistry}, which resolves an operator
+     * preference first and falls back to the first configured provider.
      *
      * @return list<class-string<SpeechToTextProviderInterface>>
      */
@@ -52,12 +52,9 @@ final class MiniMaxPlugin extends AbstractPlugin implements EventSubscriberInter
     }
 
     /**
-     * Subscribe to the framework's boot-time events.
-     *
-     * - {@see ContainerBuildingEvent} fires once per process, before the
-     *   DI container is built. {@see self::onContainerBuilding()} adds
-     *   bindings for the five tools, the STT provider, and the media-archive
-     *   resolver so PHP-DI can autowire them at request time.
+     * {@see ContainerBuildingEvent} fires once per process, before the DI
+     * container is built; {@see self::onContainerBuilding()} adds the bindings
+     * PHP-DI autowires at request time.
      *
      * @return array<class-string, string>
      */
@@ -70,9 +67,6 @@ final class MiniMaxPlugin extends AbstractPlugin implements EventSubscriberInter
 
     /**
      * Plugin-shipped Skills live as siblings under `<plugin>/skills/<slug>/SKILL.md`.
-     * Each of the four tools gets one Skill (`minimax-image`, `minimax-speech`,
-     * `minimax-music`, `minimax-video`) plus a legacy companion for music
-     * (`minimax-music-legacy`) that signposts the Aug 20 2026 deprecation.
      *
      * `is_dir` guard keeps the override side-effect-free when the directory
      * is absent (e.g. checkout without the `skills/` subtree).
@@ -86,8 +80,6 @@ final class MiniMaxPlugin extends AbstractPlugin implements EventSubscriberInter
     }
 
     /**
-     * Agent-template files for the MiniMax plugin.
-     *
      * @return string[]
      */
     public function agentTemplatePaths(): array
@@ -98,42 +90,7 @@ final class MiniMaxPlugin extends AbstractPlugin implements EventSubscriberInter
     }
 
     /**
-     * Translation catalogues this plugin ships, declared through
-     * {@see \Spora\Plugins\PluginInterface::translationsPaths()}.
-     *
-     * Keys are the English source text — `de.json` reads
-     * `{"API key for api.minimax.io (shared across all MiniMax tools).":
-     * "API-Schlüssel für …"}`, not `{"api_key": "…"}`. That is what makes
-     * a copy edit detectable: the key changes and the old entry orphans.
-     * The gate is this plugin's own `LocaleCatalogTest`, not the host's
-     * `i18n:check` — that command harvests core's `app/` and reads core's
-     * `locales/en.json`, so run against a plugin repo it reports every
-     * catalogue key as an orphan.
-     *
-     * **Only operator copy belongs in here.** A string the model reads is
-     * never translated: not any of the five `#[Tool].description` values,
-     * not any `#[ToolOperation].description`, not any
-     * `#[ToolParameter].description`, and not `ToolResult` content.
-     * `#[ToolSetting].label` is excluded for the usual reason.
-     * `locales/de.json` holds the five `#[Tool].displayName` values, every
-     * distinct `#[ToolSetting].description` — the flat layout collapses
-     * the three descriptions all six settings-owning classes share into one
-     * entry each — the eleven approval prompts the tools return from
-     * `describeAction()`, and the manifest description.
-     *
-     * An approval prompt is keyed on its `sprintf()` template, not on the
-     * rendered sentence: the host looks the stored, already-rendered
-     * string up and matches it against the catalogue's templates, so
-     * `"Generate image for prompt: '%s'"` is the key. A `{$prompt}`
-     * interpolation has no template to match and never resolves.
-     *
-     * `MiniMaxTranscribeProvider`'s `display_name` setting is a
-     * free-text operator rename, not copy, and has no fixed English
-     * source string to key on; its *description* is translated.
-     *
-     * Requires `spora-core >= 0.31.0` for the catalogue to be loaded. On an
-     * older core the host never calls this hook and the plugin renders in
-     * English.
+     * The plugin's `locales/` directory — one `<lang>.json` per language.
      *
      * @return string[]
      */
@@ -152,8 +109,10 @@ final class MiniMaxPlugin extends AbstractPlugin implements EventSubscriberInter
      * `\DI\get(...)` resolvers + setter calls are the workaround.
      *
      * `setLocalAssetStore` is wired only for the speech + music tools so
-     * their audio payloads always land at `/api/v1/assets/<token>.mp3`
-     * (the chat UI sanitizer truncates long base64 to `[data-omitted]`).
+     * their audio payloads land at `/api/v1/assets/<token>.mp3` instead of a
+     * `data:` URI. A `data:` URI in a tool result is scrubbed by core's
+     * `ScrubDataUrls`, which replaces it with the literal `[data-omitted]`
+     * before the result is stored and before the model sees it.
      */
     public function onContainerBuilding(ContainerBuildingEvent $event): void
     {
@@ -183,8 +142,7 @@ final class MiniMaxPlugin extends AbstractPlugin implements EventSubscriberInter
                 ->method('setMediaArchive', $archiveService)
                 ->method('setLogger', $logger),
 
-            // The provider has no nullable ctor params (no Optional
-            // MediaArchive / LocalAssetStore wiring needed), so plain
+            // The provider has no nullable ctor params, so plain
             // \DI\autowire() resolves ToolConfigService + HttpClientInterface
             // from the container.
             MiniMaxTranscribeProvider::class => \DI\autowire(),

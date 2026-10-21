@@ -12,7 +12,7 @@ use Spora\Tools\ValueObjects\ToolResult;
  * the aggregated error message.
  *
  * Split off the main `MiniMaxVideoTool` to keep its method count under
- * Sonar's 20-method threshold (S1448). The class is stateless — every
+ * Sonar's S1448 threshold. The class is stateless — every
  * method is static.
  */
 final class MiniMaxVideoValidator
@@ -60,7 +60,6 @@ final class MiniMaxVideoValidator
             $errors[] = 'resolution must be "768P" or "2K" (uppercase P on 768P).';
         }
 
-        // Build the content[] to surface mode + limit errors early.
         $contentErrors = self::collectContentErrors($arguments);
         if ($contentErrors !== []) {
             $errors = array_merge($errors, $contentErrors);
@@ -158,17 +157,14 @@ final class MiniMaxVideoValidator
         $hasFrames      = $first !== '' || $last !== '';
         $hasReferences  = $refImgs !== [] || $refVids !== [] || $refAud !== [];
 
-        // 1. Mode exclusivity.
         if ($hasFrames && $hasReferences) {
             $errors[] = 'image-to-video (first_frame_image / last_frame_image) and reference-to-video (reference_*) are mutually exclusive — pick one mode per call.';
         }
 
-        // 2a. Frame counts.
         if ($first === '' && $last !== '') {
             $errors[] = 'last_frame_image requires first_frame_image to be set (H3 pairs them).';
         }
 
-        // 2b. Reference counts.
         if (count($refImgs) > 9) {
             $errors[] = 'reference_images accepts at most 9 entries.';
         }
@@ -179,12 +175,10 @@ final class MiniMaxVideoValidator
             $errors[] = 'reference_audio accepts at most 3 entries.';
         }
 
-        // 3. Audio-needs-image.
         if ($refAud !== [] && $refImgs === [] && $refVids === [] && !$hasFrames) {
             $errors[] = 'reference_audio must be accompanied by an image or video input (H3 rejects audio-only content[]).';
         }
 
-        // 4. URL hygiene across all asset lists.
         $allUrls = array_values(array_filter([$first, $last], static fn(string $u): bool => $u !== ''));
         $allUrls = array_merge($allUrls, $refImgs, $refVids, $refAud);
         $errors = array_merge($errors, self::collectUrlErrors($allUrls));
