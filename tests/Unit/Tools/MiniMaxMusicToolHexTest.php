@@ -9,8 +9,9 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 it('routes the hex payload through the injected LocalAssetStore (never a data: URI)', function () {
     // Production contract: the plugin's `onContainerBuilding()` wires a real
-    // LocalAssetStore so the chat UI never sees a `data:` URI (the
-    // chat UI sanitizer truncates long base64 to `[data-omitted]`).
+    // LocalAssetStore so the chat UI never sees a `data:` URI. One that
+    // escaped would be replaced wholesale by core's `ScrubDataUrls` with the
+    // literal `[data-omitted]`, silently dropping the audio.
     // Mirror the speech tool's LocalAssetStore test for music.
     $config = Mockery::mock(ToolConfigService::class);
     $config->allows('getEffectiveSettings')->andReturn(['api_key' => 'k']);
