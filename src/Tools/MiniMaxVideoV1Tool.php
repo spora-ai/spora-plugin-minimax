@@ -24,20 +24,18 @@ use Throwable;
 /**
  * Legacy v1 video tool — MiniMax's `/v1/video_generation` endpoints.
  *
- * Re-introduced in 1.3.0 as a fall-back for operators whose TokenPlan
+ * Re-introduced in v0.10.0 as a fall-back for operators whose TokenPlan
  * doesn't include MiniMax-H3 (the v2-only model). The error from the v2
  * endpoint — "invalid params, TokenPlan or Credit does not currently
  * support MiniMax-H3 series models (2013)" — indicates exactly this
  * case. The orchestrator's system prompt guides the LLM to fall back
  * to `minimax:video_v1` with the same prompt when it sees that message.
  *
- * Two operations:
- *   - `generate` (default) — submit a prompt (or `first_frame_image`
- *     for i2v), poll status until `Success` or `Fail`, then
- *     `/v1/files/retrieve` for the MP4 download URL.
- *   - `resume` — re-attach to a previously submitted task by `task_id`
- *     and continue polling. Used when `generate` returned
- *     `success: false` with `data.timed_out: true`.
+ * Two operations: `generate` (default) submits a prompt, polls status until
+ * `Success` or `Fail`, then `/v1/files/retrieve` for the MP4 download URL;
+ * `resume` re-attaches to a previously submitted task by `task_id` and
+ * continues polling. Used when `generate` returned `success: false` with
+ * `data.timed_out: true`.
  *
  * Models, resolutions, and durations are validated against the v1
  * matrix (see {@see MiniMaxVideoV1Matrix}) before any upstream call so
@@ -203,7 +201,6 @@ final class MiniMaxVideoV1Tool extends MiniMaxTool
      * typo doesn't silently fall back to `generate`.
      *
      * @param array<string, mixed> $arguments
-     *
      */
     public function execute(
         array $arguments,
@@ -304,14 +301,8 @@ final class MiniMaxVideoV1Tool extends MiniMaxTool
      * Validate the `generate` operation's inputs. Per-field checks
      * only — the (model, resolution, duration) cross-product check
      * happens inside {@see doGenerate()} once `$ctx->settings` is
-     * available, matching the original v1 pattern. So the
-     * client-side validation here runs without DI reflection.
-     *
-     * Rejects:
-     *   - empty / oversized prompt
-     *   - non-enum `duration_seconds`
-     *   - non-enum `resolution` (case-sensitive — upstream wants `1080P`, not `1080p`)
-     *   - `first_frame_image` (i2v code path not yet shipped in v1)
+     * available, matching the original v1 pattern. So the client-side
+     * validation here runs without DI reflection.
      *
      * @param array<string, mixed> $arguments
      */
@@ -600,14 +591,13 @@ final class MiniMaxVideoV1Tool extends MiniMaxTool
      *   - Timeout   -> returns ['success' => false, 'data' => <envelope>].
      *     The task is still running on MiniMax's side and is billable.
      *
-     * Defensive clamps:
-     *   - `$intervalSeconds` is forced into
-     *     [`MIN_POLL_INTERVAL_SECONDS`, `MAX_POLL_INTERVAL_SECONDS`].
-     *   - Each `GET /v1/query/...` is given a bounded HTTP timeout
-     *     (`min(remaining, $perRequestTimeoutSeconds)`).
-     *   - The `sleep` between probes is capped to the remaining
-     *     deadline so the timed_out envelope fires within
-     *     `poll_timeout_seconds` instead of up to one full interval late.
+     * The clamps keep the loop honest: the interval is forced into
+     * `[MIN_POLL_INTERVAL_SECONDS`, `MAX_POLL_INTERVAL_SECONDS]`, each
+     * `GET /v1/query/...` gets a bounded HTTP timeout
+     * (`min(remaining, $perRequestTimeoutSeconds)`), and the sleep between
+     * probes is capped to the remaining deadline so the timed_out envelope
+     * fires within `poll_timeout_seconds` instead of up to one full
+     * interval late.
      *
      * @return array{success: bool, data?: array<string, mixed>}
      */

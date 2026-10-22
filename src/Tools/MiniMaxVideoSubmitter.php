@@ -11,7 +11,7 @@ use Spora\Plugins\MiniMax\Support\MiniMaxSettings;
 /**
  * Builds and POSTs the v2 H3 video endpoint request bodies. Stateless —
  * every method is static. Split off the main `MiniMaxVideoTool` to keep
- * its method count under Sonar's 20-method threshold (S1448).
+ * its method count under Sonar's S1448 threshold.
  */
 final class MiniMaxVideoSubmitter
 {

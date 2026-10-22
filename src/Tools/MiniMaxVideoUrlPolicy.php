@@ -6,12 +6,10 @@ namespace Spora\Plugins\MiniMax\Tools;
 
 /**
  * URL and scalar hygiene rules shared by the H3 video tool's validators
- * and content builders. Static helpers — these rules are stateless and
- * shared across {@see MiniMaxVideoValidator}, {@see MiniMaxVideoContentBuilder},
- * and the main tool class.
+ * and content builders. Static helpers — these rules are stateless.
  *
  * Split off the main `MiniMaxVideoTool` to keep its method count under
- * Sonar's 20-method threshold (S1448) and to surface the URL contract as
+ * Sonar's S1448 threshold and to surface the URL contract as
  * a single named policy object.
  */
 final class MiniMaxVideoUrlPolicy
@@ -84,8 +82,6 @@ final class MiniMaxVideoUrlPolicy
      * Validate that a scalar represents an integer (int or numeric string
      * with no decimal/exponent component). Used to reject `"4.5"` and
      * `"4e0"` inputs that `(int)` cast would silently truncate.
-     *
-     * @param mixed $value
      */
     public static function isIntegerLike(mixed $value): bool
     {
@@ -108,7 +104,6 @@ final class MiniMaxVideoUrlPolicy
      *                       pass "url1,url2" — we don't try to split on commas
      *                       since URL parsing inside commas is brittle)
      *
-     * @param  mixed       $raw
      * @return list<string>
      */
     public static function normaliseStringList(mixed $raw): array

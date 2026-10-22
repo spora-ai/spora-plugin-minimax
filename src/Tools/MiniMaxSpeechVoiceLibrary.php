@@ -9,10 +9,10 @@ namespace Spora\Plugins\MiniMax\Tools;
  * upstream response parsing, client-side filtering, and rendering.
  *
  * Extracted out of {@see MiniMaxSpeechTool} so the main tool stays
- * inside the SonarQube S1448 (≤20 methods) threshold. None of these
- * helpers touch plugin state — they're pure functions of the response
- * payload and the caller's arguments, which is why they live as
- * `static` methods rather than a constructor-injected service.
+ * inside the SonarQube S1448 threshold. None of these helpers touch
+ * plugin state — they're pure functions of the response payload and the
+ * caller's arguments, which is why they live as `static` methods rather
+ * than a constructor-injected service.
  */
 final class MiniMaxSpeechVoiceLibrary
 {
@@ -106,11 +106,10 @@ final class MiniMaxSpeechVoiceLibrary
      * Apply client-side filters over an already-flattened voice list.
      *
      * `voice_id` takes precedence: when it's non-empty it acts as an
-     * exact match and `language` / `gender` are ignored. This matches
-     * the documented SKILL.md behaviour ("Other filters are ignored
-     * when this is set") — calling `voices(voice_id: "X")` is the
-     * supported way to check whether `X` is available on this
-     * account.
+     * exact match and `language` / `gender` are ignored. This matches the
+     * documented SKILL.md behaviour ("Other filters are ignored when this
+     * is set") — calling `voices(voice_id: "X")` is the supported way to
+     * check whether `X` is available on this account.
      *
      * @param  list<array<string, mixed>> $voices
      * @param  array<string, mixed>       $arguments
@@ -122,7 +121,6 @@ final class MiniMaxSpeechVoiceLibrary
         $languageNeedle = mb_strtolower(trim((string) ($arguments['language'] ?? '')));
         $genderNeedle   = mb_strtolower(trim((string) ($arguments['gender'] ?? '')));
 
-        // No filters → return everything.
         if ($voiceIdFilter === '' && $languageNeedle === '' && $genderNeedle === '') {
             return $voices;
         }
@@ -206,13 +204,10 @@ final class MiniMaxSpeechVoiceLibrary
     }
 
     /**
-     * Render the "no voices" message. Three cases the LLM used to
-     * conflate (see the docblock history in
-     * {@see MiniMaxSpeechTool::listVoices()}): empty bucket, filter
-     * excluded everything, or `voice_id` exact match failed. The
-     * leading line of each message is distinct so the LLM (and a
-     * human reading the chat transcript) can tell which case they
-     * hit without parsing the body text.
+     * Render the "no voices" message. Each of the three cases below has a
+     * distinct leading line so the LLM (and a human reading the chat
+     * transcript) can tell which case they hit without parsing the body
+     * text.
      *
      * @param array<string, mixed>       $arguments
      * @param list<array<string, mixed>> $allVoices

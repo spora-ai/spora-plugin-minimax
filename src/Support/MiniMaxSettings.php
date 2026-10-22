@@ -15,9 +15,9 @@ use InvalidArgumentException;
  * settings array; this helper pulls the named fields out with a consistent
  * default.
  *
- * Using a static helper rather than passing the settings array around as
- * `array<string, mixed>` keeps the per-tool execute() methods small and
- * the default-per-provider lookup in one place.
+ * A static helper rather than passing the settings array around keeps the
+ * per-tool execute() methods small and the default-per-provider lookup in one
+ * place.
  */
 final class MiniMaxSettings
 {
@@ -36,23 +36,18 @@ final class MiniMaxSettings
      * whether the operator configures the setting or not.
      *
      * Why these values:
-     *  - image: 60 s — single-shot diffusion; longer than expected.
-     *  - speech: 60 s — single-shot TTS; ~7 s for a short utterance.
-     *  - music.compose: 180 s — MiniMax composition is the slowest
-     *    single endpoint in this plugin and routinely exceeds 90 s on
-     *    the operator's network (see plugin log id=5 captured 2026-07-03).
+     *  - image / speech: 60 s — single-shot calls that finish in seconds.
+     *  - music.compose: 180 s — composition is the slowest single endpoint
+     *    in this plugin and routinely exceeds 90 s.
      *  - music.lyrics: 30 s — pure text endpoint.
      *  - video.submit: 120 s — MiniMax queues the task server-side; the
      *    submit response itself can take >30 s to return the task_id.
-     *  - video.poll: 900 s — total polling window (not per-request).
-     *    1080P clips on Hailuo-2.3 routinely hit 8–12 min on a busy
-     *    day, so the default needs headroom. Operators who want a
-     *    fast-fail can lower this in settings.
+     *  - video.poll: 900 s — total polling window (not per-request); 1080P
+     *    clips on Hailuo-2.3 routinely hit 8–12 min on a busy day, so the
+     *    default needs headroom. Operators who want a fast-fail can lower
+     *    this in settings.
      *  - video.retrieve: 30 s — file-retrieval API call.
-     *  - video_v1: same shape as the v2 video — MiniMax queues submit
-     *    server-side, 1080P clips still routinely hit 8–12 min. The
-     *    v1 file-retrieve API call is bounded to 30 s. Operators on
-     *    plans that don't include MiniMax-H3 fall back to this tool.
+     *  - video_v1: the same shape as the v2 video.
      */
     public const PROVIDER_DEFAULTS = [
         'image'  => ['http_timeout_seconds' => 60],

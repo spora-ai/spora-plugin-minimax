@@ -19,38 +19,18 @@ use Throwable;
  * MiniMax Speech-to-Text (asr-1.0) — one-shot transcription via
  * `POST https://api.minimax.io/v1/speech_to_text`.
  *
- * Wire shape (verified against
- * https://platform.minimax.io/docs/api-reference/speech-to-text):
+ * The wire shape is documented upstream at
+ * https://platform.minimax.io/docs/api-reference/speech-to-text. Two of its
+ * constraints are mirrored here for a cheap failure: the 50 MB audio cap
+ * (upstream answers 413) and the empty transcript. The 500 s duration cap is
+ * not mirrored — upstream answers 400.
  *
- *   - Request: `multipart/form-data` with a `model` part (always `asr-1.0`
- *     today), a `file` part (the audio bytes — wav / aiff / flac / alac /
- *     mp3 / aac / opus / ogg; raw PCM without a container is rejected
- *     upstream), and an optional `response_format` part (`json` default;
- *     `verbose_json` / `srt` / `vtt` not exposed — see Out of Scope below).
- *     A `language: <bcp47>` request header is set when the controller
- *     passes a non-empty `$languageHint`; omitting the header enables
- *     mixed-language autodetect across the 20 supported tags.
- *   - Response (json): `{text: string, duration: float, trace_id: string}`.
- *     `text` empty → `InvalidAudioException`. `duration` absent → null.
- *
- * Constraints (enforced upstream, mirrored client-side for cheap failure):
- *   - max audio duration 500 s → upstream 400
- *   - max audio size 50 MB → upstream 413 (we mirror pre-flight)
- *
- * 20 supported BCP-47 tags (per the API doc): `zh, yue, en, ja, ko, th, vi,
- * id, ms, fil, ar, tr, fr, de, es, it, pt, pl, ru, uk`.
- *
- * ## Out of scope for this build
- *
- * `verbose_json` / `srt` / `vtt` response formats are accepted upstream but
- * deliberately not surfaced — they enable speaker diarization and forced
- * alignment which would need a richer `TranscriptionResult` shape than the
- * current `text / durationMs / metadata` contract provides. Operators
- * asking for diarization should pin a follow-up that maps `segments[]` /
- * `n_speakers` into `metadata`.
- *
- * SSE streaming (`stream=true`) is not supported — `SpeechToTextProviderInterface`
- * is sync-only.
+ * `verbose_json` / `srt` / `vtt` are accepted upstream but deliberately not
+ * surfaced: they enable speaker diarization and forced alignment, which would
+ * need a richer `TranscriptionResult` shape than the current
+ * `text / durationMs / metadata` contract provides. SSE streaming
+ * (`stream=true`) is not supported — `SpeechToTextProviderInterface` is
+ * sync-only.
  */
 #[ToolSetting(
     key: 'api_key',
@@ -89,23 +69,15 @@ use Throwable;
 )]
 /**
  * MiniMax's `/v1/speech_to_text` accepts (per
- * https://platform.minimax.io/docs/api-reference/speech-to-text):
- *
- *   - `wav`, `aiff`, `flac`, `alac`, `mp3` (containers with implicit codecs)
- *   - `aac` (codec; container varies — Safari records it in `audio/mp4`)
- *   - `opus` (codec)
- *   - `ogg` (container)
- *
- * …but rejects the Matroska/WebM container with HTTP 502 error code
- * 2013 even though the underlying Opus codec is identical to OGG-wrapped
- * Opus. Chrome ≥ 105 records `audio/webm;codecs=opus` natively; OGG
- * over Opus is the right first choice for browsers that can produce
- * it, with Safari's MP4/AAC fallback, and WebM as the last resort for
- * browsers that don't do OGG (Chrome < 105, older embedded WebViews).
+ * https://platform.minimax.io/docs/api-reference/speech-to-text) `wav`,
+ * `aiff`, `flac`, `alac`, `mp3` (containers with implicit codecs), `aac` and
+ * `opus` (codecs) and `ogg` (container) — but rejects the Matroska/WebM
+ * container with HTTP 502 error code 2013 even though the underlying Opus
+ * codec is identical to OGG-wrapped Opus.
  *
  * Without these declarations the SPA's recorder would pick
- * `audio/webm;codecs=opus` (Chrome's default) and MiniMax would reject
- * every recording with the 2013 container error.
+ * `audio/webm;codecs=opus` (Chrome's default) and MiniMax would reject every
+ * recording with the 2013 container error.
  */
 #[AcceptedAudioMime('audio/ogg;codecs=opus')]
 #[AcceptedAudioMime('audio/mp4')]
@@ -131,8 +103,7 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
      * v2-cascade settings pushed by {@see bindSettings()}. `null` until
      * the registry resolves a `SpeechProviderConfiguration` row for
      * this provider class; the legacy `ToolConfigService` path is the
-     * fallback for that case (so operators who configured the key
-     * via the pre-PR-#238 `tool_user_settings` path keep working).
+     * fallback for that case.
      */
     private ?array $boundSettings = null;
 
@@ -239,10 +210,9 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
     }
 
     /**
-     * Worker for {@see transcribe()}. Extracted to keep the public
-     * method's cognitive complexity at 0 — `transcribe()` is the
-     * user-facing entry point and should be a single delegating call
-     * so the S3776 threshold is honoured even after future growth.
+     * Worker for {@see transcribe()}. Extracted to keep the public method a
+     * single delegating call, so the SonarQube S3776 threshold is honoured
+     * even after future growth.
      */
     private function runTranscribe(
         string $bytes,
@@ -267,7 +237,7 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
     /**
      * Pre-flight checks that must fail before any HTTP call. Extracted
      * from {@see transcribe()} to keep the cognitive complexity of the
-     * public method under the SonarQube S3776 threshold (≤15).
+     * public method under the SonarQube S3776 threshold.
      */
     private function validateInputs(string $bytes, string $apiKey): void
     {
@@ -390,11 +360,9 @@ final class MiniMaxTranscribeProvider implements SpeechToTextProviderInterface
 
             return $response->toArray();
         } catch (SpeechToTextException $e) {
-            // `InvalidAudioException extends SpeechToTextException` (see
-            // `app/Speech/InvalidAudioException.php` on
-            // `fix/review-findings-core`), so this re-throw is the
-            // choke point that preserves both the pre-flight MIME/size
-            // failures AND the 413 over-cap path that
+            // `InvalidAudioException extends SpeechToTextException`, so
+            // this re-throw is the choke point that preserves both the
+            // pre-flight size failure AND the 413 over-cap path that
             // buildHttpException() also produces.
             throw $e;
         } catch (HttpClientException $e) {

@@ -11,8 +11,8 @@ use Spora\Plugins\MiniMax\Support\MiniMaxHttpClient;
 /**
  * Polls a previously-submitted H3 task until it reaches a terminal
  * state. Stateless — every method is static. Split off the main
- * `MiniMaxVideoTool` to keep its method count under Sonar's 20-method
- * threshold (S1448) and to reduce the polling loop's cognitive
+ * `MiniMaxVideoTool` to keep its method count under Sonar's
+ * S1448 threshold and to reduce the polling loop's cognitive
  * complexity (S3776).
  */
 final class MiniMaxVideoPoller

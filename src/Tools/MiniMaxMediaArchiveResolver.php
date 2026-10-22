@@ -198,8 +198,8 @@ final class MiniMaxMediaArchiveResolver
     /**
      * Maximum raw byte size that always fits under the 50 MB data URI
      * cap regardless of base64 expansion. Computed once at class load
-     * time: roughly `cap * 3 / 4` minus the `data:<mime>;base64,`
-     * prefix overhead (the smallest mime is `image/webp` = 10 chars).
+     * time: roughly `cap * 3 / 4` minus the `data:<mime>;base64,` prefix
+     * overhead.
      */
     private static function maxBytesUnderCap(): int
     {

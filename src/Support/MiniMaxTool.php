@@ -18,17 +18,8 @@ use Transliterator;
  * (the {@see MiniMaxToolSupport} plumbing, the constructor) and the
  * `validate → prepare → run` orchestration that every tool follows.
  *
- * A subclass only has to provide:
- *   - the {@see PROVIDER}/{@see QUALIFIED_NAME}/{@see TIMEOUT_SECONDS}/
- *     {@see TOOL_LABEL} constants
- *   - a {@see describeAction()} (LLM-facing one-liner)
- *   - a {@see validateArguments()} (returns ?ToolResult)
- *   - a {@see doWork()} (the actual API call + response parsing)
- *
- * The base class handles:
- *   - building the {@see MiniMaxToolSupport} from the constructor args
- *     (so subclasses never store unused fields — SonarQube php:S1068)
- *   - orchestrating validate → prepare → run via {@see runWithValidation()}
+ * The support is built from the constructor args so subclasses never store
+ * unused fields — SonarQube php:S1068.
  *
  * Multi-operation tools (e.g. {@see \Spora\Plugins\MiniMax\Tools\MiniMaxMusicTool})
  * override `execute()` to dispatch to per-operation methods, each of which
@@ -60,14 +51,13 @@ abstract class MiniMaxTool extends AbstractTool
      *
      * The resolver MUST be invoked at the top of every multi-operation
      * tool's {@see execute()} override — *before* dispatching to
-     * per-operation methods (`generate()`, `resume()`, ...). The
-     * per-operation methods build a `fn()` closure that captures
-     * `$arguments` by value at definition time, so rebinding it
-     * later (e.g. inside `runWithValidation()`) leaves the closure
-     * holding the *original* URL. Resolving at the entry point
-     * means each per-operation closure captures already-resolved
-     * arguments and `doGenerate()` (and friends) hand the resolver's
-     * `data:` URI — or a forwarded external URL — to the H3 submit.
+     * per-operation methods. The per-operation methods build an `fn()`
+     * closure that captures `$arguments` by value at definition time, so
+     * rebinding it later leaves the closure holding the *original* URL.
+     * Resolving at the entry point means each per-operation closure
+     * captures already-resolved arguments and `doGenerate()` (and friends)
+     * hand the resolver's `data:` URI — or a forwarded external URL — to
+     * the H3 submit.
      *
      * The resolver performs its ownership check against the *runner*
      * (who triggered the task), never the owner (whose key pays), so
@@ -142,15 +132,11 @@ abstract class MiniMaxTool extends AbstractTool
         $ownerId  = $context?->ownerUserId;
         $runnerId = $context?->runnerUserId;
 
-        // Resolve Media Archive references BEFORE building the work
-        // closure so `doWork()` receives the rewritten argument array
-        // (data: URI, forwarded external URL, or resolver failure).
-        // See {@see resolveMediaArchiveReferences()} for the rationale
-        // — `fn()` closures capture `$arguments` by value at definition
-        // time, so any rebinding inside `runWithValidation()` would
-        // never reach `doWork()`. Pass the runner id so the resolver's
-        // MediaArchive permission check matches "who is asking", not
-        // "whose key".
+        // Resolve Media Archive references BEFORE building the work closure
+        // so `doWork()` receives the rewritten argument array — see
+        // {@see resolveMediaArchiveReferences()} for the capture-by-value
+        // rationale. The runner id is the one the resolver checks, because
+        // the permission check follows "who is asking", not "whose key".
         $resolved = $this->resolveMediaArchiveReferences($arguments, $runnerId);
         if ($resolved instanceof ToolResult) {
             return $resolved;
@@ -336,16 +322,12 @@ abstract class MiniMaxTool extends AbstractTool
         callable $work,
         ?callable $validate = null,
     ): ToolResult {
-        // Media Archive UUID resolution runs at the top of the calling
-        // tool's {@see execute()} override (see
-        // {@see resolveMediaArchiveReferences()}) — *before* dispatch
-        // to per-operation methods. It cannot live here: per-operation
-        // methods (`generate()`, `resume()`, ...) build their work as
-        // an `fn()` closure that captures `$arguments` by value at
-        // definition time, so rebinding it inside this method would
-        // leave the closure holding the unresolved original URL and
-        // `doGenerate()` would forward `/api/v1/assets/<uuid>.<ext>`
-        // raw to MiniMax's API.
+        // Media Archive UUID resolution cannot live here: per-operation
+        // methods build their work as an `fn()` closure that captures
+        // `$arguments` by value at definition time, so rebinding it inside
+        // this method would leave the closure holding the unresolved URL.
+        // It runs at the top of the calling tool's {@see execute()} override
+        // instead — see {@see resolveMediaArchiveReferences()}.
         $ctx = $this->prepareContextOrFail($arguments, $validate, $agentId, $ownerUserId, $runnerUserId, $timeoutSeconds);
         if ($ctx instanceof ToolResult) {
             return $ctx;
