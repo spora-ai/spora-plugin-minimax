@@ -26,7 +26,7 @@ translation identical to its key, and on a key the source no longer produces.
 - the five tool display names — `MiniMax Image`, `MiniMax Speech`,
   `MiniMax Music (legacy)`, `MiniMax Video`, `MiniMax Video (v1 legacy)`
 - every distinct `#[ToolSetting]` description
-- the eleven approval prompts the tools return from `describeAction()`
+- the twelve approval prompts the tools return from `describeAction()`
 - the `plugin.json` description
 
 `MiniMaxTranscribeProvider`'s `display_name` setting is a free-text operator
@@ -41,8 +41,7 @@ sees exactly what the model sees:
 - `#[Tool].description`
 - `#[ToolOperation].description`
 - `#[ToolParameter].description`
-- every `#[ToolSetting].label` and its option labels, including the labels of
-  settings that carry `exposeToLlm: true`
+- every `#[ToolSetting].label` and its option labels
 
 An approval prompt is translatable only in the `%s` form. The host looks the
 stored, already-rendered sentence up and matches it against the catalogue's
