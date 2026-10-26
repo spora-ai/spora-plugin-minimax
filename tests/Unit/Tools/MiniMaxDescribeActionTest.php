@@ -172,3 +172,38 @@ it('describes the v1 video approval prompt per operation', function (array $argu
         "Resume v1 video polling for task: 'task-123'",
     ],
 ]);
+
+/**
+ * The host matches the rendered sentence against the catalogue's `%s`
+ * templates with a `(.+?)` pattern and no DOTALL modifier, so an argument
+ * holding a newline never matched its template: `trans()` fell back to
+ * English and a German operator approved an English prompt. The `s`
+ * modifier lands in core, but the released core ships no translation
+ * layer, so this plugin cannot exercise the host's matcher and asserts
+ * only its own half — the prompt renders from a template the catalogue
+ * carries, the German template carries the same placeholders, and the
+ * multi-line argument reaches the slot unchanged.
+ *
+ * Once core ships the DOTALL fix, assert the German sentence too: the
+ * host's `Translator::trans()` fills the German template.
+ */
+it('carries a multi-line prompt into the image approval prompt template the catalogue carries', function () use ($germanCatalogue) {
+    $catalogue = $germanCatalogue();
+    $template = "Generate image for prompt: '%s'";
+    $german = $catalogue[$template] ?? '';
+    $prompt = "a red fox\nin the snow";
+
+    $config = M::mock(ToolConfigService::class);
+    $config->allows('getEffectiveSettings')->andReturn([]);
+
+    $tool = new MiniMaxImageTool($config, M::mock(HttpClientInterface::class));
+
+    expect($catalogue)->toHaveKey($template)
+        ->and($german)->not->toBe('')
+        ->and($tool->describeAction(['prompt' => $prompt]))->toBe(sprintf($template, $prompt));
+
+    preg_match_all('/%[sd]/', $template, $english);
+    preg_match_all('/%[sd]/', $german, $germanSpecifiers);
+
+    expect($germanSpecifiers[0])->toBe($english[0]);
+});
