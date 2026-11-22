@@ -331,6 +331,15 @@ final class MinimaxFilenameCapturingStore implements AssetStore
  * `store()` be called (so the capture works) but is cleaner when
  * the row actually saves.
  *
+ * The URL the callers under test hand the archive has to survive the
+ * archive's SSRF screen, which refuses a hostname that does not
+ * resolve. `93.184.216.34` is a literal public address, so the
+ * screen accepts it without a DNS lookup — the same trick core's own
+ * `RemoteMediaFetcherTest` uses. A `.example` host would be
+ * refused, and the ingest would fall back to external storage
+ * instead of fetching the bytes, so `store()` would never see the
+ * filename these tests are about.
+ *
  * @return array{0: MediaArchiveService, 1: MinimaxFilenameCapturingStore}
  */
 function minimaxFilenameCaptureArchiveService(): array
@@ -473,7 +482,7 @@ it('image tool honours the LLM-supplied filename and appends the canonical exten
     $http = M::mock(HttpClientInterface::class);
     $http->allows('request')->andReturn(minimaxArchiveResponse(200, json_encode([
         'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-        'data'      => ['image_urls' => ['https://cdn.example.com/a.png']],
+        'data'      => ['image_urls' => ['https://93.184.216.34/a.png']],
     ])));
     [$archive, $store] = minimaxFilenameCaptureArchiveService();
 
@@ -495,7 +504,7 @@ it('image tool slugifies the prompt when no filename is supplied', function () {
     $http = M::mock(HttpClientInterface::class);
     $http->allows('request')->andReturn(minimaxArchiveResponse(200, json_encode([
         'base_resp' => ['status_code' => 0, 'status_msg' => 'success'],
-        'data'      => ['image_urls' => ['https://cdn.example.com/a.png']],
+        'data'      => ['image_urls' => ['https://93.184.216.34/a.png']],
     ])));
     [$archive, $store] = minimaxFilenameCaptureArchiveService();
 
@@ -530,7 +539,7 @@ it('video tool honours the LLM-supplied filename and appends the canonical exten
                 'status'    => 'succeeded',
                 'task_type' => 'generation',
                 'modality'  => 'video',
-                'content'   => ['url' => 'https://minimax.example/output.mp4'],
+                'content'   => ['url' => 'https://93.184.216.34/output.mp4'],
             ],
         ])));
     [$archive, $store] = minimaxFilenameCaptureArchiveService();
@@ -568,7 +577,7 @@ it('video tool slugifies the prompt when no filename is supplied', function () {
                 'status'    => 'succeeded',
                 'task_type' => 'generation',
                 'modality'  => 'video',
-                'content'   => ['url' => 'https://minimax.example/output.mp4'],
+                'content'   => ['url' => 'https://93.184.216.34/output.mp4'],
             ],
         ])));
     [$archive, $store] = minimaxFilenameCaptureArchiveService();
@@ -639,7 +648,7 @@ it('speech tool honours the LLM-supplied filename and appends the canonical exte
     $http = M::mock(HttpClientInterface::class);
     $http->allows('request')->andReturn(minimaxArchiveResponse(200, json_encode([
         'base_resp'  => ['status_code' => 0, 'status_msg' => 'success'],
-        'data'       => ['audio_url' => 'https://cdn.example.com/speech.mp3'],
+        'data'       => ['audio_url' => 'https://93.184.216.34/speech.mp3'],
         'extra_info' => ['audio_size' => 12_345],
     ])));
     [$archive, $store] = minimaxFilenameCaptureArchiveService();
@@ -717,7 +726,7 @@ it('speech tool slugifies the text when no filename is supplied', function () {
     $http = M::mock(HttpClientInterface::class);
     $http->allows('request')->andReturn(minimaxArchiveResponse(200, json_encode([
         'base_resp'  => ['status_code' => 0, 'status_msg' => 'success'],
-        'data'       => ['audio_url' => 'https://cdn.example.com/speech.mp3'],
+        'data'       => ['audio_url' => 'https://93.184.216.34/speech.mp3'],
         'extra_info' => ['audio_size' => 12_345],
     ])));
     [$archive, $store] = minimaxFilenameCaptureArchiveService();
