@@ -77,6 +77,29 @@ jobs:
       - name: Run Pest (parallel)
         run: composer test:parallel
 
+  test-86:
+    # PHP 8.6 compatibility check: same suite, no coverage. Runs in
+    # parallel with the 8.4 test+coverage job. If the suite passes on
+    # 8.4 but fails on 8.6, the PR is blocked.
+    name: Pest (PHP 8.6)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.6'
+          extensions: curl, mbstring
+          coverage: none
+          tools: composer
+
+      - name: Composer update spora-core
+        run: composer update spora-ai/spora-core --with-all-dependencies --no-interaction
+
+      - name: Run Pest (parallel)
+        run: composer test:parallel
+
   static-analysis:
     name: PHPStan
     runs-on: ubuntu-latest
